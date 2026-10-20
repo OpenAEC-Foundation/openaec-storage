@@ -1,0 +1,76 @@
+{
+ "actions": [],
+ "creation": "2026-10-20 00:00:00.000000",
+ "description": "Wijzigingenlijst per ruimte; de naam is de cursor voor de sync-client.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "ruimte",
+  "soort",
+  "doel_doctype",
+  "doel",
+  "naam"
+ ],
+ "fields": [
+  {
+   "fieldname": "ruimte",
+   "fieldtype": "Link",
+   "label": "Ruimte",
+   "options": "Ruimte",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "soort",
+   "fieldtype": "Select",
+   "label": "Soort",
+   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "doel_doctype",
+   "fieldtype": "Data",
+   "label": "Doel-DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "doel",
+   "fieldtype": "Data",
+   "label": "Doel",
+   "reqd": 1
+  },
+  {
+   "fieldname": "naam",
+   "fieldtype": "Data",
+   "label": "Naam"
+  }
+ ],
+ "modified": "2026-10-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Opslagwijziging",
+ "owner": "Administrator",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "autoincrement",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "All",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  }
+ ]
+}

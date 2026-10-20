@@ -1,0 +1,91 @@
+{
+ "actions": [],
+ "creation": "2026-10-20 00:00:00.000000",
+ "description": "Bestand binnen een ruimte; de bytes staan per versie in S3.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "ruimte",
+  "map",
+  "naam",
+  "huidige_versie",
+  "grootte",
+  "mime",
+  "verwijderd_op"
+ ],
+ "fields": [
+  {
+   "fieldname": "ruimte",
+   "fieldtype": "Link",
+   "label": "Ruimte",
+   "options": "Ruimte",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "map",
+   "fieldtype": "Link",
+   "label": "Map",
+   "options": "Opslagmap"
+  },
+  {
+   "fieldname": "naam",
+   "fieldtype": "Data",
+   "label": "Naam",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "huidige_versie",
+   "fieldtype": "Int",
+   "label": "Huidige versie",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "grootte",
+   "fieldtype": "Long Int",
+   "label": "Grootte (bytes)",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mime",
+   "fieldtype": "Data",
+   "label": "MIME-type"
+  },
+  {
+   "fieldname": "verwijderd_op",
+   "fieldtype": "Datetime",
+   "label": "Verwijderd op"
+  }
+ ],
+ "modified": "2026-10-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Opslagbestand",
+ "owner": "Administrator",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "hash",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "All",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  }
+ ],
+ "title_field": "naam"
+}

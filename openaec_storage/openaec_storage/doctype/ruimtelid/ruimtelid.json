@@ -1,0 +1,39 @@
+{
+ "actions": [],
+ "creation": "2026-10-20 00:00:00.000000",
+ "description": "Lid van een ruimte met een rol.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "gebruiker",
+  "rol"
+ ],
+ "fields": [
+  {
+   "fieldname": "gebruiker",
+   "fieldtype": "Link",
+   "label": "Gebruiker",
+   "options": "User",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "rol",
+   "fieldtype": "Select",
+   "label": "Rol",
+   "options": "beheerder\nschrijver\nlezer\ngast",
+   "reqd": 1,
+   "in_list_view": 1
+  }
+ ],
+ "modified": "2026-10-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Ruimtelid",
+ "owner": "Administrator",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1,
+ "permissions": []
+}
