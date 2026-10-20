@@ -27,3 +27,6 @@ permission_query_conditions = {
 
 # Deellinks zonder account: /delen/<token> (www/delen.html)
 website_route_rules = [{"from_route": "/delen/<token>", "to_route": "delen"}]
+
+after_install = "openaec_storage.installatie.na_installatie"
+after_migrate = "openaec_storage.installatie.na_migratie"
