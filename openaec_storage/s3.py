@@ -9,12 +9,17 @@ DEELGROOTTE = 8 * 1024 * 1024  # vaste blokgrootte (ontwerp §5); ook de partgro
 LINK_GELDIG_SECONDEN = 900
 
 
-def _client():
+def _client(publiek: bool = False):
+	"""S3-client. `publiek`: voor ondertekende links die de browser of sync-client gebruikt; die kunnen een
+	ander adres nodig hebben dan de server zelf (openaec_storage_endpoint_publiek). Op AWS zijn ze gelijk."""
 	conf = frappe.conf
+	endpoint = conf.get("openaec_storage_endpoint") or None
+	if publiek:
+		endpoint = conf.get("openaec_storage_endpoint_publiek") or endpoint
 	return boto3.client(
 		"s3",
 		region_name=conf.get("openaec_storage_region") or "eu-central-1",
-		endpoint_url=conf.get("openaec_storage_endpoint") or None,
+		endpoint_url=endpoint,
 		config=Config(signature_version="s3v4"),
 	)
 
@@ -39,7 +44,7 @@ def start_multipart(sleutel: str) -> str:
 
 
 def deel_url(sleutel: str, upload_id: str, nummer: int) -> str:
-	return _client().generate_presigned_url(
+	return _client(publiek=True).generate_presigned_url(
 		"upload_part",
 		Params={"Bucket": bucket(), "Key": sleutel, "UploadId": upload_id, "PartNumber": nummer},
 		ExpiresIn=LINK_GELDIG_SECONDEN,
@@ -67,7 +72,7 @@ def grootte(sleutel: str) -> int:
 
 def download_url(sleutel: str, bestandsnaam: str) -> str:
 	veilig = bestandsnaam.replace('"', "")
-	return _client().generate_presigned_url(
+	return _client(publiek=True).generate_presigned_url(
 		"get_object",
 		Params={
 			"Bucket": bucket(),

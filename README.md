@@ -12,7 +12,8 @@ Ontwerp: `openaec-supercloud/docs/superpowers/specs/2026-10-20-openaec-storage-d
 |---|---|
 | `openaec_storage_bucket` | S3-bucket van deze omgeving (verplicht) |
 | `openaec_storage_region` | S3-regio (standaard `eu-central-1`) |
-| `openaec_storage_endpoint` | Alternatief S3-adres (optioneel, bijv. een S3-compatibele testopslag) |
+| `openaec_storage_endpoint` | Alternatief S3-adres voor de server zelf (optioneel, bijv. een S3-compatibele testopslag) |
+| `openaec_storage_endpoint_publiek` | Adres in ondertekende links voor browser en sync-client, als dat afwijkt van het serveradres (optioneel) |
 | `openaec_storage_kms_key` | KMS-sleutel van de klant (optioneel; anders standaardversleuteling van de bucket) |
 | `openaec_storage_quotum_gb` | Quotum van de omgeving in GB (gezet door de regelkamer; 0 = onbeperkt) |
 
