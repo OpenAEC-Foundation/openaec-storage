@@ -1,0 +1,123 @@
+{% extends "templates/web.html" %}
+
+{% block page_content %}
+<div class="oas-delen" data-token="{{ token | e }}">
+	<h1 class="oas-titel">Gedeeld via OpenAEC Storage</h1>
+	<form class="oas-wachtwoord" hidden>
+		<p>Deze link is beveiligd met een wachtwoord.</p>
+		<input type="password" class="form-control" placeholder="Wachtwoord" autocomplete="current-password">
+		<button type="submit" class="btn btn-primary btn-sm">Openen</button>
+	</form>
+	<p class="oas-melding text-muted">Laden…</p>
+	<nav class="oas-pad"></nav>
+	<ul class="oas-lijst list-unstyled"></ul>
+</div>
+<style>
+	.oas-delen { max-width: 720px; margin: 2rem auto; }
+	.oas-titel { font-size: 1.4rem; margin-bottom: 1rem; }
+	.oas-wachtwoord { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+	.oas-wachtwoord p { width: 100%; margin: 0; }
+	.oas-wachtwoord input { max-width: 260px; }
+	.oas-pad button { border: none; background: none; padding: 0; color: var(--primary); }
+	.oas-lijst li { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-top: 1px solid var(--border-color); }
+	.oas-lijst button { border: none; background: none; padding: 0; text-align: left; color: var(--primary); }
+	.oas-grootte { color: var(--text-muted); white-space: nowrap; }
+</style>
+{% endblock %}
+
+{% block script %}
+<script>
+(() => {
+	const root = document.querySelector(".oas-delen")
+	const token = root.dataset.token
+	const melding = root.querySelector(".oas-melding")
+	const lijst = root.querySelector(".oas-lijst")
+	const pad = root.querySelector(".oas-pad")
+	const form = root.querySelector(".oas-wachtwoord")
+	let wachtwoord = ""
+	const spoor = []
+
+	const grootte = (b) => {
+		const e = ["B", "kB", "MB", "GB", "TB"]
+		let i = 0
+		while (b >= 1024 && i < e.length - 1) { b /= 1024; i++ }
+		return `${b.toFixed(i ? 1 : 0)} ${e[i]}`
+	}
+
+	const roep = async (methode, gegevens) => {
+		const r = await fetch(`/api/method/openaec_storage.delen.${methode}`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "Accept": "application/json" },
+			body: JSON.stringify({ token, wachtwoord: wachtwoord || null, ...gegevens }),
+		})
+		const data = await r.json().catch(() => ({}))
+		if (!r.ok) {
+			let tekst = "Deze link is niet (meer) geldig"
+			try { tekst = JSON.parse(JSON.parse(data._server_messages)[0]).message } catch (e) {}
+			throw new Error(tekst)
+		}
+		return data.message
+	}
+
+	const regel = (naam, extra, actie) => {
+		const li = document.createElement("li")
+		const knop = document.createElement("button")
+		knop.textContent = naam
+		knop.addEventListener("click", actie)
+		const rechts = document.createElement("span")
+		rechts.className = "oas-grootte"
+		rechts.textContent = extra
+		li.append(knop, rechts)
+		lijst.append(li)
+	}
+
+	const download = async (bestand) => {
+		try {
+			const { url } = await roep("download", bestand ? { bestand } : {})
+			window.location.href = url
+		} catch (e) { melding.textContent = e.message }
+	}
+
+	const toonPad = () => {
+		pad.replaceChildren()
+		spoor.forEach((stap, i) => {
+			if (i) pad.append(" / ")
+			const b = document.createElement("button")
+			b.textContent = stap.naam || "…"
+			b.addEventListener("click", () => { spoor.length = i + 1; laad() })
+			pad.append(b)
+		})
+	}
+
+	const laad = async () => {
+		melding.textContent = "Laden…"
+		lijst.replaceChildren()
+		try {
+			const map = spoor.length ? spoor[spoor.length - 1].map : null
+			const inhoud = await roep("openen", map ? { map } : {})
+			form.hidden = true
+			if (inhoud.bestand) {
+				melding.textContent = ""
+				regel(inhoud.bestand.naam, grootte(inhoud.bestand.grootte), () => download(null))
+				return
+			}
+			if (!spoor.length) spoor.push({ map: null, naam: inhoud.map })
+			toonPad()
+			melding.textContent = inhoud.mappen.length || inhoud.bestanden.length ? "" : "Deze map is leeg."
+			inhoud.mappen.forEach((m) => regel(`📁 ${m.naam}`, "", () => { spoor.push({ map: m.name, naam: m.naam }); laad() }))
+			inhoud.bestanden.forEach((b) => regel(b.naam, grootte(b.grootte), () => download(b.name)))
+		} catch (e) {
+			melding.textContent = e.message
+			if (/wachtwoord/i.test(e.message)) form.hidden = false
+		}
+	}
+
+	form.addEventListener("submit", (ev) => {
+		ev.preventDefault()
+		wachtwoord = form.querySelector("input").value
+		laad()
+	})
+	laad()
+})()
+</script>
+{% endblock %}

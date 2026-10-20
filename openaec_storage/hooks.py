@@ -24,3 +24,6 @@ permission_query_conditions = {
 	"Opslagbestand": "openaec_storage.rechten.query_bestand",
 	"Opslagwijziging": "openaec_storage.rechten.query_wijziging",
 }
+
+# Deellinks zonder account: /delen/<token> (www/delen.html)
+website_route_rules = [{"from_route": "/delen/<token>", "to_route": "delen"}]

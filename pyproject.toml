@@ -7,6 +7,10 @@ readme = "README.md"
 dynamic = ["version"]
 dependencies = ["boto3>=1.35"]
 
+[project.optional-dependencies]
+# Tests bootsen S3 na met moto (zie tests/hulp.py)
+test = ["moto[s3]>=5"]
+
 [build-system]
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
