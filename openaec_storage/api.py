@@ -147,8 +147,13 @@ def upload_start(
 	basis_versie: int | None = None,
 	sha256: str | None = None,
 	bron: str = "api",
+	blokhashes=None,
 ) -> dict:
-	"""Begin een upload: geeft een upload-token en per deel een ondertekende URL (8 MiB per deel)."""
+	"""Begin een upload: geeft een upload-token en per te uploaden deel een ondertekende URL.
+
+	Met `blokhashes` (één hash per blok) en een `basis_versie` gelijk aan de huidige versie worden ongewijzigde
+	blokken niet opnieuw geüpload maar server-side uit de vorige versie gekopieerd (delta-sync, ontwerp §5).
+	"""
 	map = _controleer_map(ruimte, map)
 	vereis_op_plek(ruimte, map, "write")
 	naam = _controleer_naam(naam)
@@ -157,9 +162,16 @@ def upload_start(
 		frappe.throw(_("Ongeldige grootte"))
 	_controleer_quotum(grootte)
 
+	if isinstance(blokhashes, str):
+		blokhashes = json.loads(blokhashes)
+	blok = s3.blokgrootte(grootte)
+	aantal = max(1, math.ceil(grootte / blok))
+	if blokhashes is not None and len(blokhashes) != aantal:
+		frappe.throw(_("Aantal blokhashes klopt niet met de grootte"))
+
+	hergebruik = _herbruikbare_blokken(ruimte, map, naam, basis_versie, blok, grootte, blokhashes)
 	sleutel = "v/" + frappe.generate_hash(length=32)
 	upload_id = s3.start_multipart(sleutel)
-	aantal = max(1, math.ceil(grootte / s3.DEELGROOTTE))
 	token = frappe.generate_hash(length=32)
 	frappe.cache.set_value(
 		UPLOAD_SLEUTEL + token,
@@ -174,14 +186,47 @@ def upload_start(
 			"bron": bron if bron in BRONNEN else "api",
 			"sleutel": sleutel,
 			"upload_id": upload_id,
+			"blokgrootte": blok,
+			"blokhashes": blokhashes,
+			"hergebruik": hergebruik,
 		},
 		expires_in_sec=UPLOAD_GELDIG_SECONDEN,
 	)
+	hergebruikt = {h["nummer"] for h in hergebruik}
 	return {
 		"upload": token,
-		"deelgrootte": s3.DEELGROOTTE,
-		"delen": [{"nummer": n, "url": s3.deel_url(sleutel, upload_id, n)} for n in range(1, aantal + 1)],
+		"deelgrootte": blok,
+		"hergebruik": sorted(hergebruikt),
+		"delen": [
+			{"nummer": n, "url": s3.deel_url(sleutel, upload_id, n)} for n in range(1, aantal + 1) if n not in hergebruikt
+		],
 	}
+
+
+def _herbruikbare_blokken(ruimte, map, naam, basis_versie, blok, grootte, blokhashes) -> list[dict]:
+	"""Blokken die gelijk zijn aan dezelfde positie in de basisversie: die kopieert de server zelf."""
+	if not blokhashes or basis_versie in (None, ""):
+		return []
+	bestaand = _actief_bestand(ruimte, map, naam)
+	if not bestaand or cint(basis_versie) != cint(bestaand.huidige_versie):
+		return []
+	basis = frappe.db.get_value(
+		"Bestandsversie",
+		{"bestand": bestaand.name, "volgnummer": cint(basis_versie)},
+		["s3_sleutel", "grootte", "blokgrootte", "blokhashes"],
+		as_dict=True,
+	)
+	if not basis or cint(basis.blokgrootte) != blok or not basis.blokhashes:
+		return []
+	oud = json.loads(basis.blokhashes)
+	resultaat = []
+	for index, hash_nieuw in enumerate(blokhashes):
+		if index < len(oud) and oud[index] == hash_nieuw:
+			begin = index * blok
+			eind = min(begin + blok, cint(basis.grootte), grootte) - 1
+			if eind >= begin:
+				resultaat.append({"nummer": index + 1, "bron": basis.s3_sleutel, "begin": begin, "eind": eind})
+	return resultaat
 
 
 @frappe.whitelist()
@@ -194,6 +239,13 @@ def upload_klaar(upload: str, delen) -> dict:
 	if isinstance(delen, str):
 		delen = json.loads(delen)
 
+	delen = list(delen) + [
+		{
+			"nummer": h["nummer"],
+			"etag": s3.kopieer_deel(info["sleutel"], info["upload_id"], h["nummer"], h["bron"], h["begin"], h["eind"]),
+		}
+		for h in info.get("hergebruik") or []
+	]
 	s3.voltooi(info["sleutel"], info["upload_id"], delen)
 	if s3.grootte(info["sleutel"]) != info["grootte"]:
 		frappe.throw(_("Ontvangen grootte wijkt af van de aangekondigde grootte"))
@@ -232,6 +284,8 @@ def upload_klaar(upload: str, delen) -> dict:
 			"sha256": info["sha256"],
 			"bron": info["bron"],
 			"maker": frappe.session.user,
+			"blokgrootte": info.get("blokgrootte") or s3.DEELGROOTTE,
+			"blokhashes": json.dumps(info["blokhashes"]) if info.get("blokhashes") else None,
 		}
 	).insert(ignore_permissions=True)
 	doc.huidige_versie = volgnummer
@@ -447,3 +501,21 @@ def trek_in(deling: str) -> None:
 	vereis(rij.ruimte, "write")
 	frappe.db.set_value("Opslagdeling", deling, "ingetrokken", 1)
 	_log(rij.ruimte, "ingetrokken", rij.doel_doctype, rij.doel)
+
+
+@frappe.whitelist()
+def blokken(bestand: str, versie: int | None = None) -> dict:
+	"""Blokgrootte en blokhashes van een versie: de client downloadt alleen blokken die lokaal anders zijn."""
+	doc = _bestand(bestand, "read")
+	volgnummer = cint(versie) or cint(doc.huidige_versie)
+	rij = frappe.db.get_value(
+		"Bestandsversie", {"bestand": bestand, "volgnummer": volgnummer}, ["blokgrootte", "blokhashes", "grootte"], as_dict=True
+	)
+	if not rij:
+		frappe.throw(_("Versie bestaat niet"), frappe.DoesNotExistError)
+	return {
+		"versie": volgnummer,
+		"grootte": cint(rij.grootte),
+		"blokgrootte": cint(rij.blokgrootte) or s3.DEELGROOTTE,
+		"hashes": json.loads(rij.blokhashes) if rij.blokhashes else None,
+	}

@@ -82,3 +82,28 @@ def download_url(sleutel: str, bestandsnaam: str) -> str:
 		},
 		ExpiresIn=LINK_GELDIG_SECONDEN,
 	)
+
+
+MAX_DELEN = 9000  # onder de S3-grens van 10 000 parts, met ruimte voor groei
+MIB = 1024 * 1024
+
+
+def blokgrootte(grootte: int) -> int:
+	"""Blokgrootte voor een bestand (ontwerp §5): 8 MiB, of groter boven 80 GiB (max. 9000 blokken)."""
+	if grootte <= DEELGROOTTE * MAX_DELEN:
+		return DEELGROOTTE
+	nodig = -(-grootte // MAX_DELEN)
+	return -(-nodig // MIB) * MIB
+
+
+def kopieer_deel(sleutel: str, upload_id: str, nummer: int, bron_sleutel: str, begin: int, eind: int) -> str:
+	"""Kopieer een blok uit een eerdere versie server-side in de nieuwe multipart-upload; geeft de ETag."""
+	antwoord = _client().upload_part_copy(
+		Bucket=bucket(),
+		Key=sleutel,
+		UploadId=upload_id,
+		PartNumber=nummer,
+		CopySource={"Bucket": bucket(), "Key": bron_sleutel},
+		CopySourceRange=f"bytes={begin}-{eind}",
+	)
+	return antwoord["CopyPartResult"]["ETag"]
