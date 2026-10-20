@@ -1,0 +1,12 @@
+# WebDAV-toegang tot OpenAEC Storage. Bouwcontext van build-context.sh (bron + gevendorde afhankelijkheden).
+FROM docker.io/library/rust:1-bookworm AS bouw
+WORKDIR /bouw
+COPY . .
+RUN cargo build --release --offline --locked
+
+FROM docker.io/library/debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=bouw /bouw/target/release/openaec-dav /usr/local/bin/openaec-dav
+USER nobody
+EXPOSE 8310
+ENTRYPOINT ["/usr/local/bin/openaec-dav"]

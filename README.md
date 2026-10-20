@@ -27,3 +27,22 @@ Ontwerp: `openaec-supercloud/docs/superpowers/specs/2026-10-20-openaec-storage-d
     bench --site <site> run-tests --app openaec_storage
 
 De tests gebruiken een nagebootste S3 (moto); er is geen echte bucket nodig.
+
+## WebDAV-gateway (`gateway/`)
+
+Rust-dienst (`openaec-dav`) die Storage als WebDAV aanbiedt, zodat je een ruimte als netwerkschijf koppelt of
+bestanden opent vanuit programma's die WebDAV spreken. De gateway heeft geen eigen opslag of rechten: elke
+handeling gaat via de API hierboven met de inlog van de gebruiker.
+
+- Paden: `/<ruimte>/<map>/…/<bestand>`.
+- Inloggen: Basic-auth met API-sleutel als gebruikersnaam en API-geheim als wachtwoord (later: app-wachtwoorden
+  uit de beheeromgeving); een bearer-token wordt doorgegeven.
+- Schrijven gaat als (delta-)upload met de huidige versie als basis: overschrijven wordt een nieuwe versie, of een
+  conflictkopie als een ander het bestand intussen wijzigde of vergrendelde. Opslaan via een tijdelijk bestand en
+  `MOVE` (of `COPY`) over het origineel wordt eveneens een nieuwe versie van hetzelfde bestand.
+- Instellingen: `OPENAEC_BASIS` (adres van de klantomgeving) en `OPENAEC_DAV_ADRES` (standaard `0.0.0.0:8310`).
+
+```bash
+cd gateway && cargo test
+bash gateway/build-context.sh /tmp/dav-ctx && docker build -f /tmp/dav-ctx/Containerfile -t openaec-dav /tmp/dav-ctx
+```
