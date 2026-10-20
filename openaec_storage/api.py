@@ -335,6 +335,127 @@ def herstel(bestand: str) -> dict:
 	return {"naam": naam}
 
 
+# --- verplaatsen en hernoemen (WebDAV MOVE, verkenner) -----------------------------------------------
+
+
+def _actieve_map(ruimte: str, bovenliggende: str | None, naam: str):
+	return frappe.db.sql(
+		"""select name from `tabOpslagmap` where ruimte = %s and ifnull(bovenliggende, '') = %s
+		and lower(naam) = lower(%s) and verwijderd_op is null""",
+		(ruimte, bovenliggende or "", naam),
+	)
+
+
+@frappe.whitelist()
+def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int = 0) -> dict:
+	"""Hernoem of verplaats een bestand binnen zijn ruimte (`map` leeg = hoofdniveau).
+
+	Bestaat er op de nieuwe plek al een bestand en is `overschrijf` gezet, dan wordt de inhoud een nieuwe versie
+	van dat bestand: zo blijven geschiedenis, deellinks en de sync-toestand van het doel behouden (opslaan via een
+	tijdelijk bestand en hernoemen). Het verplaatste bestand verdwijnt dan.
+	"""
+	bron = _bestand(bestand, "write")
+	if bron.verwijderd_op:
+		frappe.throw(_("Bestand staat in de prullenbak"))
+	naam = _controleer_naam(naam)
+	map = _controleer_map(bron.ruimte, map or None)
+	vereis_op_plek(bron.ruimte, map, "write")
+	slot = _actief_slot(bron.name)
+	if slot and slot.gebruiker != frappe.session.user:
+		frappe.throw(_("Dit bestand is vergrendeld door {0}").format(slot.gebruiker), frappe.PermissionError)
+
+	doel = _actief_bestand(bron.ruimte, map, naam)
+	if doel and doel.name == bron.name:
+		return {"bestand": bron.name, "naam": naam, "versie": cint(bron.huidige_versie)}
+	if doel and not cint(overschrijf):
+		frappe.throw(_("Er staat al een bestand met deze naam"))
+	if _actieve_map(bron.ruimte, map, naam):
+		frappe.throw(_("Er staat al een map met deze naam"))
+
+	if not doel:
+		frappe.db.set_value("Opslagbestand", bron.name, {"naam": naam, "map": map})
+		_log(bron.ruimte, "verplaatst", "Opslagbestand", bron.name, naam)
+		return {"bestand": bron.name, "naam": naam, "versie": cint(bron.huidige_versie)}
+
+	slot = _actief_slot(doel.name)
+	if slot and slot.gebruiker != frappe.session.user:
+		frappe.throw(_("Het doel is vergrendeld door {0}").format(slot.gebruiker), frappe.PermissionError)
+	# De huidige versie van de bron wordt de volgende versie van het doel. Heeft de bron oudere versies, dan gaat
+	# hij daarmee naar de prullenbak (niets gaat verloren); anders verdwijnt hij.
+	volgnummer = cint(doel.huidige_versie) + 1
+	versie = frappe.db.get_value(
+		"Bestandsversie", {"bestand": bron.name, "volgnummer": bron.huidige_versie}, ["name", "grootte"], as_dict=True
+	)
+	frappe.db.set_value("Bestandsversie", versie.name, {"bestand": doel.name, "volgnummer": volgnummer})
+	frappe.db.set_value("Opslagbestand", doel.name, {"huidige_versie": volgnummer, "grootte": versie.grootte})
+	frappe.db.delete("Opslagvergrendeling", {"bestand": bron.name})
+	vorige = frappe.db.get_value(
+		"Bestandsversie", {"bestand": bron.name}, ["volgnummer", "grootte"], order_by="volgnummer desc", as_dict=True
+	)
+	if vorige:
+		frappe.db.set_value(
+			"Opslagbestand",
+			bron.name,
+			{"huidige_versie": vorige.volgnummer, "grootte": vorige.grootte, "verwijderd_op": now_datetime()},
+		)
+	else:
+		frappe.db.delete("Opslagbestand", {"name": bron.name})
+	_log(bron.ruimte, "verwijderd", "Opslagbestand", bron.name, bron.naam)
+	_log(bron.ruimte, "gewijzigd", "Opslagbestand", doel.name, naam)
+	return {"bestand": doel.name, "naam": naam, "versie": volgnummer}
+
+
+def _submappen(map: str) -> list[str]:
+	uit, te_doen = [], [map]
+	while te_doen:
+		huidig = te_doen.pop()
+		uit.append(huidig)
+		te_doen += frappe.get_all(
+			"Opslagmap", filters={"bovenliggende": huidig, "verwijderd_op": ("is", "not set")}, pluck="name"
+		)
+	return uit
+
+
+@frappe.whitelist()
+def verplaats_map(map: str, naam: str, bovenliggende: str | None = None) -> dict:
+	"""Hernoem of verplaats een map binnen zijn ruimte (`bovenliggende` leeg = hoofdniveau)."""
+	doc = frappe.db.get_value("Opslagmap", map, ["name", "ruimte", "bovenliggende", "verwijderd_op"], as_dict=True)
+	if not doc or doc.verwijderd_op:
+		frappe.throw(_("Map bestaat niet"), frappe.DoesNotExistError)
+	vereis_op_plek(doc.ruimte, doc.name, "write")
+	naam = _controleer_naam(naam)
+	bovenliggende = _controleer_map(doc.ruimte, bovenliggende or None)
+	vereis_op_plek(doc.ruimte, bovenliggende, "write")
+	if bovenliggende and bovenliggende in _submappen(doc.name):
+		frappe.throw(_("Een map kan niet in zichzelf worden geplaatst"))
+	bestaand = _actieve_map(doc.ruimte, bovenliggende, naam)
+	if bestaand and bestaand[0][0] != doc.name:
+		frappe.throw(_("Er staat al een map met deze naam"))
+	if _actief_bestand(doc.ruimte, bovenliggende, naam):
+		frappe.throw(_("Er staat al een bestand met deze naam"))
+	frappe.db.set_value("Opslagmap", doc.name, {"naam": naam, "bovenliggende": bovenliggende})
+	_log(doc.ruimte, "verplaatst", "Opslagmap", doc.name, naam)
+	return {"map": doc.name, "naam": naam}
+
+
+@frappe.whitelist()
+def verwijder_map(map: str) -> None:
+	"""Map met alles erin naar de prullenbak (zelfde tijdstip, zodat herstellen per map kan)."""
+	doc = frappe.db.get_value("Opslagmap", map, ["name", "ruimte", "naam", "verwijderd_op"], as_dict=True)
+	if not doc or doc.verwijderd_op:
+		return
+	vereis_op_plek(doc.ruimte, doc.name, "write")
+	moment = now_datetime()
+	mappen = _submappen(doc.name)
+	for m in mappen:
+		frappe.db.set_value("Opslagmap", m, "verwijderd_op", moment)
+	for b in frappe.get_all(
+		"Opslagbestand", filters={"map": ("in", mappen), "verwijderd_op": ("is", "not set")}, pluck="name"
+	):
+		frappe.db.set_value("Opslagbestand", b, "verwijderd_op", moment)
+	_log(doc.ruimte, "verwijderd", "Opslagmap", doc.name, doc.naam)
+
+
 # --- wijzigingen en quotum ---------------------------------------------------------------------------
 
 
