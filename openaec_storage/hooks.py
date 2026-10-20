@@ -14,6 +14,8 @@ has_permission = {
 	"Opslagbestand": "openaec_storage.rechten.heeft_recht",
 	"Bestandsversie": "openaec_storage.rechten.heeft_recht",
 	"Opslagwijziging": "openaec_storage.rechten.heeft_recht",
+	"Opslagvergrendeling": "openaec_storage.rechten.heeft_recht",
+	"Opslagdeling": "openaec_storage.rechten.heeft_recht",
 }
 
 permission_query_conditions = {

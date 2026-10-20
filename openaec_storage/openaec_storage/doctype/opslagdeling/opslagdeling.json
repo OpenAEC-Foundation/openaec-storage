@@ -1,0 +1,116 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-10-20 00:00:00.000000",
+ "description": "Deling van een map of bestand: link zonder account, of met een gebruiker/gast.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "ruimte",
+  "doel_doctype",
+  "doel",
+  "soort",
+  "gebruiker",
+  "rechten",
+  "token",
+  "wachtwoord_hash",
+  "verloopt",
+  "ingetrokken"
+ ],
+ "fields": [
+  {
+   "fieldname": "ruimte",
+   "fieldtype": "Link",
+   "label": "Ruimte",
+   "options": "Ruimte",
+   "reqd": 1
+  },
+  {
+   "fieldname": "doel_doctype",
+   "fieldtype": "Select",
+   "label": "Soort doel",
+   "options": "Opslagmap\nOpslagbestand",
+   "reqd": 1
+  },
+  {
+   "fieldname": "doel",
+   "fieldtype": "Dynamic Link",
+   "label": "Doel",
+   "options": "doel_doctype",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "soort",
+   "fieldtype": "Select",
+   "label": "Soort",
+   "options": "link\ngebruiker",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "gebruiker",
+   "fieldtype": "Link",
+   "label": "Gebruiker",
+   "options": "User"
+  },
+  {
+   "fieldname": "rechten",
+   "fieldtype": "Select",
+   "label": "Rechten",
+   "options": "lezen\nschrijven",
+   "default": "lezen",
+   "reqd": 1
+  },
+  {
+   "fieldname": "token",
+   "fieldtype": "Data",
+   "label": "Token",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "wachtwoord_hash",
+   "fieldtype": "Data",
+   "label": "Wachtwoord (hash)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "verloopt",
+   "fieldtype": "Datetime",
+   "label": "Verloopt"
+  },
+  {
+   "fieldname": "ingetrokken",
+   "fieldtype": "Check",
+   "label": "Ingetrokken",
+   "default": "0"
+  }
+ ],
+ "modified": "2026-10-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Opslagdeling",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "All",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

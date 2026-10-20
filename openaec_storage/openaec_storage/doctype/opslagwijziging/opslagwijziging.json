@@ -24,7 +24,7 @@
    "fieldname": "soort",
    "fieldtype": "Select",
    "label": "Soort",
-   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld",
+   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld\nvergrendeld\nontgrendeld\ngedeeld\ningetrokken",
    "reqd": 1,
    "in_list_view": 1
   },

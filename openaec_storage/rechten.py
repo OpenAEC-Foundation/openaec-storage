@@ -56,6 +56,10 @@ def heeft_recht(doc, ptype=None, user=None, debug=False):
 	ruimte = doc.get("ruimte")
 	if not ruimte:
 		return is_superbeheer(user)
+	if doc.doctype == "Opslagbestand":
+		return mag_op_plek(ruimte, doc.get("map"), ptype, doc.name, user)
+	if doc.doctype == "Opslagmap":
+		return mag_op_plek(ruimte, doc.name if not doc.is_new() else doc.get("bovenliggende"), ptype, None, user)
 	return mag(ruimte, ptype, user)
 
 
@@ -82,3 +86,57 @@ def query_bestand(user=None, doctype=None):
 
 def query_wijziging(user=None, doctype=None):
 	return _conditie("Opslagwijziging", "ruimte", user)
+
+
+# --- delingen met gebruikers (ontwerp §3): extra rechten op een map en alles eronder ------------------
+
+
+def voorouders(map: str | None) -> list[str]:
+	"""De map zelf en alle bovenliggende mappen (van binnen naar buiten)."""
+	keten, huidige, gezien = [], map, set()
+	while huidige and huidige not in gezien:
+		gezien.add(huidige)
+		keten.append(huidige)
+		huidige = frappe.db.get_value("Opslagmap", huidige, "bovenliggende")
+	return keten
+
+
+def deling_recht(gebruiker: str, map: str | None, bestand: str | None = None) -> str | None:
+	"""Het hoogste recht ('schrijven' of 'lezen') dat een gebruiker via delingen heeft op deze plek."""
+	doelen = [("Opslagmap", m) for m in voorouders(map)]
+	if bestand:
+		doelen.append(("Opslagbestand", bestand))
+	if not doelen:
+		return None
+	beste = None
+	for doctype, doel in doelen:
+		for rij in frappe.get_all(
+			"Opslagdeling",
+			filters={"soort": "gebruiker", "gebruiker": gebruiker, "ingetrokken": 0, "doel_doctype": doctype, "doel": doel},
+			fields=["rechten", "verloopt"],
+			ignore_permissions=True,
+		):
+			if rij.verloopt and rij.verloopt < frappe.utils.now_datetime():
+				continue
+			if rij.rechten == "schrijven":
+				return "schrijven"
+			beste = "lezen"
+	return beste
+
+
+def mag_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = None, gebruiker: str | None = None) -> bool:
+	"""Rechten op een plek in de ruimte: via het lidmaatschap, of via een deling op de plek of erboven."""
+	gebruiker = gebruiker or frappe.session.user
+	if mag(ruimte, actie, gebruiker):
+		return True
+	recht = deling_recht(gebruiker, map, bestand)
+	if not recht:
+		return False
+	return actie in LEESACTIES or recht == "schrijven"
+
+
+def vereis_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = None) -> None:
+	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
+		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
+	if not mag_op_plek(ruimte, map, actie, bestand):
+		frappe.throw(_("Geen toegang tot deze plek"), frappe.PermissionError)

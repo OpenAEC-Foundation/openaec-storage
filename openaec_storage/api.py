@@ -11,14 +11,15 @@ import os
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import add_to_date, cint, flt, now_datetime
 
 from openaec_storage import s3
-from openaec_storage.rechten import vereis
+from openaec_storage.rechten import mag, vereis, vereis_op_plek
 
 UPLOAD_SLEUTEL = "openaec_storage:upload:"
 UPLOAD_GELDIG_SECONDEN = 7 * 24 * 3600
 BRONNEN = ("web", "sync", "webdav", "api")
+SLOT_UREN = 8
 
 
 # --- hulpfuncties ------------------------------------------------------------------------------------
@@ -85,8 +86,17 @@ def _bestand(bestand: str, actie: str):
 	)
 	if not doc:
 		frappe.throw(_("Bestand bestaat niet"), frappe.DoesNotExistError)
-	vereis(doc.ruimte, actie)
+	vereis_op_plek(doc.ruimte, doc.map, actie, doc.name)
 	return doc
+
+
+def _actief_slot(bestand: str):
+	return frappe.db.get_value(
+		"Opslagvergrendeling",
+		{"bestand": bestand, "verloopt": (">", now_datetime())},
+		["name", "gebruiker", "apparaat", "reden", "verloopt"],
+		as_dict=True,
+	)
 
 
 # --- bladeren en versies -----------------------------------------------------------------------------
@@ -94,8 +104,8 @@ def _bestand(bestand: str, actie: str):
 
 @frappe.whitelist()
 def bladeren(ruimte: str, map: str | None = None) -> dict:
-	vereis(ruimte, "read")
 	map = _controleer_map(ruimte, map)
+	vereis_op_plek(ruimte, map, "read")
 	mappen = frappe.get_all(
 		"Opslagmap",
 		filters={"ruimte": ruimte, "bovenliggende": map or ("is", "not set"), "verwijderd_op": ("is", "not set")},
@@ -139,9 +149,9 @@ def upload_start(
 	bron: str = "api",
 ) -> dict:
 	"""Begin een upload: geeft een upload-token en per deel een ondertekende URL (8 MiB per deel)."""
-	vereis(ruimte, "write")
-	naam = _controleer_naam(naam)
 	map = _controleer_map(ruimte, map)
+	vereis_op_plek(ruimte, map, "write")
+	naam = _controleer_naam(naam)
 	grootte = cint(grootte)
 	if grootte < 0:
 		frappe.throw(_("Ongeldige grootte"))
@@ -180,7 +190,7 @@ def upload_klaar(upload: str, delen) -> dict:
 	info = frappe.cache.get_value(UPLOAD_SLEUTEL + (upload or ""))
 	if not info or info["gebruiker"] != frappe.session.user:
 		frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
-	vereis(info["ruimte"], "write")
+	vereis_op_plek(info["ruimte"], info["map"], "write")
 	if isinstance(delen, str):
 		delen = json.loads(delen)
 
@@ -191,7 +201,14 @@ def upload_klaar(upload: str, delen) -> dict:
 	ruimte, map, naam = info["ruimte"], info["map"], info["naam"]
 	bestaand = _actief_bestand(ruimte, map, naam)
 	conflict = False
-	if bestaand and info["basis_versie"] is not None and info["basis_versie"] == cint(bestaand.huidige_versie):
+	slot = _actief_slot(bestaand.name) if bestaand else None
+	slot_van_ander = bool(slot and slot.gebruiker != frappe.session.user)
+	if (
+		bestaand
+		and not slot_van_ander
+		and info["basis_versie"] is not None
+		and info["basis_versie"] == cint(bestaand.huidige_versie)
+	):
 		doc = frappe.get_doc("Opslagbestand", bestaand.name)
 		soort = "gewijzigd"
 	else:
@@ -296,3 +313,137 @@ def wijzigingen(ruimte: str, sinds: int = 0, limiet: int = 1000) -> dict:
 def quotum() -> dict:
 	limiet = _limiet_bytes()
 	return {"gebruikt_bytes": _gebruikt_bytes(), "limiet_bytes": limiet or None}
+
+
+# --- informatie en vergrendelen (ontwerp §6) ---------------------------------------------------------
+
+
+@frappe.whitelist()
+def info(bestand: str) -> dict:
+	doc = _bestand(bestand, "read")
+	slot = _actief_slot(bestand)
+	return {
+		"bestand": doc.name,
+		"naam": doc.naam,
+		"ruimte": doc.ruimte,
+		"map": doc.map,
+		"huidige_versie": cint(doc.huidige_versie),
+		"verwijderd": bool(doc.verwijderd_op),
+		"vergrendeling": slot,
+	}
+
+
+@frappe.whitelist()
+def vergrendel(bestand: str, apparaat: str | None = None, reden: str = "handmatig") -> dict:
+	"""Uitchecken: alleen jij kunt nu een nieuwe versie maken. Opnieuw aanroepen verlengt het slot."""
+	doc = _bestand(bestand, "write")
+	verloopt = add_to_date(now_datetime(), hours=SLOT_UREN)
+	slot = _actief_slot(bestand)
+	if slot and slot.gebruiker != frappe.session.user:
+		naam = frappe.db.get_value("User", slot.gebruiker, "full_name") or slot.gebruiker
+		frappe.throw(_("Dit bestand wordt bewerkt door {0} tot {1}").format(naam, slot.verloopt))
+	frappe.db.delete("Opslagvergrendeling", {"bestand": bestand})
+	frappe.get_doc(
+		{
+			"doctype": "Opslagvergrendeling",
+			"bestand": bestand,
+			"ruimte": doc.ruimte,
+			"gebruiker": frappe.session.user,
+			"apparaat": apparaat,
+			"reden": reden if reden in ("handmatig", "automatisch") else "handmatig",
+			"verloopt": verloopt,
+		}
+	).insert(ignore_permissions=True)
+	if not slot:
+		_log(doc.ruimte, "vergrendeld", "Opslagbestand", bestand, doc.naam)
+	return {"gebruiker": frappe.session.user, "apparaat": apparaat, "verloopt": verloopt}
+
+
+@frappe.whitelist()
+def ontgrendel(bestand: str) -> None:
+	doc = _bestand(bestand, "write")
+	slot = _actief_slot(bestand)
+	if not slot:
+		return
+	if slot.gebruiker != frappe.session.user:
+		frappe.throw(_("Alleen wie het bestand vergrendelde kan het ontgrendelen"), frappe.PermissionError)
+	frappe.db.delete("Opslagvergrendeling", {"bestand": bestand})
+	_log(doc.ruimte, "ontgrendeld", "Opslagbestand", bestand, doc.naam)
+
+
+@frappe.whitelist()
+def forceer_ontgrendel(bestand: str) -> None:
+	"""Een slot openbreken (alleen beheerders van de ruimte); komt in de wijzigingenlijst."""
+	doc = _bestand(bestand, "read")
+	if not mag(doc.ruimte, "write", ruimte_zelf=True):
+		frappe.throw(_("Alleen een beheerder van de ruimte kan een slot openbreken"), frappe.PermissionError)
+	frappe.db.delete("Opslagvergrendeling", {"bestand": bestand})
+	_log(doc.ruimte, "ontgrendeld", "Opslagbestand", bestand, doc.naam)
+
+
+# --- delen (ontwerp §3, B8) --------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def deel(
+	doel_doctype: str,
+	doel: str,
+	soort: str = "link",
+	gebruiker: str | None = None,
+	rechten: str = "lezen",
+	wachtwoord: str | None = None,
+	verloopt: str | None = None,
+) -> dict:
+	"""Deel een map of bestand: als link zonder account, of met een (gast)gebruiker."""
+	from frappe.utils.password import passlibctx
+
+	if doel_doctype not in ("Opslagmap", "Opslagbestand"):
+		frappe.throw(_("Alleen mappen en bestanden kunnen gedeeld worden"))
+	if doel_doctype == "Opslagbestand":
+		ruimte, map = frappe.db.get_value("Opslagbestand", doel, ["ruimte", "map"]) or (None, None)
+		vereis_op_plek(ruimte, map, "write", doel)
+	else:
+		ruimte = frappe.db.get_value("Opslagmap", doel, "ruimte")
+		vereis_op_plek(ruimte, doel, "write")
+	if soort not in ("link", "gebruiker"):
+		frappe.throw(_("Onbekende soort deling"))
+	if soort == "gebruiker" and not (gebruiker and frappe.db.exists("User", gebruiker)):
+		frappe.throw(_("Kies een bestaande gebruiker om mee te delen"))
+	deling = frappe.get_doc(
+		{
+			"doctype": "Opslagdeling",
+			"ruimte": ruimte,
+			"doel_doctype": doel_doctype,
+			"doel": doel,
+			"soort": soort,
+			"gebruiker": gebruiker if soort == "gebruiker" else None,
+			"rechten": "schrijven" if rechten == "schrijven" and soort == "gebruiker" else "lezen",
+			"token": frappe.generate_hash(length=40) if soort == "link" else None,
+			"wachtwoord_hash": passlibctx.hash(wachtwoord) if wachtwoord else None,
+			"verloopt": verloopt,
+		}
+	).insert(ignore_permissions=True)
+	_log(ruimte, "gedeeld", doel_doctype, doel)
+	return {"deling": deling.name, "token": deling.token, "rechten": deling.rechten}
+
+
+@frappe.whitelist()
+def delingen(doel_doctype: str, doel: str) -> list[dict]:
+	ruimte = frappe.db.get_value(doel_doctype, doel, "ruimte") if doel_doctype in ("Opslagmap", "Opslagbestand") else None
+	vereis(ruimte, "read")
+	return frappe.get_all(
+		"Opslagdeling",
+		filters={"doel_doctype": doel_doctype, "doel": doel, "ingetrokken": 0},
+		fields=["name", "soort", "gebruiker", "rechten", "verloopt", "token", "creation"],
+		ignore_permissions=True,
+	)
+
+
+@frappe.whitelist()
+def trek_in(deling: str) -> None:
+	rij = frappe.db.get_value("Opslagdeling", deling, ["ruimte", "doel_doctype", "doel"], as_dict=True)
+	if not rij:
+		frappe.throw(_("Deling bestaat niet"), frappe.DoesNotExistError)
+	vereis(rij.ruimte, "write")
+	frappe.db.set_value("Opslagdeling", deling, "ingetrokken", 1)
+	_log(rij.ruimte, "ingetrokken", rij.doel_doctype, rij.doel)
