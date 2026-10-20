@@ -519,3 +519,38 @@ def blokken(bestand: str, versie: int | None = None) -> dict:
 		"blokgrootte": cint(rij.blokgrootte) or s3.DEELGROOTTE,
 		"hashes": json.loads(rij.blokhashes) if rij.blokhashes else None,
 	}
+
+
+# --- ruimtes en mappen -------------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def ruimtes() -> list[dict]:
+	"""De ruimtes waar de ingelogde gebruiker lid van is, met zijn rol."""
+	return frappe.db.sql(
+		"""select r.name, r.naam, r.soort, l.rol from `tabRuimte` r
+		join `tabRuimtelid` l on l.parent = r.name and l.parenttype = 'Ruimte'
+		where l.gebruiker = %s order by r.naam""",
+		frappe.session.user,
+		as_dict=True,
+	)
+
+
+@frappe.whitelist()
+def maak_map(ruimte: str, naam: str, bovenliggende: str | None = None) -> dict:
+	"""Maak een map (of geef de bestaande met dezelfde naam op die plek terug)."""
+	bovenliggende = _controleer_map(ruimte, bovenliggende)
+	vereis_op_plek(ruimte, bovenliggende, "write")
+	naam = _controleer_naam(naam)
+	bestaand = frappe.db.sql(
+		"""select name from `tabOpslagmap` where ruimte = %s and ifnull(bovenliggende, '') = %s
+		and lower(naam) = lower(%s) and verwijderd_op is null""",
+		(ruimte, bovenliggende or "", naam),
+	)
+	if bestaand:
+		return {"map": bestaand[0][0], "nieuw": False}
+	doc = frappe.get_doc(
+		{"doctype": "Opslagmap", "ruimte": ruimte, "naam": naam, "bovenliggende": bovenliggende}
+	).insert(ignore_permissions=True)
+	_log(ruimte, "nieuw", "Opslagmap", doc.name, naam)
+	return {"map": doc.name, "nieuw": True}

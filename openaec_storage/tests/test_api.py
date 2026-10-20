@@ -92,3 +92,31 @@ class TestApi(IntegrationTestCase):
 		upload(self.ruimte, "q.txt", b"12345")
 		upload(self.ruimte, "q.txt", b"123", basis_versie=1)
 		self.assertEqual(api.quotum()["gebruikt_bytes"], 8)
+
+
+class TestRuimtesEnMappen(IntegrationTestCase):
+	def setUp(self):
+		ruim_op()
+		self.lid = gebruiker("lid")
+		self.ander = gebruiker("ander")
+		self.mijn = ruimte("Mijn project", {self.lid: "schrijver"})
+		self.niet = ruimte("Ander project", {self.ander: "schrijver"})
+		frappe.set_user(self.lid)
+
+	def tearDown(self):
+		ruim_op()
+
+	def test_ruimtes_toont_alleen_eigen_ruimtes_met_rol(self):
+		ruimtes = api.ruimtes()
+		self.assertEqual([(r["name"], r["rol"]) for r in ruimtes], [(self.mijn, "schrijver")])
+
+	def test_map_maken_en_terugvinden(self):
+		map_naam = api.maak_map(ruimte=self.mijn, naam="Tekeningen")["map"]
+		sub = api.maak_map(ruimte=self.mijn, naam="Revisie A", bovenliggende=map_naam)["map"]
+		self.assertEqual([m["naam"] for m in api.bladeren(ruimte=self.mijn)["mappen"]], ["Tekeningen"])
+		self.assertEqual([m["naam"] for m in api.bladeren(ruimte=self.mijn, map=map_naam)["mappen"]], ["Revisie A"])
+		self.assertEqual(api.maak_map(ruimte=self.mijn, naam="Revisie A", bovenliggende=map_naam)["map"], sub)
+
+	def test_map_maken_in_andermans_ruimte_mag_niet(self):
+		with self.assertRaises(frappe.PermissionError):
+			api.maak_map(ruimte=self.niet, naam="X")
