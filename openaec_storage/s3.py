@@ -20,7 +20,8 @@ def _client(publiek: bool = False):
 		"s3",
 		region_name=conf.get("openaec_storage_region") or "eu-central-1",
 		endpoint_url=endpoint,
-		config=Config(signature_version="s3v4"),
+		# Eigen opslagadres (S3-compatibel): pad-adressering, want <bucket>.<host> bestaat daar niet.
+		config=Config(signature_version="s3v4", s3={"addressing_style": "path" if endpoint else "auto"}),
 	)
 
 
