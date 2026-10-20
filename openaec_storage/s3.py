@@ -13,15 +13,22 @@ def _client(publiek: bool = False):
 	"""S3-client. `publiek`: voor ondertekende links die de browser of sync-client gebruikt; die kunnen een
 	ander adres nodig hebben dan de server zelf (openaec_storage_endpoint_publiek). Op AWS zijn ze gelijk."""
 	conf = frappe.conf
+	regio = conf.get("openaec_storage_region") or "eu-central-1"
 	endpoint = conf.get("openaec_storage_endpoint") or None
 	if publiek:
 		endpoint = conf.get("openaec_storage_endpoint_publiek") or endpoint
+	if endpoint:
+		# Eigen opslagadres (S3-compatibel): pad-adressering, want <bucket>.<host> bestaat daar niet.
+		adressering = "path"
+	else:
+		# AWS: altijd het regionale adres. Zonder dat tekent boto3 links voor <bucket>.s3.amazonaws.com; S3 stuurt
+		# die door naar de regio en een client die de doorverwijzing volgt, breekt daarmee de handtekening.
+		endpoint, adressering = f"https://s3.{regio}.amazonaws.com", "virtual"
 	return boto3.client(
 		"s3",
-		region_name=conf.get("openaec_storage_region") or "eu-central-1",
+		region_name=regio,
 		endpoint_url=endpoint,
-		# Eigen opslagadres (S3-compatibel): pad-adressering, want <bucket>.<host> bestaat daar niet.
-		config=Config(signature_version="s3v4", s3={"addressing_style": "path" if endpoint else "auto"}),
+		config=Config(signature_version="s3v4", s3={"addressing_style": adressering}),
 	)
 
 
