@@ -170,7 +170,7 @@ def upload_start(
 		frappe.throw(_("Aantal blokhashes klopt niet met de grootte"))
 
 	hergebruik = _herbruikbare_blokken(ruimte, map, naam, basis_versie, blok, grootte, blokhashes)
-	sleutel = "v/" + frappe.generate_hash(length=32)
+	sleutel = s3.nieuwe_sleutel()
 	upload_id = s3.start_multipart(sleutel)
 	token = frappe.generate_hash(length=32)
 	frappe.cache.set_value(

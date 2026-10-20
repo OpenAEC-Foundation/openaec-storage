@@ -32,6 +32,14 @@ def _client(publiek: bool = False):
 	)
 
 
+def nieuwe_sleutel() -> str:
+	"""S3-sleutel voor een nieuwe versie. Met `openaec_storage_prefix` (bijv. de host van de klantsite) kunnen
+	meerdere klanten één bucket delen; de volledige sleutel staat bij de versie, dus oude versies blijven leesbaar."""
+	prefix = (frappe.conf.get("openaec_storage_prefix") or "").strip("/")
+	sleutel = "v/" + frappe.generate_hash(length=32)
+	return f"{prefix}/{sleutel}" if prefix else sleutel
+
+
 def bucket() -> str:
 	naam = frappe.conf.get("openaec_storage_bucket")
 	if not naam:
