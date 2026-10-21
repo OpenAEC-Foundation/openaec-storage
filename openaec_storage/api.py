@@ -11,7 +11,7 @@ import os
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, cint, flt, now_datetime
+from frappe.utils import get_url, add_to_date, cint, flt, now_datetime
 
 from openaec_storage import s3
 from openaec_storage.rechten import mag, vereis, vereis_op_plek
@@ -599,7 +599,13 @@ def deel(
 		}
 	).insert(ignore_permissions=True)
 	_log(ruimte, "gedeeld", doel_doctype, doel)
-	return {"deling": deling.name, "token": deling.token, "rechten": deling.rechten}
+	return {
+		"deling": deling.name,
+		"token": deling.token,
+		"rechten": deling.rechten,
+		# Volledig publiek adres (host_name van de site): klaar om in een mail of chat te plakken.
+		"url": get_url(f"/delen/{deling.token}"),
+	}
 
 
 @frappe.whitelist()
@@ -663,6 +669,9 @@ def maak_map(ruimte: str, naam: str, bovenliggende: str | None = None) -> dict:
 	bovenliggende = _controleer_map(ruimte, bovenliggende)
 	vereis_op_plek(ruimte, bovenliggende, "write")
 	naam = _controleer_naam(naam)
+	# Gelijktijdige aanvragen (parallelle uploads die dezelfde map nodig hebben) wachten op elkaar: anders maken ze
+	# allemaal een eigen map met dezelfde naam aan.
+	frappe.db.sql("select name from `tabRuimte` where name = %s for update", ruimte)
 	bestaand = frappe.db.sql(
 		"""select name from `tabOpslagmap` where ruimte = %s and ifnull(bovenliggende, '') = %s
 		and lower(naam) = lower(%s) and verwijderd_op is null""",

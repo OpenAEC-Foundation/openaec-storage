@@ -100,6 +100,11 @@ class TestDelen(IntegrationTestCase):
 		url = delen.download(token=deling["token"])["url"]
 		self.assertEqual(requests.get(url, timeout=30).content, b"PDF")
 
+	def test_deellink_geeft_het_volledige_publieke_adres(self):
+		deling = api.deel(doel_doctype="Opslagbestand", doel=self.bestand, soort="link")
+		self.assertTrue(deling["url"].endswith(f"/delen/{deling['token']}"))
+		self.assertTrue(deling["url"].startswith("http"))
+
 	def test_deellink_met_wachtwoord(self):
 		deling = api.deel(doel_doctype="Opslagbestand", doel=self.bestand, soort="link", wachtwoord="geheim123")
 		frappe.set_user("Guest")
