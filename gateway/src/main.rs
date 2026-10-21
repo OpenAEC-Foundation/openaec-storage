@@ -2,7 +2,7 @@
 //! programma's die WebDAV spreken.
 //!
 //! Instellingen (omgeving):
-//! - `OPENAEC_BASIS`: adres van de klantomgeving, bijv. `https://bedrijf.scloud.open-aec.com`
+//! - `OPENAEC_BASIS`: adres van de klantomgeving, bijv. `https://bedrijf.cloud.open-aec.eu`
 //! - `OPENAEC_DAV_ADRES`: luisteradres, standaard `0.0.0.0:8310`
 //!
 //! Inloggen met Basic-auth: gebruikersnaam = API-sleutel, wachtwoord = API-geheim (later: app-wachtwoord uit de
