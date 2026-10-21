@@ -28,11 +28,21 @@ class TestHuisstijl(IntegrationTestCase):
 		self.ws.app_name, self.ws.app_logo, self.ws.banner_image = "Ingenieursbureau Test", "/files/eigen-logo.svg", None
 		self.ws.save(ignore_permissions=True)
 		frappe.clear_cache()
-		with patch("frappe.get_hooks", return_value=[]):
+		with patch("frappe.get_hooks", return_value=[]), patch("frappe.defaults.get_global_default", return_value=None):
 			stijl = huisstijl.voor_deelpagina()
 		self.assertEqual(stijl["naam"], "Ingenieursbureau Test")
 		self.assertEqual(stijl["logo"], "/files/eigen-logo.svg")
 		self.assertIsNone(stijl["kleur"])
+
+	def test_standaardbedrijf_gaat_voor_en_platformnaam_telt_niet(self):
+		self.ws.app_name = "Frappe"
+		self.ws.save(ignore_permissions=True)
+		frappe.clear_cache()
+		with patch("frappe.get_hooks", return_value=[]):
+			with patch("frappe.defaults.get_global_default", return_value=None):
+				self.assertIsNone(huisstijl.voor_deelpagina()["naam"])
+			with patch("frappe.defaults.get_global_default", return_value="Bouwbedrijf De Vries BV"):
+				self.assertEqual(huisstijl.voor_deelpagina()["naam"], "Bouwbedrijf De Vries BV")
 
 	def test_hook_van_het_beheer_gaat_voor(self):
 		with patch("frappe.get_hooks", return_value=["openaec_storage.tests.test_huisstijl.bron"]):

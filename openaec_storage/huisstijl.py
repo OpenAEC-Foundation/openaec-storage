@@ -1,8 +1,9 @@
 """Huisstijl van de klant op de openbare pagina's van Storage (deelpagina, aanleveren).
 
 Bron: de huisstijl uit het beheer van de omgeving, via de hook `openaec_huisstijl` (een functie zonder argumenten
-die een dict geeft met `naam`, `logo`, `afbeelding` en `kleur`). Staat die er niet of geeft hij niets, dan de
-Website Settings van de site (app-naam, app-logo, bannerafbeelding) en anders het standaardbedrijf.
+die een dict geeft met `naam`, `logo`, `afbeelding` en `kleur`). Staat die er niet of geeft hij niets, dan het
+standaardbedrijf (of anders de app-naam, als die niet de standaardnaam van het platform is) met het app-logo en de
+bannerafbeelding uit de Website Settings.
 
 Alles wat op de pagina komt, wordt hier nagekeken: een kleur alleen als hex-code, afbeeldingen alleen als pad op
 de eigen site (`/files/...`) of https-adres.
@@ -27,10 +28,15 @@ def voor_deelpagina() -> dict:
 	return _schoon(_uit_website())
 
 
+# Standaardnamen van het platform zelf: die zijn geen huisstijl van de klant.
+GEEN_KLANTNAAM = {"frappe", "erpnext", "frappe framework"}
+
+
 def _uit_website() -> dict:
 	instellingen = frappe.get_cached_doc("Website Settings")
+	app_naam = instellingen.app_name if (instellingen.app_name or "").strip().lower() not in GEEN_KLANTNAAM else None
 	return {
-		"naam": instellingen.app_name or frappe.defaults.get_global_default("company"),
+		"naam": frappe.defaults.get_global_default("company") or app_naam,
 		"logo": instellingen.app_logo,
 		"afbeelding": instellingen.banner_image,
 	}
