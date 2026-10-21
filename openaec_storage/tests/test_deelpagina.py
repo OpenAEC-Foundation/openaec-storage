@@ -24,3 +24,8 @@ class TestDeelpagina(IntegrationTestCase):
 	def test_token_wordt_ge_escaped(self):
 		html = pagina('delen/x"><script>')
 		self.assertNotIn('"><script>', html.split("data-token=", 1)[1][:40])
+
+	def test_pagina_kan_ook_bestanden_aanleveren(self):
+		html = pagina("delen/abc123")
+		self.assertIn("upload_start", html)
+		self.assertIn("upload_klaar", html)

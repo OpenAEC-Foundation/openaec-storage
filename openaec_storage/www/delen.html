@@ -11,6 +11,17 @@
 	<p class="oas-melding text-muted">Laden…</p>
 	<nav class="oas-pad"></nav>
 	<ul class="oas-lijst list-unstyled"></ul>
+	<section class="oas-aanleveren" hidden>
+		<p class="oas-uitleg"></p>
+		<label class="oas-afzender">Je naam (optioneel)
+			<input type="text" class="form-control" maxlength="140" autocomplete="name">
+		</label>
+		<label class="oas-vak">
+			<input type="file" multiple hidden>
+			<span>Sleep bestanden hierheen of <u>kies bestanden</u></span>
+		</label>
+		<ul class="oas-voortgang list-unstyled"></ul>
+	</section>
 </div>
 <style>
 	.oas-delen { max-width: 720px; margin: 2rem auto; }
@@ -22,6 +33,13 @@
 	.oas-lijst li { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-top: 1px solid var(--border-color); }
 	.oas-lijst button { border: none; background: none; padding: 0; text-align: left; color: var(--primary); }
 	.oas-grootte { color: var(--text-muted); white-space: nowrap; }
+	.oas-afzender { display: block; max-width: 320px; margin-bottom: 1rem; }
+	.oas-vak { display: block; border: 2px dashed var(--border-color); border-radius: .5rem; padding: 2rem 1rem;
+		text-align: center; cursor: pointer; color: var(--text-muted); }
+	.oas-vak.oas-erboven { border-color: var(--primary); color: var(--primary); }
+	.oas-voortgang li { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0;
+		border-top: 1px solid var(--border-color); }
+	.oas-voortgang .oas-fout { color: var(--red-600, #c0392b); }
 </style>
 {% endblock %}
 
@@ -96,6 +114,10 @@
 			const map = spoor.length ? spoor[spoor.length - 1].map : null
 			const inhoud = await roep("openen", map ? { map } : {})
 			form.hidden = true
+			if (inhoud.uploaden) {
+				toonAanleveren(inhoud)
+				return
+			}
 			if (inhoud.bestand) {
 				melding.textContent = ""
 				regel(inhoud.bestand.naam, grootte(inhoud.bestand.grootte), () => download(null))
@@ -111,6 +133,72 @@
 			if (/wachtwoord/i.test(e.message)) form.hidden = false
 		}
 	}
+
+	// Bestanden opvragen: alleen aanleveren, de inhoud van de map blijft verborgen.
+	const aanleveren = root.querySelector(".oas-aanleveren")
+	const vak = aanleveren.querySelector(".oas-vak")
+	const kiezer = vak.querySelector("input")
+	const afzender = aanleveren.querySelector(".oas-afzender input")
+	const voortgang = aanleveren.querySelector(".oas-voortgang")
+	let maximum = 0
+	let wachtrij = Promise.resolve()
+
+	const toonAanleveren = (inhoud) => {
+		melding.textContent = ""
+		maximum = inhoud.max_grootte
+		root.querySelector(".oas-titel").textContent = "Bestanden aanleveren"
+		aanleveren.querySelector(".oas-uitleg").textContent =
+			`Lever hier bestanden aan voor "${inhoud.map}" (per bestand hoogstens ${grootte(maximum)}). ` +
+			"Je ziet niet wat er al in de map staat."
+		aanleveren.hidden = false
+	}
+
+	const leverAan = async (bestand) => {
+		const li = document.createElement("li")
+		const naam = document.createElement("span")
+		naam.textContent = bestand.name
+		const stand = document.createElement("span")
+		stand.className = "oas-grootte"
+		li.append(naam, stand)
+		voortgang.prepend(li)
+		if (bestand.size > maximum) {
+			stand.textContent = "te groot"
+			stand.classList.add("oas-fout")
+			return
+		}
+		try {
+			stand.textContent = "0%"
+			const start = await roep("upload_start", { naam: bestand.name, grootte: bestand.size })
+			const delen = []
+			let verstuurd = 0
+			for (const deel of start.delen) {
+				const stuk = bestand.slice((deel.nummer - 1) * start.deelgrootte, deel.nummer * start.deelgrootte)
+				const r = await fetch(deel.url, { method: "PUT", body: stuk })
+				if (!r.ok) throw new Error("Uploaden is mislukt")
+				delen.push({ nummer: deel.nummer, etag: r.headers.get("ETag") })
+				verstuurd += stuk.size
+				stand.textContent = `${Math.floor((100 * verstuurd) / Math.max(1, bestand.size))}%`
+			}
+			const klaar = await roep("upload_klaar", { upload: start.upload, delen, afzender: afzender.value || null })
+			stand.textContent = klaar.naam === bestand.name ? "ontvangen" : `ontvangen als ${klaar.naam}`
+		} catch (e) {
+			stand.textContent = e.message
+			stand.classList.add("oas-fout")
+		}
+	}
+
+	// Eén bestand tegelijk, in de volgorde van kiezen.
+	const voegToe = (bestanden) => {
+		for (const b of bestanden) wachtrij = wachtrij.then(() => leverAan(b))
+	}
+	kiezer.addEventListener("change", () => { voegToe([...kiezer.files]); kiezer.value = "" })
+	vak.addEventListener("dragover", (ev) => { ev.preventDefault(); vak.classList.add("oas-erboven") })
+	vak.addEventListener("dragleave", () => vak.classList.remove("oas-erboven"))
+	vak.addEventListener("drop", (ev) => {
+		ev.preventDefault()
+		vak.classList.remove("oas-erboven")
+		voegToe([...ev.dataTransfer.files])
+	})
 
 	form.addEventListener("submit", (ev) => {
 		ev.preventDefault()

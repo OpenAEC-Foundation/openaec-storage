@@ -60,7 +60,7 @@
    "fieldname": "bron",
    "fieldtype": "Select",
    "label": "Bron",
-   "options": "web\nsync\nwebdav\napi",
+   "options": "web\nsync\nwebdav\napi\nlink",
    "default": "api"
   },
   {
@@ -81,7 +81,7 @@
    "label": "Blokhashes (JSON)"
   }
  ],
- "modified": "2026-10-20 00:00:00.000000",
+ "modified": "2026-10-21 07:24:30.081544",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Bestandsversie",

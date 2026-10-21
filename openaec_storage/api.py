@@ -569,7 +569,8 @@ def deel(
 	wachtwoord: str | None = None,
 	verloopt: str | None = None,
 ) -> dict:
-	"""Deel een map of bestand: als link zonder account, of met een (gast)gebruiker."""
+	"""Deel een map of bestand: als link zonder account, of met een (gast)gebruiker. Een link naar een map met
+	`rechten="uploaden"` is een uploadlink (bestanden opvragen): de ontvanger kan alleen bestanden aanleveren."""
 	from frappe.utils.password import passlibctx
 
 	if doel_doctype not in ("Opslagmap", "Opslagbestand"):
@@ -584,6 +585,8 @@ def deel(
 		frappe.throw(_("Onbekende soort deling"))
 	if soort == "gebruiker" and not (gebruiker and frappe.db.exists("User", gebruiker)):
 		frappe.throw(_("Kies een bestaande gebruiker om mee te delen"))
+	if rechten == "uploaden" and not (soort == "link" and doel_doctype == "Opslagmap"):
+		frappe.throw(_("Bestanden opvragen kan alleen met een link naar een map"))
 	deling = frappe.get_doc(
 		{
 			"doctype": "Opslagdeling",
@@ -592,7 +595,7 @@ def deel(
 			"doel": doel,
 			"soort": soort,
 			"gebruiker": gebruiker if soort == "gebruiker" else None,
-			"rechten": "schrijven" if rechten == "schrijven" and soort == "gebruiker" else "lezen",
+			"rechten": _deelrechten(soort, rechten),
 			"token": frappe.generate_hash(length=40) if soort == "link" else None,
 			"wachtwoord_hash": passlibctx.hash(wachtwoord) if wachtwoord else None,
 			"verloopt": verloopt,
@@ -606,6 +609,53 @@ def deel(
 		# Volledig publiek adres (host_name van de site): klaar om in een mail of chat te plakken.
 		"url": get_url(f"/delen/{deling.token}"),
 	}
+
+
+def _deelrechten(soort: str, rechten: str) -> str:
+	"""Schrijven alleen voor een gebruiker; uploaden (bestanden opvragen) alleen voor een link."""
+	if soort == "gebruiker" and rechten == "schrijven":
+		return "schrijven"
+	if soort == "link" and rechten == "uploaden":
+		return "uploaden"
+	return "lezen"
+
+
+@frappe.whitelist()
+def mijn_delingen() -> list[dict]:
+	"""Alle actieve delingen die de gebruiker zelf maakte, nieuwste eerst: om te beheren en in te trekken."""
+	rijen = frappe.get_all(
+		"Opslagdeling",
+		filters={"owner": frappe.session.user, "ingetrokken": 0},
+		fields=["name", "ruimte", "doel_doctype", "doel", "soort", "gebruiker", "rechten", "verloopt", "token",
+			"wachtwoord_hash", "creation"],
+		order_by="creation desc",
+		ignore_permissions=True,
+	)
+	nu = now_datetime()
+	resultaat = []
+	for r in rijen:
+		doel = frappe.db.get_value(r.doel_doctype, r.doel, ["naam", "verwijderd_op"], as_dict=True)
+		if not doel or doel.verwijderd_op:
+			continue
+		resultaat.append(
+			{
+				"deling": r.name,
+				"ruimte": r.ruimte,
+				"ruimte_naam": frappe.db.get_value("Ruimte", r.ruimte, "naam"),
+				"doel_doctype": r.doel_doctype,
+				"doel": r.doel,
+				"naam": doel.naam,
+				"soort": r.soort,
+				"gebruiker": r.gebruiker,
+				"rechten": r.rechten,
+				"verloopt": r.verloopt,
+				"verlopen": bool(r.verloopt and r.verloopt < nu),
+				"beveiligd": bool(r.wachtwoord_hash),
+				"url": get_url(f"/delen/{r.token}") if r.soort == "link" and r.token else None,
+				"gemaakt": r.creation,
+			}
+		)
+	return resultaat
 
 
 @frappe.whitelist()

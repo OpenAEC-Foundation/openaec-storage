@@ -1,13 +1,26 @@
 """Deellinks zonder account (ontwerp §3): openen en downloaden met alleen het token (en eventueel een
-wachtwoord). Alleen lezen; meewerken vraagt een (gratis) account met een deling als gebruiker.
+wachtwoord). Meewerken vraagt een (gratis) account met een deling als gebruiker.
+
+Een uploadlink (`rechten="uploaden"`, alleen voor een map) is het omgekeerde: bestanden opvragen. De ontvanger
+ziet de inhoud van de map niet en kan niets downloaden, alleen bestanden aanleveren. Een aangeleverd bestand
+overschrijft nooit iets: bij een gelijke naam komt er een volgnummer bij. De maker van de link krijgt een melding.
 """
+
+import json
+import math
+import os
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.rate_limiter import rate_limit
+from frappe.utils import cint, flt, now_datetime
 
 from openaec_storage import s3
 from openaec_storage.rechten import voorouders
+
+UPLOAD_SLEUTEL = "openaec_storage:linkupload:"
+UPLOAD_GELDIG_SECONDEN = 24 * 3600
+STANDAARD_MAX_GB = 5
 
 
 def _deling(token: str, wachtwoord: str | None):
@@ -16,7 +29,7 @@ def _deling(token: str, wachtwoord: str | None):
 	rij = frappe.db.get_value(
 		"Opslagdeling",
 		{"token": token or "", "soort": "link"},
-		["name", "ruimte", "doel_doctype", "doel", "wachtwoord_hash", "verloopt", "ingetrokken"],
+		["name", "ruimte", "doel_doctype", "doel", "rechten", "wachtwoord_hash", "verloopt", "ingetrokken", "owner"],
 		as_dict=True,
 	)
 	if not rij or rij.ingetrokken or (rij.verloopt and rij.verloopt < now_datetime()):
@@ -45,6 +58,12 @@ def openen(token: str, wachtwoord: str | None = None, map: str | None = None) ->
 		if not bestand or bestand.verwijderd_op:
 			frappe.throw(_("Dit bestand is niet meer beschikbaar"), frappe.DoesNotExistError)
 		return {"bestand": {"naam": bestand.naam, "grootte": bestand.grootte}}
+	if deling.rechten == "uploaden":
+		return {
+			"uploaden": True,
+			"map": frappe.db.get_value("Opslagmap", deling.doel, "naam"),
+			"max_grootte": _max_grootte(),
+		}
 	map = map or deling.doel
 	if not _binnen_gedeelde_map(deling, map):
 		frappe.throw(_("Deze map valt buiten de deling"), frappe.PermissionError)
@@ -71,6 +90,8 @@ def openen(token: str, wachtwoord: str | None = None, map: str | None = None) ->
 def download(token: str, wachtwoord: str | None = None, bestand: str | None = None) -> dict:
 	"""Tijdelijke downloadlink voor het gedeelde bestand, of voor een bestand binnen de gedeelde map."""
 	deling = _deling(token, wachtwoord)
+	if deling.rechten == "uploaden":
+		frappe.throw(_("Via deze link kun je alleen bestanden aanleveren"), frappe.PermissionError)
 	naam = deling.doel if deling.doel_doctype == "Opslagbestand" else bestand
 	info = _bestand_info(naam) if naam else None
 	if not info or info.verwijderd_op:
@@ -81,3 +102,145 @@ def download(token: str, wachtwoord: str | None = None, bestand: str | None = No
 		"Bestandsversie", {"bestand": info.name, "volgnummer": info.huidige_versie}, "s3_sleutel"
 	)
 	return {"url": s3.download_url(sleutel, info.naam), "geldig_seconden": s3.LINK_GELDIG_SECONDEN}
+
+
+# --- bestanden opvragen (uploadlink) -----------------------------------------------------------------
+
+
+def _max_grootte() -> int:
+	"""Grootste bestand dat via een uploadlink mag (openaec_storage_link_max_gb, standaard 5 GB)."""
+	return int(flt(frappe.conf.get("openaec_storage_link_max_gb") or STANDAARD_MAX_GB) * 1024**3)
+
+
+def _uploaddeling(token: str, wachtwoord: str | None):
+	deling = _deling(token, wachtwoord)
+	if deling.rechten != "uploaden" or deling.doel_doctype != "Opslagmap":
+		frappe.throw(_("Via deze link kun je geen bestanden aanleveren"), frappe.PermissionError)
+	if frappe.db.get_value("Opslagmap", deling.doel, "verwijderd_op"):
+		frappe.throw(_("Deze map is niet meer beschikbaar"), frappe.DoesNotExistError)
+	return deling
+
+
+def _vrije_naam(ruimte: str, map: str, naam: str) -> str:
+	"""`naam`, of `naam (2)`, `naam (3)`, ... als er in de map al een bestand met die naam staat."""
+	from openaec_storage.api import _actief_bestand
+
+	stam, ext = os.path.splitext(naam)
+	kandidaat, teller = naam, 2
+	while _actief_bestand(ruimte, map, kandidaat):
+		kandidaat = f"{stam} ({teller}){ext}"
+		teller += 1
+	return kandidaat
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(limit=300, seconds=3600)
+def upload_start(token: str, naam: str, grootte: int, wachtwoord: str | None = None) -> dict:
+	"""Begin het aanleveren van één bestand: een upload-token en per deel een ondertekende URL."""
+	from openaec_storage.api import _controleer_naam, _controleer_quotum
+
+	deling = _uploaddeling(token, wachtwoord)
+	naam = _controleer_naam(naam)
+	grootte = cint(grootte)
+	if grootte < 0:
+		frappe.throw(_("Ongeldige grootte"))
+	if grootte > _max_grootte():
+		frappe.throw(_("Dit bestand is groter dan via deze link is toegestaan"))
+	_controleer_quotum(grootte)
+
+	blok = s3.blokgrootte(grootte)
+	aantal = max(1, math.ceil(grootte / blok))
+	sleutel = s3.nieuwe_sleutel()
+	upload_id = s3.start_multipart(sleutel)
+	upload = frappe.generate_hash(length=32)
+	frappe.cache.set_value(
+		UPLOAD_SLEUTEL + upload,
+		{
+			"deling": deling.name,
+			"naam": naam,
+			"grootte": grootte,
+			"sleutel": sleutel,
+			"upload_id": upload_id,
+			"blokgrootte": blok,
+		},
+		expires_in_sec=UPLOAD_GELDIG_SECONDEN,
+	)
+	return {
+		"upload": upload,
+		"deelgrootte": blok,
+		"delen": [{"nummer": n, "url": s3.deel_url(sleutel, upload_id, n)} for n in range(1, aantal + 1)],
+	}
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(limit=300, seconds=3600)
+def upload_klaar(token: str, upload: str, delen, wachtwoord: str | None = None, afzender: str | None = None) -> dict:
+	"""Rond het aanleveren af: een nieuw bestand in de gedeelde map (nooit een overschrijving)."""
+	from openaec_storage.api import _log
+
+	deling = _uploaddeling(token, wachtwoord)
+	info = frappe.cache.get_value(UPLOAD_SLEUTEL + (upload or ""))
+	if not info or info["deling"] != deling.name:
+		frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
+	if isinstance(delen, str):
+		delen = json.loads(delen)
+	s3.voltooi(info["sleutel"], info["upload_id"], delen)
+	if s3.grootte(info["sleutel"]) != info["grootte"]:
+		frappe.throw(_("Ontvangen grootte wijkt af van de aangekondigde grootte"))
+
+	map = deling.doel
+	# Twee gelijktijdige uploads met dezelfde naam: de tweede ziet de eerste en krijgt een volgnummer.
+	frappe.db.sql("select name from `tabOpslagmap` where name = %s for update", map)
+	naam = _vrije_naam(deling.ruimte, map, info["naam"])
+	doc = frappe.get_doc(
+		{
+			"doctype": "Opslagbestand",
+			"ruimte": deling.ruimte,
+			"map": map,
+			"naam": naam,
+			"huidige_versie": 1,
+			"grootte": info["grootte"],
+		}
+	).insert(ignore_permissions=True)
+	frappe.get_doc(
+		{
+			"doctype": "Bestandsversie",
+			"bestand": doc.name,
+			"ruimte": deling.ruimte,
+			"volgnummer": 1,
+			"s3_sleutel": info["sleutel"],
+			"grootte": info["grootte"],
+			"bron": "link",
+			"maker": "Guest",
+			"blokgrootte": info["blokgrootte"],
+		}
+	).insert(ignore_permissions=True)
+	_log(deling.ruimte, "nieuw", "Opslagbestand", doc.name, naam)
+	frappe.cache.delete_value(UPLOAD_SLEUTEL + upload)
+	_meld_maker(deling, naam, (afzender or "").strip()[:140])
+	return {"naam": naam}
+
+
+def _meld_maker(deling, naam: str, afzender: str) -> None:
+	"""Melding (bel in de desk) aan wie de uploadlink maakte; een mislukte melding laat de upload staan."""
+	if not deling.owner or deling.owner in ("Guest", "Administrator"):
+		return
+	map_naam = frappe.db.get_value("Opslagmap", deling.doel, "naam")
+	onderwerp = (
+		_("{0} heeft {1} aangeleverd in {2}").format(afzender, naam, map_naam)
+		if afzender
+		else _("{0} is aangeleverd in {1}").format(naam, map_naam)
+	)
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Notification Log",
+				"for_user": deling.owner,
+				"type": "Alert",
+				"subject": frappe.utils.escape_html(onderwerp),
+				"document_type": "Opslagmap",
+				"document_name": deling.doel,
+			}
+		).insert(ignore_permissions=True)
+	except Exception:
+		frappe.log_error(title="Melding over een aangeleverd bestand niet gemaakt")
