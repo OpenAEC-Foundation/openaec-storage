@@ -86,17 +86,18 @@ def grootte(sleutel: str) -> int:
 	return int(_client().head_object(Bucket=bucket(), Key=sleutel)["ContentLength"])
 
 
-def download_url(sleutel: str, bestandsnaam: str) -> str:
+def download_url(sleutel: str, bestandsnaam: str, inhoudstype: str | None = None) -> str:
+	"""Ondertekende downloadlink. Met `inhoudstype` toont de browser het bestand (inline, voor een voorbeeld van een
+	PDF of afbeelding); zonder wordt het een download."""
 	veilig = bestandsnaam.replace('"', "")
-	return _client(publiek=True).generate_presigned_url(
-		"get_object",
-		Params={
-			"Bucket": bucket(),
-			"Key": sleutel,
-			"ResponseContentDisposition": f'attachment; filename="{veilig}"',
-		},
-		ExpiresIn=LINK_GELDIG_SECONDEN,
-	)
+	params = {
+		"Bucket": bucket(),
+		"Key": sleutel,
+		"ResponseContentDisposition": f'{"inline" if inhoudstype else "attachment"}; filename="{veilig}"',
+	}
+	if inhoudstype:
+		params["ResponseContentType"] = inhoudstype
+	return _client(publiek=True).generate_presigned_url("get_object", Params=params, ExpiresIn=LINK_GELDIG_SECONDEN)
 
 
 MAX_DELEN = 9000  # onder de S3-grens van 10 000 parts, met ruimte voor groei

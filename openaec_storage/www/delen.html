@@ -1,80 +1,167 @@
+{#
+	Deelpagina /delen/<token>: dezelfde opbouw als de inlogpagina van openaec_web (kop, donker vlak in de huisstijl van
+	de klant, kaart), met de inhoud van de link in de kaart. Alles wat van de server of de gebruiker komt, wordt
+	ge-escaped; de inhoud komt via textContent in de pagina.
+#}
 {% extends "templates/web.html" %}
 
-{% block page_content %}
-<div class="oas-delen" data-token="{{ token | e }}" data-bedrijf="{{ (huisstijl.naam or '') | e }}"{% if huisstijl.kleur %} style="--oas-kleur: {{ huisstijl.kleur }}"{% endif %}>
-	{% if huisstijl.logo or huisstijl.naam %}
-	<header class="oas-merk">
-		{% if huisstijl.logo %}<img src="{{ huisstijl.logo | e }}" alt="{{ (huisstijl.naam or '') | e }}" class="oas-logo">{% endif %}
-		{% if huisstijl.naam %}<span class="oas-bedrijf">{{ huisstijl.naam | e }}</span>{% endif %}
-	</header>
-	{% endif %}
-	{% if huisstijl.afbeelding %}<img src="{{ huisstijl.afbeelding | e }}" alt="" class="oas-afbeelding">{% endif %}
-	<h1 class="oas-titel">{% if huisstijl.naam %}Gedeeld door {{ huisstijl.naam | e }}{% else %}Gedeeld via OpenAEC Storage{% endif %}</h1>
-	<form class="oas-wachtwoord" hidden>
-		<p>Deze link is beveiligd met een wachtwoord.</p>
-		<input type="password" class="form-control" placeholder="Wachtwoord" autocomplete="current-password">
-		<button type="submit" class="btn btn-primary btn-sm">Openen</button>
-	</form>
-	<p class="oas-melding text-muted">Laden…</p>
-	<nav class="oas-pad"></nav>
-	<ul class="oas-lijst list-unstyled"></ul>
-	<section class="oas-aanleveren" hidden>
-		<p class="oas-uitleg"></p>
-		<label class="oas-afzender">Je naam (optioneel)
-			<input type="text" class="form-control" maxlength="140" autocomplete="name">
-		</label>
-		<label class="oas-vak">
-			<input type="file" multiple hidden>
-			<span>Sleep bestanden hierheen of <u>kies bestanden</u></span>
-		</label>
-		<ul class="oas-voortgang list-unstyled"></ul>
-	</section>
-</div>
+{% block title %}{{ title | e }}{% endblock %}
+
+{% block head_include %}
+{% if oa_schil %}<link type="text/css" rel="stylesheet" href="/assets/openaec_web/css/openaec_web.css">{% endif %}
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+{% endblock %}
+
+{% block navbar %}
+{% if oa_schil %}
+<a class="naar-inhoud" href="#inhoud">{{ _("Naar de inhoud") }}</a>
+{% include "templates/openaec_web/kop.html" %}
+{% else %}{{ super() }}{% endif %}
+{% endblock %}
+
+{% block content %}
+{%- set hs = huisstijl -%}
+<main id="inhoud" class="oa-login oas-delen{% if hs.kleur %} oa-login-huisstijl{% endif %}"
+	data-token="{{ token | e }}" data-stand="{{ stand | e }}" data-soort="{{ (soort or '') | e }}"
+	{%- if hs.kleur %} style="--oa-huisstijl-kleur: {{ hs.kleur | e }}; --oas-kleur: {{ hs.kleur | e }}"{% endif %}>
+	<div class="wrap oa-login-raster">
+		<aside class="hero oa-login-intro op-donker{% if hs.afbeelding %} met-afbeelding{% endif %}"
+			{%- if hs.afbeelding %} style="background-image: url('{{ hs.afbeelding | e }}')"{% endif %}>
+			<div class="raster-achtergrond" aria-hidden="true"></div>
+			<div class="oa-login-intro-tekst">
+				{% if hs.logo %}<img class="oa-login-logo" src="{{ hs.logo | e }}" alt="{{ (hs.naam or '') | e }}">{% endif %}
+				<p class="bovenkop">{{ (hs.naam or "OpenAEC SuperCloud") | e }}</p>
+				<h2>{{ kop | e }}</h2>
+				{% if lead %}<p class="lead">{{ lead | e }}</p>{% endif %}
+			</div>
+		</aside>
+
+		<div class="oa-login-rechts">
+			<section class="page-card kaart oas-kaart" aria-live="polite">
+				{% if fout_titel %}
+				<div class="kaartkop">
+					<h1 class="kaarttitel">{{ fout_titel | e }}</h1>
+					<p class="page-card-subtitle">{{ fout_tekst | e }}</p>
+				</div>
+				{% else %}
+				<form class="oas-wachtwoord" hidden>
+					<div class="kaartkop">
+						<h1 class="kaarttitel">{{ _("Wachtwoord nodig") }}</h1>
+						<p class="page-card-subtitle">{{ _("Deze link is beveiligd. Vul het wachtwoord in dat je van de afzender kreeg.") }}</p>
+					</div>
+					<label for="oas-ww">{{ _("Wachtwoord") }}</label>
+					<input id="oas-ww" type="password" class="form-control" autocomplete="current-password" required>
+					<button type="submit" class="knop knop-primair knop-groot">{{ _("Openen") }}</button>
+				</form>
+
+				<div class="oas-bestand" hidden>
+					<div class="kaartkop">
+						<h1 class="kaarttitel oas-naam"></h1>
+						<p class="page-card-subtitle oas-meta"></p>
+					</div>
+					<div class="oas-voorbeeld" hidden></div>
+					<button type="button" class="knop knop-primair knop-groot oas-download">{{ _("Downloaden") }}</button>
+				</div>
+
+				<div class="oas-map" hidden>
+					<div class="kaartkop">
+						<h1 class="kaarttitel oas-mapnaam"></h1>
+						<nav class="oas-pad" aria-label="{{ _('Mappen') }}"></nav>
+					</div>
+					<input type="search" class="form-control oas-zoek" placeholder="{{ _('Zoeken in deze map') }}">
+					<ul class="oas-lijst"></ul>
+					<div class="oas-voorbeeld" hidden></div>
+				</div>
+
+				<div class="oas-aanleveren" hidden>
+					<div class="kaartkop">
+						<h1 class="kaarttitel oas-doelmap"></h1>
+						<p class="page-card-subtitle oas-uitleg"></p>
+					</div>
+					<label for="oas-afzender">{{ _("Je naam (optioneel)") }}</label>
+					<input id="oas-afzender" type="text" class="form-control" maxlength="140" autocomplete="name">
+					<label class="oas-vak">
+						<input type="file" multiple hidden>
+						<span>{{ _("Sleep bestanden hierheen of") }} <u>{{ _("kies bestanden") }}</u></span>
+					</label>
+					<ul class="oas-voortgang"></ul>
+				</div>
+
+				<p class="page-card-subtitle oas-melding" role="status"></p>
+				{% endif %}
+			</section>
+		</div>
+	</div>
+</main>
 <style>
-	.oas-delen { --oas-kleur: var(--primary); max-width: 720px; margin: 2rem auto; }
-	.oas-merk { display: flex; align-items: center; gap: .75rem; margin-bottom: 1.25rem; }
-	.oas-logo { max-height: 48px; max-width: 220px; object-fit: contain; }
-	.oas-bedrijf { font-weight: 600; font-size: 1.1rem; }
-	.oas-afbeelding { width: 100%; max-height: 220px; object-fit: cover; border-radius: .5rem; margin-bottom: 1.25rem; }
-	.oas-delen .btn-primary { background: var(--oas-kleur); border-color: var(--oas-kleur); }
-	.oas-titel { font-size: 1.4rem; margin-bottom: 1rem; }
-	.oas-wachtwoord { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
-	.oas-wachtwoord p { width: 100%; margin: 0; }
-	.oas-wachtwoord input { max-width: 260px; }
-	.oas-pad button { border: none; background: none; padding: 0; color: var(--oas-kleur); }
-	.oas-lijst li { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-top: 1px solid var(--border-color); }
-	.oas-lijst button { border: none; background: none; padding: 0; text-align: left; color: var(--oas-kleur); }
-	.oas-grootte { color: var(--text-muted); white-space: nowrap; }
-	.oas-afzender { display: block; max-width: 320px; margin-bottom: 1rem; }
-	.oas-vak { display: block; border: 2px dashed var(--border-color); border-radius: .5rem; padding: 2rem 1rem;
-		text-align: center; cursor: pointer; color: var(--text-muted); }
+	.oas-delen { --oas-kleur: var(--oa-huisstijl-kleur, var(--primary, #d97706)); }
+	.oas-kaart { width: 100%; }
+	.oas-kaart label { display: block; margin: .75rem 0 .25rem; font-weight: 500; }
+	.oas-kaart .knop-groot { width: 100%; margin-top: 1rem; }
+	.oas-kaart .knop-primair { background: var(--oas-kleur); border-color: var(--oas-kleur); }
+	.oas-melding:empty { display: none; }
+	.oas-melding.oas-fout { color: #b42318; }
+	.oas-voorbeeld { margin-top: 1rem; border: 1px solid rgba(0, 0, 0, .1); border-radius: .5rem; overflow: hidden; background: #f6f6f7; }
+	.oas-voorbeeld img { display: block; max-width: 100%; max-height: 60vh; margin: 0 auto; }
+	.oas-voorbeeld iframe { display: block; width: 100%; height: 60vh; border: 0; }
+	.oas-pad { font-size: .9rem; margin-top: .25rem; }
+	.oas-pad button, .oas-lijst .oas-item { border: none; background: none; padding: 0; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+	.oas-pad button:hover, .oas-lijst .oas-item:hover { color: var(--oas-kleur); }
+	.oas-zoek { margin: .75rem 0 .25rem; }
+	.oas-lijst, .oas-voortgang { list-style: none; padding: 0; margin: .5rem 0 0; }
+	.oas-lijst li, .oas-voortgang li { display: flex; align-items: center; gap: .75rem; padding: .6rem 0; border-top: 1px solid rgba(0, 0, 0, .08); }
+	.oas-lijst .oas-item { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.oas-grootte { color: #6b6b76; font-size: .85rem; white-space: nowrap; }
+	.oas-lijst .knop-klein { padding: .25rem .6rem; }
+	.oas-vak { display: block; margin-top: 1rem; border: 2px dashed rgba(0, 0, 0, .18); border-radius: .5rem; padding: 2rem 1rem; text-align: center; cursor: pointer; color: #6b6b76; font-weight: 400; }
 	.oas-vak.oas-erboven { border-color: var(--oas-kleur); color: var(--oas-kleur); }
-	.oas-voortgang li { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0;
-		border-top: 1px solid var(--border-color); }
-	.oas-voortgang .oas-fout { color: var(--red-600, #c0392b); }
+	.oas-voortgang li span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.oas-voortgang .oas-fout { color: #b42318; }
+	.oas-voet { padding: 1.5rem 0; text-align: center; font-size: .85rem; color: #6b6b76; }
+	.oas-voet a { color: inherit; text-decoration: underline; }
+	{% if not oa_schil %}
+	.oas-delen .oa-login-raster { display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); max-width: 1080px; margin: 2rem auto; padding: 0 1rem; }
+	.oas-delen .hero { position: relative; border-radius: .75rem; padding: 2rem; color: #fff; background: #2a2a32 center / cover no-repeat; min-height: 220px; }
+	.oas-delen .oa-login-logo { max-height: 56px; max-width: 220px; margin-bottom: 1rem; }
+	.oas-delen .kaart { border: 1px solid rgba(0, 0, 0, .1); border-radius: .75rem; padding: 1.5rem; }
+	.oas-delen .knop { display: inline-block; border: 1px solid; border-radius: .5rem; padding: .6rem 1rem; color: #fff; }
+	@media (max-width: 760px) { .oas-delen .oa-login-raster { grid-template-columns: 1fr; } }
+	{% endif %}
 </style>
+{% endblock %}
+
+{% block footer %}
+{% if oa_schil %}
+<footer class="oas-voet">
+	{{ _("Verzonden via") }} <a href="{{ oa_cloud_url | e }}">OpenAEC SuperCloud</a> · {{ _("bestanden opgeslagen in Europa") }}
+</footer>
+{% else %}{{ super() }}{% endif %}
 {% endblock %}
 
 {% block script %}
 <script>
 (() => {
 	const root = document.querySelector(".oas-delen")
+	if (!root || ["onbekend", "verlopen", "weg"].includes(root.dataset.stand)) return
 	const token = root.dataset.token
-	const melding = root.querySelector(".oas-melding")
-	const lijst = root.querySelector(".oas-lijst")
-	const pad = root.querySelector(".oas-pad")
-	const form = root.querySelector(".oas-wachtwoord")
+	const $ = (sel, binnen = root) => binnen.querySelector(sel)
+	const melding = $(".oas-melding")
+	const form = $(".oas-wachtwoord")
 	let wachtwoord = ""
 	const spoor = []
 
 	const grootte = (b) => {
 		const e = ["B", "kB", "MB", "GB", "TB"]
 		let i = 0
+		b = b || 0
 		while (b >= 1024 && i < e.length - 1) { b /= 1024; i++ }
 		return `${b.toFixed(i ? 1 : 0)} ${e[i]}`
 	}
+	const datum = (d) => (d ? new Date(String(d).replace(" ", "T")).toLocaleDateString(document.documentElement.lang || "nl-NL", { day: "numeric", month: "long", year: "numeric" }) : "")
+	const zeg = (tekst, fout = false) => { melding.textContent = tekst || ""; melding.classList.toggle("oas-fout", fout) }
 
-	const roep = async (methode, gegevens) => {
+	const roep = async (methode, gegevens = {}) => {
 		const r = await fetch(`/api/method/openaec_storage.delen.${methode}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json", "Accept": "application/json" },
@@ -82,88 +169,134 @@
 		})
 		const data = await r.json().catch(() => ({}))
 		if (!r.ok) {
-			let tekst = "Deze link is niet (meer) geldig"
+			let tekst = "Er ging iets mis. Probeer het later opnieuw."
 			try { tekst = JSON.parse(JSON.parse(data._server_messages)[0]).message } catch (e) {}
-			throw new Error(tekst)
+			const fout = new Error(tekst)
+			fout.wachtwoord = /wachtwoord/i.test(tekst)
+			throw fout
 		}
 		return data.message
 	}
 
-	const regel = (naam, extra, actie) => {
-		const li = document.createElement("li")
-		const knop = document.createElement("button")
-		knop.textContent = naam
-		knop.addEventListener("click", actie)
-		const rechts = document.createElement("span")
-		rechts.className = "oas-grootte"
-		rechts.textContent = extra
-		li.append(knop, rechts)
-		lijst.append(li)
+	// --- voorbeeld en downloaden -------------------------------------------------------------------
+
+	const toonVoorbeeld = async (vak, bestand, naam) => {
+		vak.replaceChildren()
+		vak.hidden = true
+		const { url } = await roep("download", { bestand, voorbeeld: 1 })
+		const pdf = /\.pdf$/i.test(naam)
+		const el = document.createElement(pdf ? "iframe" : "img")
+		el.src = url
+		if (pdf) el.title = "Voorbeeld"
+		else el.alt = ""
+		vak.append(el)
+		vak.hidden = false
 	}
 
 	const download = async (bestand) => {
 		try {
 			const { url } = await roep("download", bestand ? { bestand } : {})
 			window.location.href = url
-		} catch (e) { melding.textContent = e.message }
+		} catch (e) { zeg(e.message, true) }
 	}
 
+	// --- één bestand ---------------------------------------------------------------------------------
+
+	const toonBestand = (b) => {
+		const vak = $(".oas-bestand")
+		$(".oas-naam", vak).textContent = b.naam
+		$(".oas-meta", vak).textContent = [grootte(b.grootte), datum(b.gewijzigd)].filter(Boolean).join(" · ")
+		$(".oas-download", vak).onclick = () => download(null)
+		vak.hidden = false
+		if (b.voorbeeld) toonVoorbeeld($(".oas-voorbeeld", vak), null, b.naam).catch(() => {})
+	}
+
+	// --- map -----------------------------------------------------------------------------------------
+
+	const kaartMap = $(".oas-map")
+	const zoek = $(".oas-zoek", kaartMap)
+	const lijst = $(".oas-lijst", kaartMap)
+	let inhoud = { mappen: [], bestanden: [] }
+
 	const toonPad = () => {
+		const pad = $(".oas-pad", kaartMap)
 		pad.replaceChildren()
+		if (spoor.length < 2) return
 		spoor.forEach((stap, i) => {
 			if (i) pad.append(" / ")
 			const b = document.createElement("button")
-			b.textContent = stap.naam || "…"
+			b.type = "button"
+			b.textContent = stap.naam
 			b.addEventListener("click", () => { spoor.length = i + 1; laad() })
 			pad.append(b)
 		})
 	}
 
-	const laad = async () => {
-		melding.textContent = "Laden…"
-		lijst.replaceChildren()
-		try {
-			const map = spoor.length ? spoor[spoor.length - 1].map : null
-			const inhoud = await roep("openen", map ? { map } : {})
-			form.hidden = true
-			if (inhoud.uploaden) {
-				toonAanleveren(inhoud)
-				return
-			}
-			if (inhoud.bestand) {
-				melding.textContent = ""
-				regel(inhoud.bestand.naam, grootte(inhoud.bestand.grootte), () => download(null))
-				return
-			}
-			if (!spoor.length) spoor.push({ map: null, naam: inhoud.map })
-			toonPad()
-			melding.textContent = inhoud.mappen.length || inhoud.bestanden.length ? "" : "Deze map is leeg."
-			inhoud.mappen.forEach((m) => regel(`📁 ${m.naam}`, "", () => { spoor.push({ map: m.name, naam: m.naam }); laad() }))
-			inhoud.bestanden.forEach((b) => regel(b.naam, grootte(b.grootte), () => download(b.name)))
-		} catch (e) {
-			melding.textContent = e.message
-			if (/wachtwoord/i.test(e.message)) form.hidden = false
-		}
+	const regel = (tekst, extra, open, knop) => {
+		const li = document.createElement("li")
+		const naam = document.createElement("button")
+		naam.type = "button"
+		naam.className = "oas-item"
+		naam.textContent = tekst
+		naam.addEventListener("click", open)
+		const rechts = document.createElement("span")
+		rechts.className = "oas-grootte"
+		rechts.textContent = extra
+		li.append(naam, rechts)
+		if (knop) li.append(knop)
+		lijst.append(li)
 	}
 
-	// Bestanden opvragen: alleen aanleveren, de inhoud van de map blijft verborgen.
-	const aanleveren = root.querySelector(".oas-aanleveren")
-	const vak = aanleveren.querySelector(".oas-vak")
-	const kiezer = vak.querySelector("input")
-	const afzender = aanleveren.querySelector(".oas-afzender input")
-	const voortgang = aanleveren.querySelector(".oas-voortgang")
+	const toonInhoud = () => {
+		const filter = zoek.value.trim().toLowerCase()
+		const past = (n) => !filter || n.toLowerCase().includes(filter)
+		lijst.replaceChildren()
+		for (const m of inhoud.mappen.filter((m) => past(m.naam))) {
+			regel(`📁 ${m.naam}`, "", () => { spoor.push({ map: m.name, naam: m.naam }); laad() })
+		}
+		const voorbeeldVak = $(".oas-voorbeeld", kaartMap)
+		for (const b of inhoud.bestanden.filter((b) => past(b.naam))) {
+			const knop = document.createElement("button")
+			knop.type = "button"
+			knop.className = "knop knop-secundair knop-klein"
+			knop.textContent = "Downloaden"
+			knop.addEventListener("click", () => download(b.name))
+			const open = b.voorbeeld
+				? () => toonVoorbeeld(voorbeeldVak, b.name, b.naam).catch((e) => zeg(e.message, true))
+				: () => download(b.name)
+			regel(b.naam, grootte(b.grootte), open, knop)
+		}
+		if (!lijst.children.length) zeg(filter ? "Niets gevonden." : "Deze map is leeg.")
+		else zeg("")
+	}
+
+	const toonMap = (data) => {
+		inhoud = data
+		if (!spoor.length) spoor.push({ map: null, naam: data.map })
+		$(".oas-mapnaam", kaartMap).textContent = spoor[spoor.length - 1].naam || data.map
+		$(".oas-voorbeeld", kaartMap).hidden = true
+		toonPad()
+		kaartMap.hidden = false
+		toonInhoud()
+	}
+	zoek.addEventListener("input", toonInhoud)
+
+	// --- aanleveren ----------------------------------------------------------------------------------
+
+	const kaartAanleveren = $(".oas-aanleveren")
+	const vak = $(".oas-vak", kaartAanleveren)
+	const kiezer = $("input[type=file]", vak)
+	const afzender = $("#oas-afzender")
+	const voortgang = $(".oas-voortgang", kaartAanleveren)
 	let maximum = 0
 	let wachtrij = Promise.resolve()
 
-	const toonAanleveren = (inhoud) => {
-		melding.textContent = ""
-		maximum = inhoud.max_grootte
-		const bedrijf = root.dataset.bedrijf
-		root.querySelector(".oas-titel").textContent = bedrijf ? `Bestanden aanleveren voor ${bedrijf}` : "Bestanden aanleveren"
-		aanleveren.querySelector(".oas-uitleg").textContent =
-			`Lever hier bestanden aan voor "${inhoud.map}" (per bestand hoogstens ${grootte(maximum)}). ` +
-			"Je ziet niet wat er al in de map staat."
-		aanleveren.hidden = false
+	const toonAanleveren = (data) => {
+		maximum = data.max_grootte
+		$(".oas-doelmap", kaartAanleveren).textContent = data.map
+		$(".oas-uitleg", kaartAanleveren).textContent =
+			`Je bestanden komen in deze map. Je ziet niet wat er al in staat. Per bestand hoogstens ${grootte(maximum)}.`
+		kaartAanleveren.hidden = false
 	}
 
 	const leverAan = async (bestand) => {
@@ -193,14 +326,13 @@
 				stand.textContent = `${Math.floor((100 * verstuurd) / Math.max(1, bestand.size))}%`
 			}
 			const klaar = await roep("upload_klaar", { upload: start.upload, delen, afzender: afzender.value || null })
-			stand.textContent = klaar.naam === bestand.name ? "ontvangen" : `ontvangen als ${klaar.naam}`
+			stand.textContent = klaar.naam === bestand.name ? "✓ ontvangen" : `✓ ontvangen als ${klaar.naam}`
 		} catch (e) {
 			stand.textContent = e.message
 			stand.classList.add("oas-fout")
 		}
 	}
 
-	// Eén bestand tegelijk, in de volgorde van kiezen.
 	const voegToe = (bestanden) => {
 		for (const b of bestanden) wachtrij = wachtrij.then(() => leverAan(b))
 	}
@@ -213,12 +345,36 @@
 		voegToe([...ev.dataTransfer.files])
 	})
 
+	// --- laden ---------------------------------------------------------------------------------------
+
+	const laad = async () => {
+		zeg("Laden…")
+		try {
+			const map = spoor.length ? spoor[spoor.length - 1].map : null
+			const data = await roep("openen", map ? { map } : {})
+			form.hidden = true
+			zeg("")
+			if (data.uploaden) toonAanleveren(data)
+			else if (data.bestand) toonBestand(data.bestand)
+			else toonMap(data)
+		} catch (e) {
+			if (e.wachtwoord) {
+				zeg(wachtwoord ? "Dit wachtwoord klopt niet." : "", Boolean(wachtwoord))
+				form.hidden = false
+				$("#oas-ww").focus()
+			} else zeg(e.message, true)
+		}
+	}
+
 	form.addEventListener("submit", (ev) => {
 		ev.preventDefault()
-		wachtwoord = form.querySelector("input").value
+		wachtwoord = $("#oas-ww").value
 		laad()
 	})
-	laad()
+	if (root.dataset.stand === "wachtwoord") {
+		form.hidden = false
+		$("#oas-ww").focus()
+	} else laad()
 })()
 </script>
 {% endblock %}

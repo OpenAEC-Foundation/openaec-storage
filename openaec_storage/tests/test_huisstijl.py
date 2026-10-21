@@ -59,5 +59,6 @@ class TestHuisstijl(IntegrationTestCase):
 		with patch.object(huisstijl, "voor_deelpagina", return_value=MERK):
 			html = pagina("delen/abc123")
 		self.assertIn('src="/files/logo.png"', html)
-		self.assertIn("Gedeeld door Bouwbedrijf De Vries", html)
+		self.assertIn('<p class="bovenkop">Bouwbedrijf De Vries</p>', html)
+		self.assertIn("background-image: url('https://cdn.example.org/bouw.jpg')", html)
 		self.assertIn("--oas-kleur: #1a6e3c", html)

@@ -27,6 +27,8 @@ permission_query_conditions = {
 
 # Deellinks zonder account: /delen/<token> (www/delen.html)
 website_route_rules = [{"from_route": "/delen/<token>", "to_route": "delen"}]
+# De deelpagina geeft 404/410 bij een ongeldige link (Frappe neemt geen statuscode uit de paginacontext over).
+after_request = ["openaec_storage.delen.na_verzoek"]
 # Storage in de browser (/opslag) voor wie geen desktop-app heeft; ook delingen beheren.
 standard_portal_menu_items = [{"title": "Bestanden", "route": "/opslag"}]
 

@@ -18,6 +18,16 @@ from frappe.utils import cint, flt, now_datetime
 from openaec_storage import s3
 from openaec_storage.rechten import voorouders
 
+# Bestanden die de deelpagina in de browser kan tonen (geen SVG: dat is een document met scripts).
+VOORBEELD = {
+	".pdf": "application/pdf",
+	".png": "image/png",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif": "image/gif",
+	".webp": "image/webp",
+}
+
 UPLOAD_SLEUTEL = "openaec_storage:linkupload:"
 UPLOAD_GELDIG_SECONDEN = 24 * 3600
 STANDAARD_MAX_GB = 5
@@ -39,6 +49,39 @@ def _deling(token: str, wachtwoord: str | None):
 	return rij
 
 
+def stand(token: str | None) -> tuple[str, dict | None]:
+	"""Wat de deelpagina moet tonen, zonder iets prijs te geven: `geldig`, `wachtwoord` (eerst een wachtwoord),
+	`onbekend` (bestaat niet of ingetrokken), `verlopen` of `weg` (doel verwijderd), plus de deling."""
+	rij = (
+		frappe.db.get_value(
+			"Opslagdeling",
+			{"token": token, "soort": "link"},
+			["name", "ruimte", "doel_doctype", "doel", "rechten", "wachtwoord_hash", "verloopt", "ingetrokken", "owner"],
+			as_dict=True,
+		)
+		if token
+		else None
+	)
+	if not rij or rij.ingetrokken:
+		return "onbekend", None
+	if rij.verloopt and rij.verloopt < now_datetime():
+		return "verlopen", rij
+	if frappe.db.get_value(rij.doel_doctype, rij.doel, "verwijderd_op") or not frappe.db.exists(rij.doel_doctype, rij.doel):
+		return "weg", rij
+	return ("wachtwoord" if rij.wachtwoord_hash else "geldig"), rij
+
+
+def na_verzoek(response=None, request=None) -> None:
+	"""Hook `after_request`: de statuscode die de deelpagina koos (404/410 bij een ongeldige link)."""
+	status = getattr(frappe.local, "openaec_status", None)
+	if status and response is not None:
+		response.status_code = status
+
+
+def _voorbeeld(naam: str) -> bool:
+	return os.path.splitext(naam or "")[1].lower() in VOORBEELD
+
+
 def _bestand_info(naam: str) -> dict:
 	return frappe.db.get_value(
 		"Opslagbestand", naam, ["name", "naam", "grootte", "huidige_versie", "map", "verwijderd_op"], as_dict=True
@@ -57,7 +100,15 @@ def openen(token: str, wachtwoord: str | None = None, map: str | None = None) ->
 		bestand = _bestand_info(deling.doel)
 		if not bestand or bestand.verwijderd_op:
 			frappe.throw(_("Dit bestand is niet meer beschikbaar"), frappe.DoesNotExistError)
-		return {"bestand": {"naam": bestand.naam, "grootte": bestand.grootte}}
+		gewijzigd = frappe.db.get_value("Opslagbestand", bestand.name, "modified")
+		return {
+			"bestand": {
+				"naam": bestand.naam,
+				"grootte": bestand.grootte,
+				"gewijzigd": gewijzigd,
+				"voorbeeld": _voorbeeld(bestand.naam),
+			}
+		}
 	if deling.rechten == "uploaden":
 		return {
 			"uploaden": True,
@@ -76,19 +127,23 @@ def openen(token: str, wachtwoord: str | None = None, map: str | None = None) ->
 			order_by="naam asc",
 			ignore_permissions=True,
 		),
-		"bestanden": frappe.get_all(
-			"Opslagbestand",
-			filters={"map": map, "verwijderd_op": ("is", "not set")},
-			fields=["name", "naam", "grootte"],
-			order_by="naam asc",
-			ignore_permissions=True,
-		),
+		"bestanden": [
+			{**b, "voorbeeld": _voorbeeld(b.naam)}
+			for b in frappe.get_all(
+				"Opslagbestand",
+				filters={"map": map, "verwijderd_op": ("is", "not set")},
+				fields=["name", "naam", "grootte", "modified as gewijzigd"],
+				order_by="naam asc",
+				ignore_permissions=True,
+			)
+		],
 	}
 
 
 @frappe.whitelist(allow_guest=True)
-def download(token: str, wachtwoord: str | None = None, bestand: str | None = None) -> dict:
-	"""Tijdelijke downloadlink voor het gedeelde bestand, of voor een bestand binnen de gedeelde map."""
+def download(token: str, wachtwoord: str | None = None, bestand: str | None = None, voorbeeld: int = 0) -> dict:
+	"""Tijdelijke downloadlink voor het gedeelde bestand, of voor een bestand binnen de gedeelde map. Met `voorbeeld`
+	(alleen PDF en afbeeldingen) een link die de browser toont in plaats van downloadt."""
 	deling = _deling(token, wachtwoord)
 	if deling.rechten == "uploaden":
 		frappe.throw(_("Via deze link kun je alleen bestanden aanleveren"), frappe.PermissionError)
@@ -101,7 +156,8 @@ def download(token: str, wachtwoord: str | None = None, bestand: str | None = No
 	sleutel = frappe.db.get_value(
 		"Bestandsversie", {"bestand": info.name, "volgnummer": info.huidige_versie}, "s3_sleutel"
 	)
-	return {"url": s3.download_url(sleutel, info.naam), "geldig_seconden": s3.LINK_GELDIG_SECONDEN}
+	inhoudstype = VOORBEELD.get(os.path.splitext(info.naam)[1].lower()) if cint(voorbeeld) else None
+	return {"url": s3.download_url(sleutel, info.naam, inhoudstype), "geldig_seconden": s3.LINK_GELDIG_SECONDEN}
 
 
 # --- bestanden opvragen (uploadlink) -----------------------------------------------------------------
