@@ -669,12 +669,13 @@ def maak_map(ruimte: str, naam: str, bovenliggende: str | None = None) -> dict:
 	bovenliggende = _controleer_map(ruimte, bovenliggende)
 	vereis_op_plek(ruimte, bovenliggende, "write")
 	naam = _controleer_naam(naam)
-	# Gelijktijdige aanvragen (parallelle uploads die dezelfde map nodig hebben) wachten op elkaar: anders maken ze
-	# allemaal een eigen map met dezelfde naam aan.
+	# Gelijktijdige aanvragen (parallelle uploads die dezelfde map nodig hebben) wachten op elkaar via een slot op de
+	# ruimte; de controle daarna is ook een vergrendelende leesactie, zodat hij de map ziet die een andere aanvraag
+	# net aanmaakte (een gewone select leest uit de momentopname van het begin van de transactie).
 	frappe.db.sql("select name from `tabRuimte` where name = %s for update", ruimte)
 	bestaand = frappe.db.sql(
 		"""select name from `tabOpslagmap` where ruimte = %s and ifnull(bovenliggende, '') = %s
-		and lower(naam) = lower(%s) and verwijderd_op is null""",
+		and lower(naam) = lower(%s) and verwijderd_op is null for update""",
 		(ruimte, bovenliggende or "", naam),
 	)
 	if bestaand:
