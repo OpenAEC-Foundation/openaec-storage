@@ -29,3 +29,22 @@ class TestDeelpagina(IntegrationTestCase):
 		html = pagina("delen/abc123")
 		self.assertIn("upload_start", html)
 		self.assertIn("upload_klaar", html)
+
+
+class TestOpslagpagina(IntegrationTestCase):
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def test_gast_gaat_naar_inloggen(self):
+		frappe.set_user("Guest")
+		set_request(method="GET", path="/opslag")
+		response = frappe.website.serve.get_response("opslag")
+		self.assertIn(response.status_code, (301, 302, 303, 307, 308))
+		self.assertIn("/login?redirect-to=/opslag", response.headers.get("Location", ""))
+
+	def test_ingelogd_toont_de_bestandenpagina(self):
+		frappe.set_user("Administrator")
+		html = pagina("opslag")
+		self.assertIn("oas-app", html)
+		self.assertIn("openaec_storage.api.", html)
+		self.assertIn('data-csrf="', html)

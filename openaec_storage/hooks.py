@@ -27,6 +27,8 @@ permission_query_conditions = {
 
 # Deellinks zonder account: /delen/<token> (www/delen.html)
 website_route_rules = [{"from_route": "/delen/<token>", "to_route": "delen"}]
+# Storage in de browser (/opslag) voor wie geen desktop-app heeft; ook delingen beheren.
+standard_portal_menu_items = [{"title": "Bestanden", "route": "/opslag"}]
 
 after_install = "openaec_storage.installatie.na_installatie"
 after_migrate = "openaec_storage.installatie.na_migratie"
