@@ -32,3 +32,6 @@ standard_portal_menu_items = [{"title": "Bestanden", "route": "/opslag"}]
 
 after_install = "openaec_storage.installatie.na_installatie"
 after_migrate = "openaec_storage.installatie.na_migratie"
+
+# Huisstijl op de deelpagina: een app (bijv. het beheer) kan een functie registreren onder `openaec_huisstijl` die
+# naam, logo, afbeelding en kleur geeft; zonder die hook gelden de Website Settings (zie huisstijl.py).
