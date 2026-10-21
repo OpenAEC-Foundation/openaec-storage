@@ -51,7 +51,8 @@ def get_context(context):
 		frappe.local.openaec_status = status
 		context.fout_titel = _(titel)
 		context.fout_tekst = _(tekst).format(format_date(deling.verloopt) if deling and deling.verloopt else "")
-		context.kop = _(titel)
+		# De melding staat in de kaart; het donkere vlak blijft neutraal (niet twee keer dezelfde kop).
+		context.kop = _("Gedeelde link")
 	else:
 		context.kop = {
 			"uploaden": _("Lever je bestanden aan"),
@@ -60,7 +61,8 @@ def get_context(context):
 		if context.gedeeld_door:
 			sjabloon = _("Gevraagd door {0}") if context.soort == "uploaden" else _("Gedeeld door {0}")
 			context.lead = sjabloon.format(context.gedeeld_door)
-	context.title = context.huisstijl.get("naam") and f"{context.kop} · {context.huisstijl['naam']}" or context.kop
+	paginatitel = context.get("fout_titel") or context.kop
+	context.title = f"{paginatitel} · {context.huisstijl['naam']}" if context.huisstijl.get("naam") else paginatitel
 
 	context.oa_schil = "openaec_web" in frappe.get_installed_apps()
 	if context.oa_schil:

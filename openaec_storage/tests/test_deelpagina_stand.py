@@ -32,7 +32,8 @@ class TestDeelpaginaStand(IntegrationTestCase):
 
 	def test_onbekende_link_geeft_een_duidelijke_melding_en_404(self):
 		html = pagina("delen/bestaat-niet")
-		self.assertIn("Deze link werkt niet (meer)", html)
+		self.assertIn('class="kaarttitel">Deze link werkt niet (meer)</h1>', html)
+		self.assertIn("<h2>Gedeelde link</h2>", html)  # niet twee keer dezelfde kop
 		self.assertIn("Vraag de afzender om een nieuwe link", html)
 		self.assertNotIn("Ongeldig", html)
 		self.assertEqual(frappe.local.openaec_status, 404)
