@@ -67,7 +67,10 @@ def _log(ruimte: str, soort: str, doctype: str, doel: str, naam: str | None = No
 
 
 def _gebruikt_bytes() -> int:
-	return cint(frappe.db.sql("select coalesce(sum(grootte), 0) from `tabBestandsversie`")[0][0])
+	"""Alle versies in de ruimtes plus de overdrachten die nog bestaan."""
+	from openaec_storage import overdracht
+
+	return cint(frappe.db.sql("select coalesce(sum(grootte), 0) from `tabBestandsversie`")[0][0]) + overdracht.gebruikt_bytes()
 
 
 def _limiet_bytes() -> int:
@@ -486,8 +489,14 @@ def wijzigingen(ruimte: str, sinds: int = 0, limiet: int = 1000) -> dict:
 
 @frappe.whitelist()
 def quotum() -> dict:
+	from openaec_storage import overdracht
+
 	limiet = _limiet_bytes()
-	return {"gebruikt_bytes": _gebruikt_bytes(), "limiet_bytes": limiet or None}
+	return {
+		"gebruikt_bytes": _gebruikt_bytes(),
+		"limiet_bytes": limiet or None,
+		"overdrachten_bytes": overdracht.gebruikt_bytes(),
+	}
 
 
 # --- informatie en vergrendelen (ontwerp §6) ---------------------------------------------------------

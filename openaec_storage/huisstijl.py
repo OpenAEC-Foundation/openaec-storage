@@ -12,6 +12,7 @@ de eigen site (`/files/...`) of https-adres.
 import re
 
 import frappe
+from frappe.utils import cint, now_datetime
 
 KLEUR = re.compile(r"#(?:[0-9a-fA-F]{3}){1,2}")
 
@@ -59,3 +60,19 @@ def _schoon(gegevens: dict) -> dict:
 		"afbeelding": _afbeelding(gegevens.get("afbeelding")),
 		"kleur": kleur if isinstance(kleur, str) and KLEUR.fullmatch(kleur) else None,
 	}
+
+
+def schil(context) -> None:
+	"""De schil van de openbare pagina's (deelpagina, overdracht): met openaec_web op de site dezelfde als de
+	inlogpagina (kop, donker vlak, kaart); zonder die app de gewone webschil van Frappe."""
+	context.oa_schil = "openaec_web" in frappe.get_installed_apps()
+	if context.oa_schil:
+		# Losjes gekoppeld: een oudere openaec_web zonder een van deze functies breekt de pagina niet.
+		from openaec_web.www import login as oa_login
+
+		aanmelden_url = getattr(oa_login, "aanmelden_url", None)
+		context.body_class = "oa-schil"
+		context.oa_cloud_url = oa_login.site_url() if hasattr(oa_login, "site_url") else ""
+		context.oa_aanmelden_url = aanmelden_url() if aanmelden_url else None
+		context.oa_jaar = now_datetime().year
+		context.oa_ontwikkelmodus = bool(cint(frappe.conf.get("developer_mode")))

@@ -1,0 +1,39 @@
+{#
+	Gedeelde opmaak van de openbare pagina's van Storage (deelpagina /delen, overdracht /overdracht): de kaart, lijsten
+	en knoppen in de huisstijl van de klant, en een eenvoudige schil als openaec_web niet op de site staat.
+#}
+<style>
+	.oas-delen { --oas-kleur: var(--oa-huisstijl-kleur, var(--primary, #d97706)); }
+	.oas-kaart { width: 100%; }
+	.oas-kaart label { display: block; margin: .75rem 0 .25rem; font-weight: 500; }
+	.oas-kaart .knop-groot { width: 100%; margin-top: 1rem; }
+	.oas-kaart .knop-primair { background: var(--oas-kleur); border-color: var(--oas-kleur); }
+	.oas-melding:empty { display: none; }
+	.oas-melding.oas-fout { color: #b42318; }
+	.oas-voorbeeld { margin-top: 1rem; border: 1px solid rgba(0, 0, 0, .1); border-radius: .5rem; overflow: hidden; background: #f6f6f7; }
+	.oas-voorbeeld img { display: block; max-width: 100%; max-height: 60vh; margin: 0 auto; }
+	.oas-voorbeeld iframe { display: block; width: 100%; height: 60vh; border: 0; }
+	.oas-pad { font-size: .9rem; margin-top: .25rem; }
+	.oas-pad button, .oas-lijst .oas-item { border: none; background: none; padding: 0; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+	.oas-pad button:hover, .oas-lijst .oas-item:hover { color: var(--oas-kleur); }
+	.oas-zoek { margin: .75rem 0 .25rem; }
+	.oas-lijst, .oas-voortgang { list-style: none; padding: 0; margin: .5rem 0 0; }
+	.oas-lijst li, .oas-voortgang li { display: flex; align-items: center; gap: .75rem; padding: .6rem 0; border-top: 1px solid rgba(0, 0, 0, .08); }
+	.oas-lijst .oas-item { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.oas-grootte { color: #6b6b76; font-size: .85rem; white-space: nowrap; }
+	.oas-lijst .knop-klein { padding: .25rem .6rem; }
+	.oas-vak { display: block; margin-top: 1rem; border: 2px dashed rgba(0, 0, 0, .18); border-radius: .5rem; padding: 2rem 1rem; text-align: center; cursor: pointer; color: #6b6b76; font-weight: 400; }
+	.oas-vak.oas-erboven { border-color: var(--oas-kleur); color: var(--oas-kleur); }
+	.oas-voortgang li span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.oas-voortgang .oas-fout { color: #b42318; }
+	.oas-voet { padding: 1.5rem 0; text-align: center; font-size: .85rem; color: #6b6b76; }
+	.oas-voet a { color: inherit; text-decoration: underline; }
+	{% if not oa_schil %}
+	.oas-delen .oa-login-raster { display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); max-width: 1080px; margin: 2rem auto; padding: 0 1rem; }
+	.oas-delen .hero { position: relative; border-radius: .75rem; padding: 2rem; color: #fff; background: #2a2a32 center / cover no-repeat; min-height: 220px; }
+	.oas-delen .oa-login-logo { max-height: 56px; max-width: 220px; margin-bottom: 1rem; }
+	.oas-delen .kaart { border: 1px solid rgba(0, 0, 0, .1); border-radius: .75rem; padding: 1.5rem; }
+	.oas-delen .knop { display: inline-block; border: 1px solid; border-radius: .5rem; padding: .6rem 1rem; color: #fff; }
+	@media (max-width: 760px) { .oas-delen .oa-login-raster { grid-template-columns: 1fr; } }
+	{% endif %}
+</style>

@@ -1,0 +1,100 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-10-22 00:00:00.000000",
+ "description": "Bestand in een overdracht; de bytes staan in S3 onder overdrachten/<overdracht>/.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "overdracht",
+  "naam",
+  "grootte",
+  "sha256",
+  "s3_sleutel",
+  "upload_id",
+  "deelgrootte",
+  "klaar",
+  "aantal_downloads"
+ ],
+ "fields": [
+  {
+   "fieldname": "overdracht",
+   "fieldtype": "Link",
+   "label": "Overdracht",
+   "options": "Overdracht",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "naam",
+   "fieldtype": "Data",
+   "label": "Naam",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "grootte",
+   "fieldtype": "Long Int",
+   "label": "Grootte (bytes)",
+   "default": "0",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "sha256",
+   "fieldtype": "Data",
+   "label": "SHA-256"
+  },
+  {
+   "fieldname": "s3_sleutel",
+   "fieldtype": "Data",
+   "label": "S3-sleutel",
+   "length": 512,
+   "read_only": 1
+  },
+  {
+   "fieldname": "upload_id",
+   "fieldtype": "Small Text",
+   "label": "Multipart-upload",
+   "read_only": 1
+  },
+  {
+   "fieldname": "deelgrootte",
+   "fieldtype": "Long Int",
+   "label": "Deelgrootte (bytes)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "klaar",
+   "fieldtype": "Check",
+   "label": "Klaar",
+   "default": "0"
+  },
+  {
+   "fieldname": "aantal_downloads",
+   "fieldtype": "Int",
+   "label": "Aantal downloads",
+   "default": "0",
+   "read_only": 1
+  }
+ ],
+ "modified": "2026-10-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Overdrachtbestand",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "ASC",
+ "states": []
+}

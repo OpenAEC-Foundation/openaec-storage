@@ -168,3 +168,42 @@ def vereis_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None
 		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
 	if not mag_op_plek(ruimte, map, actie, bestand):
 		frappe.throw(_("Geen toegang tot deze plek"), frappe.PermissionError)
+
+
+# --- overdrachten: losse bestanden versturen, los van de ruimtes --------------------------------------
+
+
+def mag_overdragen(gebruiker: str | None = None) -> bool:
+	"""Mag `gebruiker` een overdracht maken? Wie mag delen: schrijver of beheerder in een ruimte, of een beheerder van
+	de omgeving. Site_config `openaec_storage_overdracht_rollen` (lijst) geeft het recht ook aan rollen. Gasten nooit."""
+	gebruiker = gebruiker or frappe.session.user
+	if not gebruiker or gebruiker == "Guest":
+		return False
+	if mag_ruimte_maken(gebruiker):
+		return True
+	rollen = frappe.conf.get("openaec_storage_overdracht_rollen") or []
+	if isinstance(rollen, str):
+		rollen = rollen.split(",")
+	if not {r.strip() for r in rollen if r and r.strip()}.isdisjoint(frappe.get_roles(gebruiker)):
+		return True
+	return bool(
+		frappe.db.exists(
+			"Ruimtelid", {"parenttype": "Ruimte", "gebruiker": gebruiker, "rol": ("in", sorted(SCHRIJVEN))}
+		)
+	)
+
+
+def recht_op_overdracht(doc, ptype=None, user=None, debug=False):
+	"""has_permission-hook voor Overdracht en Overdrachtbestand: alleen de maker (en het beheer)."""
+	user = user or frappe.session.user
+	if is_superbeheer(user):
+		return True
+	eigenaar = doc.owner if doc.doctype == "Overdracht" else frappe.db.get_value("Overdracht", doc.get("overdracht"), "owner")
+	return bool(eigenaar) and eigenaar == user and not doc.is_new()
+
+
+def query_overdracht(user=None, doctype=None):
+	user = user or frappe.session.user
+	if is_superbeheer(user):
+		return ""
+	return "`tabOverdracht`.`owner` = {}".format(frappe.db.escape(user))

@@ -1,0 +1,126 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-10-22 00:00:00.000000",
+ "description": "Overdracht: losse bestanden versturen via een link (en eventueel e-mail), los van de ruimtes.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naam",
+  "status",
+  "bericht",
+  "ontvangers",
+  "verloopt_op",
+  "voltooid_op",
+  "token",
+  "wachtwoord_hash",
+  "totale_grootte",
+  "aantal_bestanden",
+  "aantal_downloads",
+  "laatst_gedownload"
+ ],
+ "fields": [
+  {
+   "fieldname": "naam",
+   "fieldtype": "Data",
+   "label": "Naam",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Concept\nActief\nVerlopen\nIngetrokken",
+   "default": "Concept",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "bericht",
+   "fieldtype": "Small Text",
+   "label": "Bericht"
+  },
+  {
+   "fieldname": "ontvangers",
+   "fieldtype": "Small Text",
+   "label": "Ontvangers (één e-mailadres per regel)"
+  },
+  {
+   "fieldname": "verloopt_op",
+   "fieldtype": "Datetime",
+   "label": "Verloopt op",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "voltooid_op",
+   "fieldtype": "Datetime",
+   "label": "Voltooid op",
+   "read_only": 1
+  },
+  {
+   "fieldname": "token",
+   "fieldtype": "Data",
+   "label": "Token",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "wachtwoord_hash",
+   "fieldtype": "Data",
+   "label": "Wachtwoord (hash)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "totale_grootte",
+   "fieldtype": "Long Int",
+   "label": "Totale grootte (bytes)",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "aantal_bestanden",
+   "fieldtype": "Int",
+   "label": "Aantal bestanden",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "aantal_downloads",
+   "fieldtype": "Int",
+   "label": "Aantal downloads",
+   "default": "0",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "laatst_gedownload",
+   "fieldtype": "Datetime",
+   "label": "Laatst gedownload",
+   "read_only": 1
+  }
+ ],
+ "modified": "2026-10-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Overdracht",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "naam",
+ "track_changes": 1
+}

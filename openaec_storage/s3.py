@@ -32,12 +32,24 @@ def _client(publiek: bool = False):
 	)
 
 
+def _met_prefix(sleutel: str) -> str:
+	prefix = (frappe.conf.get("openaec_storage_prefix") or "").strip("/")
+	return f"{prefix}/{sleutel}" if prefix else sleutel
+
+
 def nieuwe_sleutel() -> str:
 	"""S3-sleutel voor een nieuwe versie. Met `openaec_storage_prefix` (bijv. de host van de klantsite) kunnen
 	meerdere klanten één bucket delen; de volledige sleutel staat bij de versie, dus oude versies blijven leesbaar."""
-	prefix = (frappe.conf.get("openaec_storage_prefix") or "").strip("/")
-	sleutel = "v/" + frappe.generate_hash(length=32)
-	return f"{prefix}/{sleutel}" if prefix else sleutel
+	return _met_prefix("v/" + frappe.generate_hash(length=32))
+
+
+def overdracht_map(overdracht: str) -> str:
+	"""Voorvoegsel van alle objecten van één overdracht: buiten de ruimtes, in één keer op te ruimen."""
+	return _met_prefix(f"overdrachten/{overdracht}/")
+
+
+def overdracht_sleutel(overdracht: str) -> str:
+	return overdracht_map(overdracht) + frappe.generate_hash(length=32)
 
 
 def bucket() -> str:
@@ -123,3 +135,44 @@ def kopieer_deel(sleutel: str, upload_id: str, nummer: int, bron_sleutel: str, b
 		CopySourceRange=f"bytes={begin}-{eind}",
 	)
 	return antwoord["CopyPartResult"]["ETag"]
+
+
+# --- overdrachten: hervatten, opruimen en als zip lezen ----------------------------------------------
+
+
+def aanwezige_delen(sleutel: str, upload_id: str) -> list[dict]:
+	"""De delen die S3 al van een lopende multipart-upload heeft: nummer, grootte en ETag (oplopend)."""
+	client, uit, vanaf = _client(), [], 0
+	while True:
+		antwoord = client.list_parts(Bucket=bucket(), Key=sleutel, UploadId=upload_id, PartNumberMarker=vanaf)
+		uit += [{"nummer": d["PartNumber"], "grootte": d["Size"], "etag": d["ETag"]} for d in antwoord.get("Parts", [])]
+		if not antwoord.get("IsTruncated"):
+			return sorted(uit, key=lambda d: d["nummer"])
+		vanaf = antwoord["NextPartNumberMarker"]
+
+
+def verwijder_map(voorvoegsel: str) -> None:
+	"""Alle objecten en onvoltooide multipart-uploads onder een voorvoegsel weg (opruimen van een overdracht)."""
+	client, naam = _client(), bucket()
+	for pagina in client.get_paginator("list_multipart_uploads").paginate(Bucket=naam, Prefix=voorvoegsel):
+		for upload in pagina.get("Uploads", []):
+			client.abort_multipart_upload(Bucket=naam, Key=upload["Key"], UploadId=upload["UploadId"])
+	for pagina in client.get_paginator("list_objects_v2").paginate(Bucket=naam, Prefix=voorvoegsel):
+		sleutels = [{"Key": o["Key"]} for o in pagina.get("Contents", [])]
+		if sleutels:
+			client.delete_objects(Bucket=naam, Delete={"Objects": sleutels, "Quiet": True})
+
+
+def verwijder(sleutel: str) -> None:
+	_client().delete_object(Bucket=bucket(), Key=sleutel)
+
+
+def lezer():
+	"""Functie die een object in stukken leest, voor gebruik buiten het verzoek (een gestreamde zip): client en
+	bucket liggen hier al vast, want de stroom loopt nog als Frappe het verzoek al heeft afgesloten."""
+	client, naam = _client(), bucket()
+
+	def lees(sleutel: str, stukgrootte: int = 1024 * 1024):
+		yield from client.get_object(Bucket=naam, Key=sleutel)["Body"].iter_chunks(stukgrootte)
+
+	return lees

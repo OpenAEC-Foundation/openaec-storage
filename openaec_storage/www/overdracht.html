@@ -1,0 +1,243 @@
+{#
+	Ontvangstpagina /overdracht/<token>: zelfde opbouw als de deelpagina (kop, donker vlak in de huisstijl van de
+	klant, kaart), met de bestanden van de overdracht in de kaart. Alles wat van de server of de afzender komt, wordt
+	ge-escaped; de inhoud komt via textContent in de pagina.
+#}
+{% extends "templates/web.html" %}
+
+{% block title %}{{ title | e }}{% endblock %}
+
+{% block head_include %}
+{% if oa_schil %}<link type="text/css" rel="stylesheet" href="/assets/openaec_web/css/openaec_web.css">{% endif %}
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+{% endblock %}
+
+{% block navbar %}
+{% if oa_schil %}
+<a class="naar-inhoud" href="#inhoud">{{ _("Naar de inhoud") }}</a>
+{% include "templates/openaec_web/kop.html" %}
+{% else %}{{ super() }}{% endif %}
+{% endblock %}
+
+{% block content %}
+{%- set hs = huisstijl -%}
+<main id="inhoud" class="oa-login oas-delen oas-overdracht{% if hs.kleur %} oa-login-huisstijl{% endif %}"
+	data-token="{{ token | e }}" data-stand="{{ stand | e }}" data-csrf="{{ csrf | e }}"
+	{%- if hs.kleur %} style="--oa-huisstijl-kleur: {{ hs.kleur | e }}; --oas-kleur: {{ hs.kleur | e }}"{% endif %}>
+	<div class="wrap oa-login-raster">
+		<aside class="hero oa-login-intro op-donker{% if hs.afbeelding %} met-afbeelding{% endif %}"
+			{%- if hs.afbeelding %} style="background-image: url('{{ hs.afbeelding | e }}')"{% endif %}>
+			<div class="raster-achtergrond" aria-hidden="true"></div>
+			<div class="oa-login-intro-tekst">
+				{% if hs.logo %}<img class="oa-login-logo" src="{{ hs.logo | e }}" alt="{{ (hs.naam or '') | e }}">{% endif %}
+				<p class="bovenkop">{{ (hs.naam or "OpenAEC SuperCloud") | e }}</p>
+				<h2>{{ kop | e }}</h2>
+				{% if lead %}<p class="lead">{{ lead | e }}</p>{% endif %}
+			</div>
+		</aside>
+
+		<div class="oa-login-rechts">
+			<section class="page-card kaart oas-kaart" aria-live="polite">
+				{% if fout_titel %}
+				<div class="kaartkop">
+					<h1 class="kaarttitel">{{ fout_titel | e }}</h1>
+					<p class="page-card-subtitle">{{ fout_tekst | e }}</p>
+				</div>
+				{% else %}
+				<form class="oas-wachtwoord" hidden>
+					<div class="kaartkop">
+						<h1 class="kaarttitel">{{ _("Wachtwoord nodig") }}</h1>
+						<p class="page-card-subtitle">{{ _("Deze bestanden zijn beveiligd. Vul het wachtwoord in dat je van de afzender kreeg.") }}</p>
+					</div>
+					<label for="oas-ww">{{ _("Wachtwoord") }}</label>
+					<input id="oas-ww" type="password" class="form-control" autocomplete="current-password" required>
+					<button type="submit" class="knop knop-primair knop-groot">{{ _("Openen") }}</button>
+				</form>
+
+				<div class="oas-inhoud" hidden>
+					<div class="kaartkop">
+						<h1 class="kaarttitel oas-naam"></h1>
+						<p class="page-card-subtitle oas-meta"></p>
+					</div>
+					<p class="oas-bericht" hidden></p>
+					<ul class="oas-lijst"></ul>
+					<button type="button" class="knop knop-primair knop-groot oas-alles">{{ _("Alles downloaden") }}</button>
+					<p class="page-card-subtitle oas-uitleg"></p>
+				</div>
+
+				<p class="page-card-subtitle oas-melding" role="status"></p>
+				{% endif %}
+			</section>
+		</div>
+	</div>
+</main>
+{% include "templates/openaec_storage/stijl.html" %}
+<style>
+	.oas-bericht { white-space: pre-line; margin: 1rem 0 .5rem; padding-left: .75rem; border-left: 3px solid var(--oas-kleur); }
+	.oas-uitleg { margin-top: .5rem; font-size: .85rem; }
+	.oas-uitleg:empty { display: none; }
+</style>
+{% endblock %}
+
+{% block footer %}
+<footer class="oas-voet">
+	{{ _("Verzonden via") }} <a href="{{ (oa_cloud_url or '/') | e }}">OpenAEC SuperCloud</a> · {{ _("bestanden opgeslagen in Europa") }}
+</footer>
+{% if not oa_schil %}{{ super() }}{% endif %}
+{% endblock %}
+
+{% block script %}
+<script>
+(() => {
+	const root = document.querySelector(".oas-overdracht")
+	if (!root || ["onbekend", "verlopen", "ingetrokken"].includes(root.dataset.stand)) return
+	const token = root.dataset.token
+	const $ = (sel, binnen = root) => binnen.querySelector(sel)
+	const melding = $(".oas-melding")
+	const form = $(".oas-wachtwoord")
+	const kaart = $(".oas-inhoud")
+	let wachtwoord = ""
+	let inhoud = null
+
+	const grootte = (b) => {
+		const e = ["B", "kB", "MB", "GB", "TB"]
+		let i = 0
+		b = b || 0
+		while (b >= 1000 && i < e.length - 1) { b /= 1000; i++ }
+		return `${b.toFixed(i ? 1 : 0)} ${e[i]}`
+	}
+	const datum = (d) => (d ? new Date(String(d).replace(" ", "T")).toLocaleDateString(document.documentElement.lang || "nl-NL", { day: "numeric", month: "long", year: "numeric" }) : "")
+	const zeg = (tekst, fout = false) => { melding.textContent = tekst || ""; melding.classList.toggle("oas-fout", fout) }
+
+	const kopjes = () => {
+		const h = { "Content-Type": "application/json", "Accept": "application/json" }
+		if (root.dataset.csrf) h["X-Frappe-CSRF-Token"] = root.dataset.csrf
+		return h
+	}
+	const roep = async (methode, gegevens = {}) => {
+		const r = await fetch(`/api/method/openaec_storage.overdracht.${methode}`, {
+			method: "POST",
+			headers: kopjes(),
+			body: JSON.stringify({ token, wachtwoord: wachtwoord || null, ...gegevens }),
+		})
+		const data = await r.json().catch(() => ({}))
+		if (!r.ok) {
+			let tekst = "Er ging iets mis. Probeer het later opnieuw."
+			try { tekst = JSON.parse(JSON.parse(data._server_messages)[0]).message } catch (e) {}
+			const fout = new Error(tekst)
+			fout.wachtwoord = /wachtwoord/i.test(tekst)
+			throw fout
+		}
+		return data.message
+	}
+
+	// Eén bestand: een tijdelijke link rechtstreeks uit de opslag (de server raakt de bytes niet).
+	const download = async (bestand) => {
+		const { url } = await roep("download", { bestand })
+		return url
+	}
+
+	// Alles als zip: een gewone POST, zodat de browser de gestreamde zip als download opslaat.
+	const alsZip = () => {
+		const f = document.createElement("form")
+		f.method = "POST"
+		f.action = "/api/method/openaec_storage.overdracht.zip"
+		f.hidden = true
+		const velden = { token, wachtwoord, csrf_token: root.dataset.csrf }
+		for (const [naam, waarde] of Object.entries(velden)) {
+			if (!waarde) continue
+			const veld = document.createElement("input")
+			veld.type = "hidden"
+			veld.name = naam
+			veld.value = waarde
+			f.append(veld)
+		}
+		document.body.append(f)
+		f.submit()
+		f.remove()
+	}
+
+	// Te groot voor een zip: de bestanden een voor een, elk via een verborgen frame.
+	const perBestand = async () => {
+		for (const b of inhoud.bestanden) {
+			zeg(`${b.naam} wordt gedownload…`)
+			const frame = document.createElement("iframe")
+			frame.hidden = true
+			frame.src = await download(b.bestand)
+			document.body.append(frame)
+			setTimeout(() => frame.remove(), 60000)
+			await new Promise((klaar) => setTimeout(klaar, 1500))
+		}
+		zeg("Alle downloads zijn gestart.")
+	}
+
+	const toon = (data) => {
+		inhoud = data
+		$(".oas-naam", kaart).textContent = data.naam
+		const aantal = data.bestanden.length
+		$(".oas-meta", kaart).textContent = [
+			`${aantal} ${aantal === 1 ? "bestand" : "bestanden"}`,
+			grootte(data.totale_grootte),
+			data.verloopt_op ? `beschikbaar tot ${datum(data.verloopt_op)}` : "",
+		].filter(Boolean).join(" · ")
+		const bericht = $(".oas-bericht", kaart)
+		bericht.textContent = data.bericht || ""
+		bericht.hidden = !data.bericht
+		const lijst = $(".oas-lijst", kaart)
+		lijst.replaceChildren()
+		for (const b of data.bestanden) {
+			const li = document.createElement("li")
+			const naam = document.createElement("span")
+			naam.className = "oas-item"
+			naam.textContent = b.naam
+			const maat = document.createElement("span")
+			maat.className = "oas-grootte"
+			maat.textContent = grootte(b.grootte)
+			const knop = document.createElement("button")
+			knop.type = "button"
+			knop.className = "knop knop-secundair knop-klein"
+			knop.textContent = "Downloaden"
+			knop.addEventListener("click", async () => {
+				try { window.location.href = await download(b.bestand) } catch (e) { zeg(e.message, true) }
+			})
+			li.append(naam, maat, knop)
+			lijst.append(li)
+		}
+		$(".oas-uitleg", kaart).textContent = data.zip || aantal < 2
+			? ""
+			: "Te groot voor één zip: de bestanden worden een voor een gedownload. Sta meerdere downloads toe als je browser erom vraagt."
+		const alles = $(".oas-alles", kaart)
+		alles.hidden = aantal < 2
+		alles.onclick = () => (data.zip ? alsZip() : perBestand().catch((e) => zeg(e.message, true)))
+		kaart.hidden = false
+	}
+
+	const laad = async () => {
+		zeg("Laden…")
+		try {
+			const data = await roep("openen")
+			form.hidden = true
+			zeg("")
+			toon(data)
+		} catch (e) {
+			if (e.wachtwoord) {
+				zeg(wachtwoord ? "Dit wachtwoord klopt niet." : "", Boolean(wachtwoord))
+				form.hidden = false
+				$("#oas-ww").focus()
+			} else zeg(e.message, true)
+		}
+	}
+
+	form.addEventListener("submit", (ev) => {
+		ev.preventDefault()
+		wachtwoord = $("#oas-ww").value
+		laad()
+	})
+	if (root.dataset.stand === "wachtwoord") {
+		form.hidden = false
+		$("#oas-ww").focus()
+	} else laad()
+})()
+</script>
+{% endblock %}
