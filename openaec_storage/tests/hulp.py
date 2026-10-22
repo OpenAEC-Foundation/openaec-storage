@@ -19,6 +19,16 @@ def gebruiker(naam: str) -> str:
 	return email
 
 
+def met_rol(email: str, rol: str) -> str:
+	"""Geef een testgebruiker een rol. De beheerrollen komen uit openaec_beheer; zonder die app wordt de rol aangemaakt."""
+	if not frappe.db.exists("Role", rol):
+		frappe.get_doc({"doctype": "Role", "role_name": rol, "desk_access": 1}).insert(ignore_permissions=True)
+	doc = frappe.get_doc("User", email)
+	doc.flags.ignore_permissions = True
+	doc.add_roles(rol)
+	return email
+
+
 def ruimte(naam: str, leden: dict[str, str]) -> str:
 	doc = frappe.get_doc(
 		{
@@ -35,7 +45,22 @@ def ruim_op():
 	frappe.set_user("Administrator")
 	for doctype in ("Opslagwijziging", "Bestandsversie", "Opslagbestand", "Opslagmap", "Ruimte"):
 		frappe.db.delete(doctype)
+	# Ook de rollen: anders krijgt een testgebruiker met dezelfde naam ze in een volgende test terug.
+	frappe.db.delete("Has Role", {"parenttype": "User", "parent": ("like", "%" + DOMEIN)})
 	frappe.db.delete("User", {"name": ("like", "%" + DOMEIN)})
+
+
+# Alle opslaginstellingen van de site. Moto bootst het AWS-adres na: een eigen opslagadres uit de site_config
+# (bijv. een S3-compatibele testopslag) zou de verzoeken langs de nabootsing sturen, dus dat gaat tijdens de test uit.
+OPSLAGINSTELLINGEN = (
+	"openaec_storage_bucket",
+	"openaec_storage_region",
+	"openaec_storage_quotum_gb",
+	"openaec_storage_endpoint",
+	"openaec_storage_endpoint_publiek",
+	"openaec_storage_prefix",
+	"openaec_storage_kms_key",
+)
 
 
 class NagebootsteS3:
@@ -47,7 +72,7 @@ class NagebootsteS3:
 		boto3.client("s3", region_name=REGIO).create_bucket(
 			Bucket=BUCKET, CreateBucketConfiguration={"LocationConstraint": REGIO}
 		)
-		self.oud = {k: frappe.local.conf.get(k) for k in ("openaec_storage_bucket", "openaec_storage_region", "openaec_storage_quotum_gb")}
+		self.oud = {k: frappe.local.conf.pop(k, None) for k in OPSLAGINSTELLINGEN}
 		frappe.local.conf["openaec_storage_bucket"] = BUCKET
 		frappe.local.conf["openaec_storage_region"] = REGIO
 		frappe.local.conf["openaec_storage_quotum_gb"] = 0
