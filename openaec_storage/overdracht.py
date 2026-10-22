@@ -8,7 +8,8 @@ Verloop voor de app (zie README, "Overdrachten"):
 3. `voltooi` maakt de link `/overdracht/<token>` en mailt eventuele ontvangers.
 
 De bytes staan in S3 onder `<prefix>/overdrachten/<overdracht>/`, niet in een ruimte: ze vervuilen geen ruimte van
-de gebruiker en zijn in één keer op te ruimen. Zolang een overdracht bestaat (concept of actief) telt hij mee in het
+de gebruiker en zijn in één keer op te ruimen. Naam en bericht zijn platte tekst (zonder HTML-filter opgeslagen); ze
+worden overal ge-escaped getoond. Zolang een overdracht bestaat (concept of actief) telt hij mee in het
 opslaggebruik van de omgeving. `opruimen` (elk uur) haalt verlopen overdrachten en concepten die langer dan
 `openaec_storage_overdracht_concept_uren` (standaard 24) blijven liggen weg: objecten uit S3, record naar Verlopen.
 

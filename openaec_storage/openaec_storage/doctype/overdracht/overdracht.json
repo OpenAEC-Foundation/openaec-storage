@@ -23,6 +23,7 @@
   {
    "fieldname": "naam",
    "fieldtype": "Data",
+   "ignore_xss_filter": 1,
    "label": "Naam",
    "reqd": 1,
    "in_list_view": 1
@@ -40,6 +41,7 @@
   {
    "fieldname": "bericht",
    "fieldtype": "Small Text",
+   "ignore_xss_filter": 1,
    "label": "Bericht"
   },
   {
