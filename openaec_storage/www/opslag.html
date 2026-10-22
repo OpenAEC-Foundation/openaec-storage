@@ -22,6 +22,14 @@
 		<table class="oas-tabel">
 			<tbody></tbody>
 		</table>
+		<div class="oas-leeg" hidden>
+			{% if mag_ruimte_maken %}
+			<p>Je bent nog geen lid van een ruimte.</p>
+			<a class="btn btn-primary btn-sm" href="/beheer/opslag">Ruimte aanmaken in Beheer</a>
+			{% else %}
+			<p>Je bent nog geen lid van een ruimte. Vraag je beheerder om je toe te voegen.</p>
+			{% endif %}
+		</div>
 	</section>
 
 	<section class="oas-delingen" hidden>
@@ -71,6 +79,8 @@
 	.oas-tabel td.oas-acties button { border: none; background: none; color: var(--primary); padding: 0 .35rem; }
 	.oas-voortgang li { display: flex; justify-content: space-between; padding: .25rem 0; color: var(--text-muted); }
 	.oas-fout { color: var(--red-600, #c0392b) !important; }
+	.oas-leeg { padding: 1.5rem 0; color: var(--text-muted); }
+	.oas-leeg p { margin-bottom: .75rem; }
 	.oas-deeldialoog { border: 1px solid var(--border-color); border-radius: .5rem; padding: 1.25rem; max-width: 460px; width: 100%; }
 	.oas-deeldialoog h2 { font-size: 1.1rem; margin: 0 0 1rem; }
 	.oas-deeldialoog label { display: block; margin-bottom: .75rem; }
@@ -94,6 +104,8 @@
 	const voortgang = root.querySelector(".oas-voortgang")
 	const kiezer = root.querySelector(".oas-uploaden input")
 	const dialoog = root.querySelector(".oas-deeldialoog")
+	// Lege toestand: de server zette de juiste inhoud klaar (knop naar het beheer of de vraag om de beheerder).
+	const leeg = root.querySelector(".oas-leeg")
 
 	// Waar we zijn: geen ruimte = de lijst met ruimtes; anders de ruimte en het spoor van mappen.
 	let ruimte = null
@@ -157,7 +169,7 @@
 	const toonRuimtes = (lijst) => {
 		balk.hidden = true
 		tabel.replaceChildren()
-		if (!lijst.length) zeg("Je bent nog geen lid van een ruimte.")
+		leeg.hidden = lijst.length > 0
 		for (const r of lijst) {
 			const tr = document.createElement("tr")
 			tr.append(
@@ -209,6 +221,7 @@
 
 	const laad = async () => {
 		zeg("Laden…")
+		leeg.hidden = true
 		toonPad()
 		if (!ruimte) {
 			toonRuimtes(await roep("ruimtes"))

@@ -2,6 +2,9 @@
 
 Rollen: beheerder (alles, ook leden), schrijver (lezen en wijzigen), lezer en gast (lezen).
 Administrator en System Manager hebben overal toegang.
+
+Een nieuwe ruimte aanmaken mag alleen een beheerder van de omgeving (`mag_ruimte_maken`); wie hem aanmaakt, wordt
+er beheerder van (Ruimte.before_insert). Beheerder van een ruimte zijn maakt iemand nog geen beheerder van de omgeving.
 """
 
 import frappe
@@ -11,10 +14,35 @@ LEZEN = frozenset({"beheerder", "schrijver", "lezer", "gast"})
 SCHRIJVEN = frozenset({"beheerder", "schrijver"})
 LEESACTIES = frozenset({"read", "select", "print", "report", "export", "email", "share"})
 
+# Rollen die een nieuwe ruimte mogen aanmaken; site_config `openaec_storage_ruimte_makers` vervangt de lijst.
+# De OpenAEC-rollen zijn de beheerrollen uit openaec_beheer: zonder die app bestaan ze niet en blijven
+# Administrator en System Manager over.
+RUIMTE_MAKERS = ("System Manager", "OpenAEC Eigenaar", "OpenAEC Beheerder")
+
 
 def is_superbeheer(gebruiker: str | None = None) -> bool:
 	gebruiker = gebruiker or frappe.session.user
 	return gebruiker == "Administrator" or "System Manager" in frappe.get_roles(gebruiker)
+
+
+def ruimte_makers() -> list[str]:
+	"""De rollen die een nieuwe ruimte mogen aanmaken (in de site_config een lijst, of tekst met komma's)."""
+	rollen = frappe.conf.get("openaec_storage_ruimte_makers")
+	if rollen is None:
+		return list(RUIMTE_MAKERS)
+	if isinstance(rollen, str):
+		rollen = rollen.split(",")
+	return [rol.strip() for rol in rollen if rol and rol.strip()]
+
+
+def mag_ruimte_maken(gebruiker: str | None = None) -> bool:
+	"""Mag `gebruiker` een nieuwe ruimte aanmaken? Administrator en System Manager altijd, verder de `ruimte_makers`."""
+	gebruiker = gebruiker or frappe.session.user
+	if gebruiker == "Guest":
+		return False
+	if is_superbeheer(gebruiker):
+		return True
+	return not set(ruimte_makers()).isdisjoint(frappe.get_roles(gebruiker))
 
 
 def rol_in_ruimte(ruimte: str, gebruiker: str | None = None) -> str | None:
@@ -51,7 +79,7 @@ def heeft_recht(doc, ptype=None, user=None, debug=False):
 	ptype = ptype or "read"
 	if doc.doctype == "Ruimte":
 		if doc.is_new() or not doc.name or not frappe.db.exists("Ruimte", doc.name):
-			return True  # een nieuwe ruimte aanmaken mag; de maker wordt beheerder
+			return mag_ruimte_maken(user)  # alleen een beheerder van de omgeving; de maker wordt ruimtebeheerder
 		return mag(doc.name, ptype, user, ruimte_zelf=True)
 	ruimte = doc.get("ruimte")
 	if not ruimte:
