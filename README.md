@@ -18,6 +18,12 @@ Ontwerp: `openaec-supercloud/docs/superpowers/specs/2026-10-20-openaec-storage-d
 | `openaec_storage_kms_key` | KMS-sleutel van de klant (optioneel; anders standaardversleuteling van de bucket) |
 | `openaec_storage_quotum_gb` | Quotum van de omgeving in GB (gezet door de regelkamer; 0 = onbeperkt) |
 | `openaec_storage_ruimte_makers` | Rollen die een nieuwe ruimte mogen aanmaken (lijst; standaard `System Manager`, `OpenAEC Eigenaar` en `OpenAEC Beheerder`). Administrator en System Manager mogen het altijd |
+| `openaec_storage_overdracht_max_gb` | Grootste overdracht in GB, alle bestanden samen (standaard 100) |
+| `openaec_storage_overdracht_max_dagen` | Langste vervaltermijn van een overdracht in dagen (standaard 30; de standaardtermijn is 7) |
+| `openaec_storage_overdracht_max_ontvangers` | Hoogste aantal e-mailontvangers per overdracht (standaard 20) |
+| `openaec_storage_overdracht_concept_uren` | Hoe lang een niet-voltooide overdracht blijft staan voor hij wordt opgeruimd (standaard 24) |
+| `openaec_storage_overdracht_zip_max_gb` | Tot deze grootte is "Alles downloaden" één zip; daarboven per bestand (standaard 2) |
+| `openaec_storage_overdracht_rollen` | Extra rollen die overdrachten mogen maken (lijst; optioneel, zie Overdrachten) |
 
 ## Rollen per ruimte
 
@@ -40,6 +46,62 @@ de melding "Alleen een beheerder van de omgeving kan een ruimte aanmaken." Een a
 Heeft iemand op `/opslag` nog geen enkele ruimte, dan ziet een beheerder van de omgeving de knop "Ruimte aanmaken in
 Beheer" (naar `/beheer/opslag`) en een ander de vraag om zijn beheerder hem toe te voegen. Welke van de twee bepaalt
 de server met dezelfde regel als bij het aanmaken.
+
+## Overdrachten
+
+Losse bestanden versturen via een link, eventueel met een e-mail aan de ontvangers ("Versturen met SuperCloud
+Storage" in de desktop-app). De bestanden hoeven niet in een ruimte te staan en komen er ook niet in: ze staan in S3
+onder `<openaec_storage_prefix>/overdrachten/<overdracht>/`. Zolang een overdracht bestaat (concept of actief) telt
+hij mee in het opslaggebruik van de omgeving (`api.quotum`, ook als `overdrachten_bytes`) en geldt het quotum.
+
+Wie mag: wie kan delen, dus schrijver of beheerder in een ruimte, een beheerder van de omgeving, of een rol uit
+`openaec_storage_overdracht_rollen`. Gasten niet. Een overdracht ziet en beheert alleen de maker (en het beheer).
+
+Statussen: `Concept` (bestanden worden geüpload) → `Actief` (link werkt) → `Verlopen` (vervaldatum voorbij, of een
+concept dat langer dan `openaec_storage_overdracht_concept_uren` bleef liggen) of `Ingetrokken`. De geplande taak
+`openaec_storage.overdracht.opruimen` (elk uur) haalt bij Verlopen de objecten uit S3; bij intrekken gebeurt dat
+meteen.
+
+### API voor de desktop-app
+
+Alle methodes onder `/api/method/openaec_storage.overdracht.<methode>`, met de inlog van de gebruiker (OAuth-token).
+Methodes die iets veranderen alleen met POST. Antwoorden staan zoals altijd bij Frappe in `message`. Tijden zijn
+`JJJJ-MM-DD UU:MM:SS` in de tijdzone van de site; groottes in bytes (GB = 10^9).
+
+| Methode | Parameters | Antwoord |
+|---|---|---|
+| `grenzen` (GET) | — | `{max_bytes, standaard_dagen, max_dagen, max_ontvangers, concept_uren, zip_max_bytes, quotum: {gebruikt_bytes, limiet_bytes, overdrachten_bytes}}` |
+| `maak` | `naam`, `bericht?`, `verloopt_op?` (datum `JJJJ-MM-DD` = tot het eind van die dag, of datum-tijd; leeg = 7 dagen), `wachtwoord?`, `ontvangers?` (lijst of tekst met komma's/regels) | `{overdracht, naam, status: "Concept", verloopt_op, max_bytes, concept_geldig_tot}` |
+| `bestand_start` | `overdracht`, `naam`, `grootte`, `sha256?` | `{bestand, naam, grootte, deelgrootte, delen: [{nummer, url}]}` — `naam` krijgt ` (2)` als hij al in de overdracht staat |
+| `bestand_stand` (GET) | `overdracht`, `bestand` | `{bestand, naam, grootte, klaar, deelgrootte, aanwezig: [{nummer, grootte, etag}], ontbrekend: [nummer], delen: [{nummer, url}]}` — `delen` zijn nieuwe links voor de ontbrekende delen |
+| `bestand_klaar` | `overdracht`, `bestand`, `delen?` (`[{nummer, etag}]`; mag weg) | `{bestand, naam, grootte, klaar: true}` |
+| `bestand_weg` | `overdracht`, `bestand` | — (alleen in een concept) |
+| `voltooi` | `overdracht` | `{overdracht, status: "Actief", token, url, verloopt_op, aantal_bestanden, totale_grootte, mail: [adressen waarnaar de mail in de wachtrij staat]}` |
+| `info` (GET) | `overdracht` | `{overdracht, naam, status, bericht, ontvangers, verloopt_op, beveiligd, url, totale_grootte, aantal_downloads, concept_geldig_tot, bestanden: [{bestand, naam, grootte, klaar, aantal_downloads}]}` |
+| `mijn` (GET) | — | `[{overdracht, naam, status, verloopt_op, totale_grootte, aantal_bestanden, aantal_downloads, laatst_gedownload, ontvangers, beveiligd, url, gemaakt, voltooid_op}]`, nieuwste eerst; `url` alleen bij Actief |
+| `trek_in` | `overdracht` | `{overdracht, status: "Ingetrokken"}` |
+
+Uploaden gaat net als bij gewone uploads: elk deel van `deelgrootte` bytes (8 MiB, groter boven 80 GiB) met een PUT
+naar zijn `url` (geldig 15 minuten); de ETag uit het antwoord mag de app bewaren maar hoeft niet. Hervatten na een
+onderbreking (of na het opnieuw starten van de app): `info` voor de bestanden die nog niet `klaar` zijn, per bestand
+`bestand_stand`, de `delen` uit dat antwoord uploaden en `bestand_klaar` zonder `delen`. Zijn de links verlopen,
+dan geeft `bestand_stand` nieuwe. Een concept blijft `concept_uren` staan (zie `concept_geldig_tot`); daarna is het
+opgeruimd en moet de app opnieuw beginnen. Fouten komen als gewone Frappe-fouten: 403 (geen recht, niet jouw
+overdracht), 404 (bestaat niet) of 417 met een leesbare melding (grens overschreden, nog niet alles geüpload).
+
+### Ontvangstpagina
+
+`https://<site>/overdracht/<token>`: dezelfde schil en huisstijl als de deelpagina, met naam, bericht, afzender,
+vervaldatum en de bestanden met grootte. Per bestand downloaden gaat met een tijdelijke link rechtstreeks uit S3.
+"Alles downloaden" is tot `openaec_storage_overdracht_zip_max_gb` één zip die de server streamt (zonder compressie
+en zonder hem op te slaan); daarboven haalt de pagina de bestanden een voor een op, want een grote zip houdt een
+werker van de server lang bezig en kan bij een haperende verbinding niet verder waar hij was, een losse download uit
+S3 wel. Elke download (en elke zip) telt in `aantal_downloads`. Een wachtwoord vraagt de pagina eerst; een onbekende
+link geeft 404, een verlopen of ingetrokken overdracht 410 met een nette melding.
+
+Voor de pagina (gast, POST): `openen(token, wachtwoord?)` → `{naam, bericht, afzender, verloopt_op, totale_grootte,
+zip, bestanden: [{bestand, naam, grootte}]}`, `download(token, bestand, wachtwoord?)` → `{url, geldig_seconden}` en
+`zip(token, wachtwoord?)` → de zip zelf.
 
 ## Tests
 
