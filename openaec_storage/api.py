@@ -13,7 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_url, add_to_date, cint, flt, now_datetime
 
-from openaec_storage import mapsjablonen, s3
+from openaec_storage import mapsjablonen, namen, s3
 from openaec_storage.rechten import mag, mag_ruimte_maken, vereis, vereis_op_plek, weiger, weiger_als_gearchiveerd
 
 UPLOAD_SLEUTEL = "openaec_storage:upload:"
@@ -25,10 +25,14 @@ SLOT_UREN = 8
 # --- hulpfuncties ------------------------------------------------------------------------------------
 
 
-def _controleer_naam(naam: str) -> str:
+def _controleer_naam(naam: str, ruimte: str | None = None, map: str | None = None) -> str:
+	"""Weiger een ongeldige naam (zie namen.py) met de foutcode `ongeldige_naam`. Met `ruimte` mag een bestaand
+	bestand op die plek met precies deze naam blijven heten zoals het heet (een nieuwe versie van een bestand van
+	vóór deze regel); een nieuw bestand, een nieuwe map of een nieuwe naam bij hernoemen moet geldig zijn."""
 	naam = (naam or "").strip()
-	if not naam or naam in (".", "..") or "/" in naam or "\\" in naam:
-		frappe.throw(_("Ongeldige naam"))
+	reden = namen.ongeldige_naam(naam)
+	if reden and not (ruimte and naam and _actief_bestand(ruimte, map, naam)):
+		weiger(_("Ongeldige naam: {0}").format(reden), "ongeldige_naam")
 	return naam
 
 
@@ -189,7 +193,7 @@ def upload_start(
 	"""
 	map = _controleer_map(ruimte, map)
 	vereis_op_plek(ruimte, map, "write")
-	naam = _controleer_naam(naam)
+	naam = _controleer_naam(naam, ruimte, map)
 	mapsjablonen.controleer_upload(ruimte, map, naam)
 	grootte = cint(grootte)
 	if grootte < 0:
@@ -309,6 +313,10 @@ def _registreer(info: dict) -> dict:
 		if bestaand:
 			conflict = True
 			naam = _conflictnaam(ruimte, map, naam)
+		else:
+			# Een nieuw bestand moet een geldige naam hebben (een bestaand bestand met een oude, ongeldige naam mag
+			# een nieuwe versie krijgen, maar kan tussen het begin en het eind van de upload verdwenen zijn).
+			_controleer_naam(naam)
 		doc = frappe.get_doc(
 			{"doctype": "Opslagbestand", "ruimte": ruimte, "map": map, "naam": naam, "huidige_versie": 0}
 		).insert(ignore_permissions=True)
@@ -797,7 +805,7 @@ def maak_map(ruimte: str, naam: str, bovenliggende: str | None = None) -> dict:
 def _maak_map(ruimte: str, naam: str, bovenliggende: str | None) -> tuple[str, bool]:
 	"""Map `naam` in `bovenliggende` (al gecontroleerd): de bestaande, of een nieuwe. Geeft (map, nieuw)."""
 	vereis_op_plek(ruimte, bovenliggende, "write")
-	naam = _controleer_naam(naam)
+	naam = (naam or "").strip()
 	# Gelijktijdige aanvragen (parallelle uploads die dezelfde map nodig hebben) wachten op elkaar via een slot op de
 	# ruimte; de controle daarna is ook een vergrendelende leesactie, zodat hij de map ziet die een andere aanvraag
 	# net aanmaakte (een gewone select leest uit de momentopname van het begin van de transactie).
@@ -808,7 +816,9 @@ def _maak_map(ruimte: str, naam: str, bovenliggende: str | None) -> tuple[str, b
 		(ruimte, bovenliggende or "", naam),
 	)
 	if bestaand:
+		# Een bestaande map mag je altijd opvragen, ook een met een naam van vóór de naamregels.
 		return bestaand[0][0], False
+	naam = _controleer_naam(naam)
 	mapsjablonen.controleer_schrijven(ruimte, bovenliggende)
 	doc = frappe.get_doc(
 		{"doctype": "Opslagmap", "ruimte": ruimte, "naam": naam, "bovenliggende": bovenliggende}
@@ -910,7 +920,7 @@ def _upload_een(ruimte: str, item: dict, inhoud: bytes | None, bron: str, mappen
 	else:
 		map = _map_van_pad(ruimte, item.get("pad") or "", mappen)
 	vereis_op_plek(ruimte, map, "write")
-	naam = _controleer_naam(item.get("naam"))
+	naam = _controleer_naam(item.get("naam"), ruimte, map)
 	mapsjablonen.controleer_upload(ruimte, map, naam)
 	_controleer_quotum(grootte, ruimte)
 	basis_versie = item.get("basis_versie")
