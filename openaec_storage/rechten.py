@@ -70,6 +70,22 @@ def weiger_als_gearchiveerd(ruimte: str | None) -> None:
 		)
 
 
+def namens(gebruiker: str | None) -> str | None:
+	"""Voor wie een serviceaanroep uit het beheer een handeling uitvoert, alleen voor het auditspoor; de rechten
+	blijven die van de echte aanroeper. Telt alleen als de aanroeper Administrator of System Manager is, en alleen
+	voor een bestaande, actieve gebruiker; anders wordt het genegeerd (bij een onbekende gebruiker met een
+	waarschuwing in het log)."""
+	gebruiker = (gebruiker or "").strip()
+	if not gebruiker or not is_superbeheer():
+		return None
+	if not cint(frappe.db.get_value("User", gebruiker, "enabled")):
+		frappe.logger("openaec_storage").warning(
+			"namens genegeerd: %s is geen bestaande, actieve gebruiker (aanroeper %s)", gebruiker, frappe.session.user
+		)
+		return None
+	return gebruiker
+
+
 def mag_ruimte_beheren(ruimte: str, gebruiker: str | None = None) -> bool:
 	"""Beheerder van de ruimte (of Administrator/System Manager)."""
 	return mag(ruimte, "write", gebruiker, ruimte_zelf=True)

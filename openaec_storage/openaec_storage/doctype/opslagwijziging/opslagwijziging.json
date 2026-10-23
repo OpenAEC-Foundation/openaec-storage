@@ -9,7 +9,8 @@
   "soort",
   "doel_doctype",
   "doel",
-  "naam"
+  "naam",
+  "namens"
  ],
  "fields": [
   {
@@ -24,7 +25,7 @@
    "fieldname": "soort",
    "fieldtype": "Select",
    "label": "Soort",
-   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld\nvergrendeld\nontgrendeld\ngedeeld\ningetrokken\ngearchiveerd\nteruggezet",
+   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld\nvergrendeld\nontgrendeld\ngedeeld\ningetrokken\ngearchiveerd\nteruggezet\nsjabloon_toegepast\nquotum_gewijzigd",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -44,6 +45,13 @@
    "fieldname": "naam",
    "fieldtype": "Data",
    "label": "Naam"
+  },
+  {
+   "fieldname": "namens",
+   "fieldtype": "Link",
+   "label": "Namens",
+   "options": "User",
+   "description": "Voor wie het beheer de handeling uitvoerde; wie hem echt aanriep, staat in Gemaakt door (owner)."
   }
  ],
  "modified": "2026-10-23 00:00:00.000000",

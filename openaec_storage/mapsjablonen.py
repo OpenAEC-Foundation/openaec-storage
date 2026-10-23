@@ -3,7 +3,8 @@
 Een Mapsjabloon (per klantsite te beheren) heeft mappen met een pad (`Projecten/Lopend`), een weergavenaam, een
 volgorde, een pictogram (naam uit @openaec/icons), toegestane extensies (leeg = alles) en alleen_lezen. Krijgt een
 nieuwe ruimte een `mapsjabloon`, dan worden de mappen aangelegd en de regels naar de ruimte gekopieerd
-(Ruimtemapregel). De ruimte verandert daarna niet mee als het sjabloon wordt aangepast.
+(Ruimtemapregel). De ruimte verandert daarna niet mee als het sjabloon wordt aangepast; met `pas_toe` kan een
+sjabloon later (opnieuw) op een bestaande ruimte worden toegepast.
 
 Regels gelden langs elke weg (browser, desktop-app, WebDAV, uploadlink), want ze worden in de API gecontroleerd. Op
 een plek geldt de regel van de map zelf, of anders die van de dichtstbijzijnde bovenliggende map met een regel.
@@ -132,43 +133,127 @@ def controleer_upload(ruimte: str, map: str | None, naam: str) -> None:
 # --- mappen aanleggen bij een nieuwe ruimte ----------------------------------------------------------
 
 
-def leg_mappen_aan(ruimte) -> None:
-	"""Leg de mappen uit het sjabloon aan in de (net aangemaakte) ruimte en kopieer de regels naar de ruimte."""
-	from openaec_storage.api import _log
+def _toepassen(ruimte, sjabloon_naam: str) -> dict:
+	"""Leg de mappen uit het sjabloon aan (een bestaande map met hetzelfde pad wordt hergebruikt) en zet de regels
+	voor die mappen op de ruimte: bijwerken als er al een regel voor de map is, anders toevoegen. Andere regels,
+	mappen en bestanden blijven staan. Twee keer toepassen geeft hetzelfde resultaat."""
+	from openaec_storage.api import _actieve_map, _log
 
-	sjabloon = frappe.get_doc("Mapsjabloon", ruimte.mapsjabloon)
+	sjabloon = frappe.get_doc("Mapsjabloon", sjabloon_naam)
 	rijen = sorted(sjabloon.mappen, key=lambda r: (cint(r.volgorde), r.idx))
 	mappen: dict[str, str] = {}  # pad in kleine letters -> Opslagmap
+	telling = {"mappen_aangemaakt": 0, "mappen_bestaand": 0}
 
 	def zorg_voor(delen: list[str]) -> str:
 		sleutel = "/".join(delen).lower()
 		if sleutel not in mappen:
 			bovenliggende = zorg_voor(delen[:-1]) if len(delen) > 1 else None
-			doc = frappe.get_doc(
-				{"doctype": "Opslagmap", "ruimte": ruimte.name, "naam": delen[-1], "bovenliggende": bovenliggende}
-			).insert(ignore_permissions=True)
-			_log(ruimte.name, "nieuw", "Opslagmap", doc.name, doc.naam)
-			mappen[sleutel] = doc.name
+			bestaand = _actieve_map(ruimte.name, bovenliggende, delen[-1])
+			if bestaand:
+				mappen[sleutel] = bestaand[0][0]
+				telling["mappen_bestaand"] += 1
+			else:
+				doc = frappe.get_doc(
+					{"doctype": "Opslagmap", "ruimte": ruimte.name, "naam": delen[-1], "bovenliggende": bovenliggende}
+				).insert(ignore_permissions=True)
+				_log(ruimte.name, "nieuw", "Opslagmap", doc.name, doc.naam)
+				mappen[sleutel] = doc.name
+				telling["mappen_aangemaakt"] += 1
 		return mappen[sleutel]
 
 	# Eerst de bovenliggende mappen (kortste paden), dan de regels in de volgorde van het sjabloon.
 	for rij in sorted(rijen, key=lambda r: len(splits_pad(r.pad))):
 		zorg_voor(splits_pad(rij.pad))
+	bestaande_regels = {r.map: r for r in ruimte.get("mapregels") or [] if r.map}
 	for rij in rijen:
 		delen = splits_pad(rij.pad)
-		regel_rij = ruimte.append(
-			"mapregels",
-			{
-				"map": mappen["/".join(delen).lower()],
-				"pad": "/".join(delen),
-				"weergavenaam": rij.weergavenaam or delen[-1],
-				"volgorde": cint(rij.volgorde),
-				"pictogram": rij.pictogram,
-				"extensies": ", ".join(extensies(rij.extensies)),
-				"alleen_lezen": cint(rij.alleen_lezen),
-			},
-		)
-		regel_rij.db_insert()
+		waarden = {
+			"map": mappen["/".join(delen).lower()],
+			"pad": "/".join(delen),
+			"weergavenaam": rij.weergavenaam or delen[-1],
+			"volgorde": cint(rij.volgorde),
+			"pictogram": rij.pictogram,
+			"extensies": ", ".join(extensies(rij.extensies)),
+			"alleen_lezen": cint(rij.alleen_lezen),
+		}
+		if waarden["map"] in bestaande_regels:
+			regel_rij = bestaande_regels[waarden["map"]]
+			regel_rij.update(waarden)
+			regel_rij.db_update()
+		else:
+			regel_rij = ruimte.append("mapregels", waarden)
+			regel_rij.db_insert()
+			bestaande_regels[waarden["map"]] = regel_rij
+	# mapsjabloon is eenmalig in het formulier; hier rechtstreeks, zonder de rest van de ruimte opnieuw op te slaan.
+	frappe.db.set_value("Ruimte", ruimte.name, "mapsjabloon", sjabloon.name, update_modified=False)
+	ruimte.mapsjabloon = sjabloon.name
+	return {**telling, "regels": len(rijen)}
+
+
+def leg_mappen_aan(ruimte) -> None:
+	"""Leg de mappen uit het sjabloon aan in de (net aangemaakte) ruimte en kopieer de regels naar de ruimte."""
+	_toepassen(ruimte, ruimte.mapsjabloon)
+
+
+def afwijkende_bestanden(ruimte: str) -> int:
+	"""Bestanden (niet in de prullenbak) waarvan de extensie niet past bij de regel op hun plek: die blijven staan,
+	maar het beheer moet het weten."""
+	regels = _regels(ruimte)
+	if not any(extensies(r.extensies) for r in regels.values()):
+		return 0
+	bovenliggend = dict(
+		frappe.db.sql("select name, bovenliggende from `tabOpslagmap` where ruimte = %s", ruimte)
+	)
+	toegestaan_cache: dict[str, list[str]] = {}
+
+	def toegestaan(map: str) -> list[str]:
+		if map not in toegestaan_cache:
+			m, gezien = map, set()
+			while m and m not in regels and m not in gezien:
+				gezien.add(m)
+				m = bovenliggend.get(m)
+			toegestaan_cache[map] = extensies(regels[m].extensies) if m in regels else []
+		return toegestaan_cache[map]
+
+	aantal = 0
+	for b in frappe.get_all(
+		"Opslagbestand",
+		filters={"ruimte": ruimte, "map": ("is", "set"), "verwijderd_op": ("is", "not set")},
+		fields=["naam", "map"],
+		ignore_permissions=True,
+	):
+		lijst = toegestaan(b.map)
+		if lijst and _extensie(b.naam) not in lijst:
+			aantal += 1
+	return aantal
+
+
+@frappe.whitelist(methods=["POST"])
+def pas_toe(ruimte: str, mapsjabloon: str, namens: str | None = None) -> dict:
+	"""Pas een sjabloon toe op een bestaande ruimte (beheerder van de ruimte of van de omgeving): ontbrekende mappen
+	aanleggen, bestaande met hetzelfde pad hergebruiken, de regels voor de sjabloonmappen toevoegen of bijwerken en
+	`mapsjabloon` zetten. Er wordt niets verwijderd of verplaatst; bestanden die niet aan een nieuwe extensieregel
+	voldoen, blijven staan en worden geteld in `afwijkende_bestanden`. Komt in de wijzigingenlijst
+	(`sjabloon_toegepast`)."""
+	from openaec_storage.api import _log
+	from openaec_storage.rechten import namens as bepaal_namens
+	from openaec_storage.rechten import weiger_als_gearchiveerd
+	from openaec_storage.ruimtebeheer import ruimte_voor_beheer
+
+	doc = ruimte_voor_beheer(ruimte)
+	weiger_als_gearchiveerd(doc.name)
+	if not mapsjabloon or not frappe.db.exists("Mapsjabloon", mapsjabloon):
+		frappe.throw(_("Mapsjabloon bestaat niet"), frappe.DoesNotExistError)
+	# Twee gelijktijdige aanroepen zouden dezelfde mappen dubbel kunnen aanleggen: wacht op elkaar via de ruimte.
+	frappe.db.sql("select name from `tabRuimte` where name = %s for update", doc.name)
+	telling = _toepassen(doc, mapsjabloon)
+	_log(doc.name, "sjabloon_toegepast", "Ruimte", doc.name, mapsjabloon, bepaal_namens(namens))
+	return {
+		"ruimte": doc.name,
+		"mapsjabloon": mapsjabloon,
+		**telling,
+		"afwijkende_bestanden": afwijkende_bestanden(doc.name),
+	}
 
 
 # --- API ---------------------------------------------------------------------------------------------

@@ -113,6 +113,15 @@ keuze die het beheer voorselecteert bij een nieuwe ruimte van die soort; zonder 
 aan. Er is geen ruimtesoort `bedrijf`: een bedrijfsmap is een teamruimte, dus `sjablonen(soort="team")` geeft ook de
 sjablonen van soort `bedrijf`.
 
+Sjabloon achteraf toepassen (`mapsjablonen.pas_toe`): ontbrekende mappen worden aangelegd, een bestaande map met
+hetzelfde pad (hoofdletters maken niet uit) wordt hergebruikt; er wordt niets verwijderd, verplaatst of hernoemd. De
+regels voor de sjabloonmappen worden toegevoegd of bijgewerkt naar het sjabloon, regels op andere mappen blijven
+staan, en `mapsjabloon` wordt gezet (ook als er al een ander sjabloon stond). Twee keer toepassen geeft hetzelfde
+resultaat. Bestanden die niet aan een nieuwe extensieregel voldoen, blijven staan en worden geteld in
+`afwijkende_bestanden`; `mappen_aangemaakt` en `mappen_bestaand` tellen ook tussenliggende mappen, `regels` is het
+aantal regels uit het sjabloon. Het toepassen komt in de wijzigingenlijst (soort `sjabloon_toegepast`,
+`doel_doctype` `Ruimte`, `naam` het sjabloon); een gearchiveerde ruimte geeft 403 met `ruimte_gearchiveerd`.
+
 Op een plek geldt de regel van de map zelf of anders die van de dichtstbijzijnde bovenliggende map met een regel,
 langs elke weg (browser, desktop-app, WebDAV, uploadlink, formulier):
 
@@ -138,14 +147,22 @@ Met de inlog van de gebruiker; methodes die iets veranderen alleen met POST. Ant
 
 | Methode | Wie | Parameters | Antwoord |
 |---|---|---|---|
-| `openaec_storage.ruimtebeheer.archiveer` (POST) | beheerder van de ruimte of de omgeving | `ruimte` | `{ruimte, gearchiveerd: true, gearchiveerd_op, gearchiveerd_door, aantal_actieve_deellinks}`; nogmaals aanroepen verandert niets |
-| `openaec_storage.ruimtebeheer.herstel` (POST) | idem | `ruimte` | `{ruimte, gearchiveerd: false, gearchiveerd_op: null, gearchiveerd_door: null, aantal_actieve_deellinks}` |
-| `openaec_storage.ruimtebeheer.zet_quotum` (POST) | beheerder van de omgeving | `ruimte`, `quotum_gb` (0 of leeg = geen eigen limiet) | `{ruimte, quotum_gb, limiet_bytes \| null}` |
+| `openaec_storage.ruimtebeheer.archiveer` (POST) | beheerder van de ruimte of de omgeving | `ruimte`, `namens?` | `{ruimte, gearchiveerd: true, gearchiveerd_op, gearchiveerd_door, aantal_actieve_deellinks}`; nogmaals aanroepen verandert niets |
+| `openaec_storage.ruimtebeheer.herstel` (POST) | idem | `ruimte`, `namens?` | `{ruimte, gearchiveerd: false, gearchiveerd_op: null, gearchiveerd_door: null, aantal_actieve_deellinks}` |
+| `openaec_storage.ruimtebeheer.zet_quotum` (POST) | beheerder van de omgeving | `ruimte`, `quotum_gb` (0 of leeg = geen eigen limiet), `namens?` | `{ruimte, quotum_gb, limiet_bytes \| null}` |
 | `openaec_storage.ruimtebeheer.lijst` | beheerder van de omgeving: alle ruimtes; anders de ruimtes waarvan je beheerder bent | `gearchiveerd?` (leeg = alle, 0 = actief, 1 = gearchiveerd) | `[{name, naam, soort, gearchiveerd, gearchiveerd_op, gearchiveerd_door, quotum_gb, mapsjabloon, aantal_leden, aantal_actieve_deellinks, gebruikt_bytes, limiet_bytes \| null}]`, op naam |
-| `openaec_storage.ruimtebeheer.activiteit` | beheerder van de ruimte of de omgeving | `ruimte`, `vanaf?` (datum of datum-tijd), `start?` (0), `aantal?` (50, hoogstens 500) | `{ruimte, totaal, start, aantal, meer, regels: [{volgnummer, tijd, soort, doel_doctype, doel, naam, door, door_naam}]}`, nieuwste eerst |
+| `openaec_storage.ruimtebeheer.activiteit` | beheerder van de ruimte of de omgeving | `ruimte`, `vanaf?` (datum of datum-tijd), `start?` (0), `aantal?` (50, hoogstens 500) | `{ruimte, totaal, start, aantal, meer, regels: [{volgnummer, tijd, soort, doel_doctype, doel, naam, door, door_naam, namens, namens_naam}]}`, nieuwste eerst |
+| `openaec_storage.mapsjablonen.pas_toe` (POST) | beheerder van de ruimte of de omgeving | `ruimte`, `mapsjabloon`, `namens?` | `{ruimte, mapsjabloon, mappen_aangemaakt, mappen_bestaand, regels, afwijkende_bestanden}` (zie Sjabloon achteraf toepassen) |
 | `openaec_storage.api.quotum_ruimte` | leden van de ruimte, beheerder van de omgeving | `ruimte` | `{gebruikt_bytes, limiet_bytes \| null}` |
 | `openaec_storage.mapsjablonen.sjablonen` | ingelogd | `soort?` (`team` geeft ook de sjablonen van soort `bedrijf`) | `[{naam, omschrijving, soort, standaard, mappen: [{map: null, pad, weergavenaam, volgorde, pictogram, extensies: [..], alleen_lezen}]}]` |
 | `openaec_storage.mapsjablonen.regels` | leden van de ruimte | `ruimte` | `[{map, pad, weergavenaam, volgorde, pictogram, extensies: [..], alleen_lezen}]` |
+
+`namens` (user-id) is alleen voor het auditspoor van een serviceaanroep uit het beheer. Het telt alleen als de
+aanroeper Administrator of System Manager is en `namens` een bestaande, actieve gebruiker is; anders wordt het
+genegeerd (een onbekende gebruiker met een waarschuwing in het log), zonder weigering. De rechten blijven altijd die
+van de echte aanroeper. In de wijzigingenlijst staan beide: de aanroeper in `owner` (`door` in `activiteit`) en de
+gebruiker in het veld `namens`. `gearchiveerd_door` wordt bij een geldige `namens` die gebruiker. Ook een gewijzigd
+quotum komt in de wijzigingenlijst (soort `quotum_gewijzigd`, `naam` bijv. `5 GB`).
 
 Een ruimte met sjabloon aanmaken gaat zoals elke ruimte (beheerder van de omgeving), met het veld `mapsjabloon`,
 bijv. `frappe.client.insert` met `{"doctype": "Ruimte", "naam": "…", "soort": "project", "mapsjabloon":

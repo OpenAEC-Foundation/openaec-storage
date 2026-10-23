@@ -60,9 +60,19 @@ def _conflictnaam(ruimte: str, map: str | None, naam: str) -> str:
 	return kandidaat
 
 
-def _log(ruimte: str, soort: str, doctype: str, doel: str, naam: str | None = None) -> None:
+def _log(ruimte: str, soort: str, doctype: str, doel: str, naam: str | None = None, namens: str | None = None) -> None:
+	"""Regel in de wijzigingenlijst. De aanroeper staat in `owner`; `namens` (zie rechten.namens) is voor wie het
+	beheer de handeling uitvoerde."""
 	frappe.get_doc(
-		{"doctype": "Opslagwijziging", "ruimte": ruimte, "soort": soort, "doel_doctype": doctype, "doel": doel, "naam": naam}
+		{
+			"doctype": "Opslagwijziging",
+			"ruimte": ruimte,
+			"soort": soort,
+			"doel_doctype": doctype,
+			"doel": doel,
+			"naam": naam,
+			"namens": namens,
+		}
 	).insert(ignore_permissions=True)
 
 

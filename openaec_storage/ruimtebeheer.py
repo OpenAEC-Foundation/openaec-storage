@@ -5,6 +5,10 @@ Archiveren mag een beheerder van de ruimte of een beheerder van de omgeving (`re
 gearchiveerde ruimte is voor iedereen alleen te lezen (zie rechten.py), staat niet in `api.ruimtes` (dus niet op
 /opslag en niet in de desktop-app, die er dan mee stopt) en zijn deellinks werken niet zolang hij gearchiveerd is.
 Beide handelingen komen in de wijzigingenlijst (Opslagwijziging, soort `gearchiveerd` of `teruggezet`).
+
+`namens` (archiveer, herstel, zet_quotum en mapsjablonen.pas_toe): een serviceaanroep uit het beheer
+(Administrator of System Manager) geeft mee voor wie hij handelt. Dat komt naast de echte aanroeper in de
+wijzigingenlijst; de rechten blijven die van de aanroeper. Van een andere aanroeper wordt `namens` genegeerd.
 """
 
 import frappe
@@ -12,13 +16,14 @@ from frappe import _
 from frappe.utils import cint, flt, get_datetime, get_fullname, now_datetime
 
 from openaec_storage.rechten import mag_ruimte_beheren, mag_ruimte_maken
+from openaec_storage.rechten import namens as bepaal_namens
 
 
 def _mag_beheren(ruimte: str) -> bool:
 	return mag_ruimte_beheren(ruimte) or mag_ruimte_maken()
 
 
-def _ruimte_voor_beheer(ruimte: str):
+def ruimte_voor_beheer(ruimte: str):
 	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
 		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
 	if not _mag_beheren(ruimte):
@@ -57,37 +62,38 @@ def _stand(doc) -> dict:
 	}
 
 
-def _zet_archief(doc, gearchiveerd: bool) -> None:
+def _zet_archief(doc, gearchiveerd: bool, namens: str | None) -> None:
 	from openaec_storage.api import _log
 
 	doc.gearchiveerd = 1 if gearchiveerd else 0
 	doc.gearchiveerd_op = now_datetime() if gearchiveerd else None
-	doc.gearchiveerd_door = frappe.session.user if gearchiveerd else None
+	# Wie besloot: bij een serviceaanroep uit het beheer de gebruiker namens wie; de aanroeper staat in het log.
+	doc.gearchiveerd_door = (namens or frappe.session.user) if gearchiveerd else None
 	doc.flags.via_archief = True
 	doc.save(ignore_permissions=True)
-	_log(doc.name, "gearchiveerd" if gearchiveerd else "teruggezet", "Ruimte", doc.name, doc.naam)
+	_log(doc.name, "gearchiveerd" if gearchiveerd else "teruggezet", "Ruimte", doc.name, doc.naam, namens)
 
 
 @frappe.whitelist(methods=["POST"])
-def archiveer(ruimte: str) -> dict:
+def archiveer(ruimte: str, namens: str | None = None) -> dict:
 	"""Zet de ruimte in het archief: alleen nog lezen. Nogmaals aanroepen verandert niets."""
-	doc = _ruimte_voor_beheer(ruimte)
+	doc = ruimte_voor_beheer(ruimte)
 	if not cint(doc.gearchiveerd):
-		_zet_archief(doc, True)
+		_zet_archief(doc, True, bepaal_namens(namens))
 	return _stand(doc)
 
 
 @frappe.whitelist(methods=["POST"])
-def herstel(ruimte: str) -> dict:
+def herstel(ruimte: str, namens: str | None = None) -> dict:
 	"""Haal de ruimte uit het archief: weer te wijzigen en zichtbaar op /opslag en in de desktop-app."""
-	doc = _ruimte_voor_beheer(ruimte)
+	doc = ruimte_voor_beheer(ruimte)
 	if cint(doc.gearchiveerd):
-		_zet_archief(doc, False)
+		_zet_archief(doc, False, bepaal_namens(namens))
 	return _stand(doc)
 
 
 @frappe.whitelist(methods=["POST"])
-def zet_quotum(ruimte: str, quotum_gb: float | str | None = None) -> dict:
+def zet_quotum(ruimte: str, quotum_gb: float | str | None = None, namens: str | None = None) -> dict:
 	"""Eigen quotum van de ruimte in GB (0 of leeg = geen eigen limiet). Alleen een beheerder van de omgeving: het
 	quotum is een afspraak met de omgeving, niet iets wat de ruimte zelf verhoogt. De quota van alle ruimtes samen
 	mogen groter zijn dan dat van de omgeving (overboeking)."""
@@ -95,9 +101,14 @@ def zet_quotum(ruimte: str, quotum_gb: float | str | None = None) -> dict:
 		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
 	if not mag_ruimte_maken():
 		frappe.throw(_("Alleen een beheerder van de omgeving kan het quotum van een ruimte wijzigen"), frappe.PermissionError)
+	from openaec_storage.api import _log
+
 	doc = frappe.get_doc("Ruimte", ruimte)
+	vorig = flt(doc.quotum_gb)
 	doc.quotum_gb = flt(quotum_gb)
 	doc.save(ignore_permissions=True)
+	if flt(doc.quotum_gb) != vorig:
+		_log(doc.name, "quotum_gewijzigd", "Ruimte", doc.name, "{:g} GB".format(flt(doc.quotum_gb)), bepaal_namens(namens))
 	limiet = int(flt(doc.quotum_gb) * 1_000_000_000)
 	return {"ruimte": doc.name, "quotum_gb": flt(doc.quotum_gb), "limiet_bytes": limiet or None}
 
@@ -157,8 +168,9 @@ def lijst(gearchiveerd: str | int | None = None) -> list[dict]:
 @frappe.whitelist()
 def activiteit(ruimte: str, vanaf: str | None = None, start: int = 0, aantal: int = 50) -> dict:
 	"""Wat er in de ruimte gebeurde, nieuwste eerst, voor het beheer: een beheerder van de ruimte of van de omgeving.
+	`door` is wie de handeling echt aanriep, `namens` voor wie het beheer hem uitvoerde (of leeg).
 	`vanaf`: alleen vanaf dit tijdstip (datum of datum-tijd); `start` en `aantal` (hoogstens 500) voor de pagina's."""
-	_ruimte_voor_beheer(ruimte)
+	ruimte_voor_beheer(ruimte)
 	start, aantal = max(cint(start), 0), min(max(cint(aantal), 1), 500)
 	filters = {"ruimte": ruimte}
 	if vanaf:
@@ -167,16 +179,15 @@ def activiteit(ruimte: str, vanaf: str | None = None, start: int = 0, aantal: in
 	regels = frappe.get_all(
 		"Opslagwijziging",
 		filters=filters,
-		fields=["name", "creation", "owner", "soort", "doel_doctype", "doel", "naam"],
+		fields=["name", "creation", "owner", "namens", "soort", "doel_doctype", "doel", "naam"],
 		order_by="name desc",
 		limit_start=start,
 		limit=aantal,
 		ignore_permissions=True,
 	)
 	namen = {}
-	for r in regels:
-		if r.owner not in namen:
-			namen[r.owner] = get_fullname(r.owner) if r.owner not in ("Guest", "Administrator") else r.owner
+	for gebruiker in {r.owner for r in regels} | {r.namens for r in regels if r.namens}:
+		namen[gebruiker] = get_fullname(gebruiker) if gebruiker not in ("Guest", "Administrator") else gebruiker
 	return {
 		"ruimte": ruimte,
 		"totaal": totaal,
@@ -193,6 +204,8 @@ def activiteit(ruimte: str, vanaf: str | None = None, start: int = 0, aantal: in
 				"naam": r.naam,
 				"door": r.owner,
 				"door_naam": namen[r.owner],
+				"namens": r.namens,
+				"namens_naam": namen.get(r.namens) if r.namens else None,
 			}
 			for r in regels
 		],
