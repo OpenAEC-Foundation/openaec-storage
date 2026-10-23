@@ -6,6 +6,10 @@ Administrator en System Manager hebben overal toegang.
 Een nieuwe ruimte aanmaken mag alleen een beheerder van de omgeving (`mag_ruimte_maken`); wie hem aanmaakt, wordt
 er beheerder van (Ruimte.before_insert). Beheerder van een ruimte zijn maakt iemand nog geen beheerder van de omgeving.
 
+Daarnaast kan een map of bestand gedeeld zijn met een gebruiker (Opslagdeling, soort `gebruiker`): die heeft dan
+lees- of schrijfrecht op de map en alles eronder, ook zonder lid te zijn (`mag_op_plek`). Wie geen lid is, komt
+nooit buiten wat gedeeld is (`buiten_deling`), en na intrekken of verlopen meteen nergens meer.
+
 Een gearchiveerde ruimte is voor iedereen alleen te lezen, ook voor het beheer: `mag` en `mag_op_plek` geven geen
 schrijfrecht en `vereis`/`vereis_op_plek` weigeren met de foutcode `ruimte_gearchiveerd`. Alleen de instellingen van
 de ruimte (leden) blijven te wijzigen door een beheerder.
@@ -188,27 +192,60 @@ def voorouders(map: str | None) -> list[str]:
 	return keten
 
 
-def deling_recht(gebruiker: str, map: str | None, bestand: str | None = None) -> str | None:
-	"""Het hoogste recht ('schrijven' of 'lezen') dat een gebruiker via delingen heeft op deze plek."""
+def deling_toestand(gebruiker: str, map: str | None, bestand: str | None = None) -> tuple[str | None, str | None]:
+	"""Wat een gebruiker via delingen heeft op deze plek (de plek zelf of erboven): het hoogste recht (`schrijven` of
+	`lezen`) en, als er geen actieve deling is, waarom niet: `deling_ingetrokken` of `deling_verlopen` (er was er een),
+	of None (er was er nooit een)."""
 	doelen = [("Opslagmap", m) for m in voorouders(map)]
 	if bestand:
 		doelen.append(("Opslagbestand", bestand))
 	if not doelen:
-		return None
-	beste = None
+		return None, None
+	beste, reden, nu = None, None, frappe.utils.now_datetime()
 	for doctype, doel in doelen:
 		for rij in frappe.get_all(
 			"Opslagdeling",
-			filters={"soort": "gebruiker", "gebruiker": gebruiker, "ingetrokken": 0, "doel_doctype": doctype, "doel": doel},
-			fields=["rechten", "verloopt"],
+			filters={"soort": "gebruiker", "gebruiker": gebruiker, "doel_doctype": doctype, "doel": doel},
+			fields=["rechten", "verloopt", "ingetrokken"],
 			ignore_permissions=True,
 		):
-			if rij.verloopt and rij.verloopt < frappe.utils.now_datetime():
-				continue
-			if rij.rechten == "schrijven":
-				return "schrijven"
-			beste = "lezen"
-	return beste
+			if cint(rij.ingetrokken):
+				reden = reden or "deling_ingetrokken"
+			elif rij.verloopt and rij.verloopt < nu:
+				reden = "deling_verlopen"
+			elif rij.rechten == "schrijven":
+				return "schrijven", None
+			else:
+				beste = "lezen"
+	return beste, None if beste else reden
+
+
+def deling_recht(gebruiker: str, map: str | None, bestand: str | None = None) -> str | None:
+	"""Het hoogste recht ('schrijven' of 'lezen') dat een gebruiker via delingen heeft op deze plek."""
+	return deling_toestand(gebruiker, map, bestand)[0]
+
+
+def heeft_deling_in(ruimte: str, gebruiker: str) -> bool:
+	"""Heeft de gebruiker een actieve deling (als gebruiker) ergens in deze ruimte?"""
+	return bool(
+		frappe.db.sql(
+			"""select name from `tabOpslagdeling` where ruimte = %s and soort = 'gebruiker' and gebruiker = %s
+			and ifnull(ingetrokken, 0) = 0 and (verloopt is null or verloopt >= %s) limit 1""",
+			(ruimte, gebruiker, frappe.utils.now_datetime()),
+		)
+	)
+
+
+DELINGSMELDINGEN = {
+	"alleen_lezen_deling": "Dit is met je gedeeld om te bekijken; wijzigen kan niet",
+	"deling_ingetrokken": "Deze deling is ingetrokken; je hebt hier geen toegang meer",
+	"deling_verlopen": "Deze deling is verlopen; je hebt hier geen toegang meer",
+	"buiten_deling": "Dit valt buiten wat met je gedeeld is",
+}
+
+
+def weiger_deling(foutcode: str) -> None:
+	weiger(_(DELINGSMELDINGEN[foutcode]), foutcode, frappe.PermissionError)
 
 
 def mag_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = None, gebruiker: str | None = None) -> bool:
@@ -225,12 +262,50 @@ def mag_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = 
 
 
 def vereis_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = None) -> None:
+	"""Weiger als de gebruiker hier niet mag. Wie via een deling bij de ruimte kan, hoort waarom niet: alleen lezen
+	(`alleen_lezen_deling`), ingetrokken of verlopen (`deling_ingetrokken`, `deling_verlopen`), of buiten de gedeelde
+	map of het gedeelde bestand (`buiten_deling`); een lid van de ruimte en een ander krijgen de gewone melding."""
 	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
 		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
 	if actie not in LEESACTIES and mag_op_plek(ruimte, map, "read", bestand):
 		weiger_als_gearchiveerd(ruimte)
-	if not mag_op_plek(ruimte, map, actie, bestand):
-		frappe.throw(_("Geen toegang tot deze plek"), frappe.PermissionError)
+	if mag_op_plek(ruimte, map, actie, bestand):
+		return
+	gebruiker = frappe.session.user
+	if not rol_in_ruimte(ruimte, gebruiker):
+		recht, reden = deling_toestand(gebruiker, map, bestand)
+		if recht == "lezen" and actie not in LEESACTIES:
+			weiger_deling("alleen_lezen_deling")
+		if not recht and reden:
+			weiger_deling(reden)
+		if not recht and heeft_deling_in(ruimte, gebruiker):
+			weiger_deling("buiten_deling")
+	frappe.throw(_("Geen toegang tot deze plek"), frappe.PermissionError)
+
+
+def actieve_deling(deling: str | None):
+	"""Een deling van de ingelogde gebruiker die nu geldt, om als bovenste map (wortel) te gebruiken. Weigert met
+	`deling_onbekend` (bestaat niet of is niet voor jou), `deling_ingetrokken`, `deling_verlopen` of `deling_weg` (de
+	map of het bestand is verwijderd)."""
+	rij = (
+		frappe.db.get_value(
+			"Opslagdeling",
+			deling,
+			["name", "ruimte", "doel_doctype", "doel", "soort", "gebruiker", "rechten", "verloopt", "ingetrokken", "owner"],
+			as_dict=True,
+		)
+		if deling
+		else None
+	)
+	if not rij or rij.soort != "gebruiker" or rij.gebruiker != frappe.session.user:
+		weiger(_("Deze deling bestaat niet of is niet met jou gedeeld"), "deling_onbekend", frappe.PermissionError)
+	if cint(rij.ingetrokken):
+		weiger_deling("deling_ingetrokken")
+	if rij.verloopt and rij.verloopt < frappe.utils.now_datetime():
+		weiger_deling("deling_verlopen")
+	if not frappe.db.exists(rij.doel_doctype, rij.doel) or frappe.db.get_value(rij.doel_doctype, rij.doel, "verwijderd_op"):
+		weiger(_("Wat met je gedeeld was, is verwijderd"), "deling_weg", frappe.DoesNotExistError)
+	return rij
 
 
 # --- mapsjablonen: kiezen mag iedereen die is ingelogd, beheren alleen een beheerder van de omgeving -----

@@ -1,6 +1,11 @@
 """API van OpenAEC Storage (fase 4a): bladeren, uploaden in delen naar S3, downloaden, versies,
 prullenbak, wijzigingenlijst en quotum. Rechten volgen uit de ruimte (zie rechten.py).
 
+Gedeeld met mij: wie geen lid is maar een map gedeeld kreeg, gebruikt die map als bovenste map met de parameter
+`deling` (bij `bladeren`, `boom`, `wijzigingen`, `maak_map`, `maak_mappen` en `upload_klein`); de rechten komen uit de
+deling, en paden die buiten de gedeelde map vallen, worden geweigerd (`buiten_deling`). De methodes per bestand
+(downloaden, uploaden, verplaatsen, verwijderen) volgen de rechten op de plek, dus ook die van de deling.
+
 Conflictregel (ontwerp §6): bij `upload_klaar` wint een upload alleen als `basis_versie` gelijk is aan de
 huidige versie; anders wordt het een conflictkopie naast het origineel. Er gaat nooit iets verloren.
 """
@@ -15,7 +20,17 @@ from frappe import _
 from frappe.utils import get_url, add_to_date, cint, flt, now_datetime
 
 from openaec_storage import mapsjablonen, namen, s3
-from openaec_storage.rechten import mag, mag_ruimte_maken, vereis, vereis_op_plek, weiger, weiger_als_gearchiveerd
+from openaec_storage.rechten import (
+	actieve_deling,
+	mag,
+	mag_ruimte_maken,
+	vereis,
+	vereis_op_plek,
+	voorouders,
+	weiger,
+	weiger_als_gearchiveerd,
+	weiger_deling,
+)
 
 UPLOAD_SLEUTEL = "openaec_storage:upload:"
 UPLOAD_GELDIG_SECONDEN = 7 * 24 * 3600
@@ -43,6 +58,25 @@ def _controleer_map(ruimte: str, map: str | None) -> str | None:
 	if frappe.db.get_value("Opslagmap", map, "ruimte") != ruimte:
 		frappe.throw(_("Map hoort niet bij deze ruimte"))
 	return map
+
+
+def _wortel(ruimte: str | None, deling: str | None) -> tuple[str | None, str | None]:
+	"""Ruimte en bovenste map van een aanroep: zonder `deling` de ruimte zelf (wortel None), met `deling` de gedeelde
+	map (een deling met de ingelogde gebruiker die nu geldt, zie rechten.actieve_deling). `ruimte` mag dan weg."""
+	if not deling:
+		return ruimte, None
+	rij = actieve_deling(deling)
+	if ruimte and ruimte != rij.ruimte:
+		frappe.throw(_("Deze deling hoort niet bij deze ruimte"))
+	if rij.doel_doctype != "Opslagmap":
+		weiger(_("Een gedeeld bestand kun je openen en downloaden, maar niet als map gebruiken"), "deling_geen_map")
+	return rij.ruimte, rij.doel
+
+
+def _binnen(wortel: str | None, map: str | None) -> None:
+	"""Weiger een map buiten de gedeelde map (de wortel zelf mag); zonder wortel mag alles in de ruimte."""
+	if wortel and wortel not in voorouders(map):
+		weiger_deling("buiten_deling")
 
 
 def _actief_bestand(ruimte: str, map: str | None, naam: str):
@@ -141,8 +175,11 @@ def _actief_slot(bestand: str):
 
 
 @frappe.whitelist()
-def bladeren(ruimte: str, map: str | None = None) -> dict:
-	map = _controleer_map(ruimte, map)
+def bladeren(ruimte: str | None = None, map: str | None = None, deling: str | None = None) -> dict:
+	"""Mappen en bestanden op één plek; met `deling` is de gedeelde map het hoofdniveau (`map` leeg)."""
+	ruimte, wortel = _wortel(ruimte, deling)
+	map = _controleer_map(ruimte, map or wortel)
+	_binnen(wortel, map)
 	vereis_op_plek(ruimte, map, "read")
 	mappen = frappe.get_all(
 		"Opslagmap",
@@ -193,7 +230,7 @@ def upload_start(
 	blokken niet opnieuw geüpload maar server-side uit de vorige versie gekopieerd (delta-sync, ontwerp §5).
 	"""
 	map = _controleer_map(ruimte, map)
-	vereis_op_plek(ruimte, map, "write")
+	vereis_op_plek(ruimte, map, "write", _bestaand_id(ruimte, map, naam))
 	naam = _controleer_naam(naam, ruimte, map)
 	mapsjablonen.controleer_upload(ruimte, map, naam)
 	grootte = cint(grootte)
@@ -242,6 +279,13 @@ def upload_start(
 	}
 
 
+def _bestaand_id(ruimte: str, map: str | None, naam: str | None) -> str | None:
+	"""Het bestand dat op deze plek al zo heet: een nieuwe versie ervan mag ook wie alleen dat bestand gedeeld kreeg
+	om te bewerken."""
+	bestaand = _actief_bestand(ruimte, map, (naam or "").strip()) if ruimte else None
+	return bestaand.name if bestaand else None
+
+
 def _herbruikbare_blokken(ruimte, map, naam, basis_versie, blok, grootte, blokhashes) -> list[dict]:
 	"""Blokken die gelijk zijn aan dezelfde positie in de basisversie: die kopieert de server zelf."""
 	if not blokhashes or basis_versie in (None, ""):
@@ -274,7 +318,8 @@ def upload_klaar(upload: str, delen) -> dict:
 	info = frappe.cache.get_value(UPLOAD_SLEUTEL + (upload or ""))
 	if not info or info["gebruiker"] != frappe.session.user:
 		frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
-	vereis_op_plek(info["ruimte"], info["map"], "write")
+	# Opnieuw: een deling kan intussen zijn ingetrokken of verlopen (dan een nette fout, ook midden in een sync).
+	vereis_op_plek(info["ruimte"], info["map"], "write", _bestaand_id(info["ruimte"], info["map"], info["naam"]))
 	mapsjablonen.controleer_upload(info["ruimte"], info["map"], info["naam"])
 	if isinstance(delen, str):
 		delen = json.loads(delen)
@@ -367,6 +412,8 @@ def verwijder(bestand: str) -> None:
 	doc = _bestand(bestand, "write")
 	if doc.verwijderd_op:
 		return
+	# Verwijderen vraagt schrijfrecht op de map: wie alleen dit bestand gedeeld kreeg, kan het bewerken, niet weghalen.
+	vereis_op_plek(doc.ruimte, doc.map, "write")
 	mapsjablonen.controleer_schrijven(doc.ruimte, doc.map)
 	frappe.db.set_value("Opslagbestand", bestand, "verwijderd_op", now_datetime())
 	_log(doc.ruimte, "verwijderd", "Opslagbestand", bestand, doc.naam)
@@ -459,14 +506,14 @@ def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int 
 	return {"bestand": doel.name, "naam": naam, "versie": volgnummer}
 
 
-def _submappen(map: str) -> list[str]:
+def _submappen(map: str, ook_verwijderd: bool = False) -> list[str]:
+	"""De map zelf en alle mappen eronder (zonder de prullenbak, tenzij `ook_verwijderd`)."""
+	filters = {} if ook_verwijderd else {"verwijderd_op": ("is", "not set")}
 	uit, te_doen = [], [map]
 	while te_doen:
 		huidig = te_doen.pop()
 		uit.append(huidig)
-		te_doen += frappe.get_all(
-			"Opslagmap", filters={"bovenliggende": huidig, "verwijderd_op": ("is", "not set")}, pluck="name"
-		)
+		te_doen += frappe.get_all("Opslagmap", filters={"bovenliggende": huidig, **filters}, pluck="name")
 	return uit
 
 
@@ -504,6 +551,8 @@ def verwijder_map(map: str) -> None:
 	if not doc or doc.verwijderd_op:
 		return
 	vereis_op_plek(doc.ruimte, doc.name, "write")
+	# Ook op de map erboven: de gedeelde map zelf haalt wie hem gedeeld kreeg niet weg (`buiten_deling`).
+	vereis_op_plek(doc.ruimte, doc.bovenliggende, "write")
 	moment = now_datetime()
 	mappen = _submappen(doc.name)
 	# Ook een alleen-lezenmap diep in de map gaat niet zomaar mee naar de prullenbak.
@@ -523,9 +572,14 @@ def verwijder_map(map: str) -> None:
 
 
 @frappe.whitelist()
-def wijzigingen(ruimte: str, sinds: int = 0, limiet: int = 1000) -> dict:
-	"""Wijzigingen in de ruimte na cursor `sinds`, oplopend; de cursor is het volgnummer van de wijziging."""
-	vereis(ruimte, "read")
+def wijzigingen(ruimte: str | None = None, sinds: int = 0, limiet: int = 1000, deling: str | None = None) -> dict:
+	"""Wijzigingen in de ruimte na cursor `sinds`, oplopend; de cursor is het volgnummer van de wijziging. Met
+	`deling` alleen die binnen de gedeelde map (de cursor loopt over de hele ruimte, zoals zonder deling)."""
+	ruimte, wortel = _wortel(ruimte, deling)
+	if wortel:
+		vereis_op_plek(ruimte, wortel, "read")
+	else:
+		vereis(ruimte, "read")
 	sinds, limiet = cint(sinds), min(max(cint(limiet), 1), 5000)
 	regels = frappe.get_all(
 		"Opslagwijziging",
@@ -540,11 +594,31 @@ def wijzigingen(ruimte: str, sinds: int = 0, limiet: int = 1000) -> dict:
 	else:
 		hoogste = frappe.db.sql("select coalesce(max(name), 0) from `tabOpslagwijziging`")[0][0]
 		cursor = max(sinds, cint(hoogste))
+	meer = len(regels) == limiet
+	if wortel:
+		regels = _binnen_wortel(wortel, regels)
 	return {
 		"cursor": cursor,
-		"meer": len(regels) == limiet,
+		"meer": meer,
 		"wijzigingen": [{**r, "volgnummer": cint(r.pop("name"))} for r in regels],
 	}
+
+
+def _binnen_wortel(wortel: str, regels: list) -> list:
+	"""De regels uit de wijzigingenlijst over de wortel, een map eronder of een bestand daarin (ook verwijderde)."""
+	mappen = set(_submappen(wortel, ook_verwijderd=True))
+	bestanden = [r.doel for r in regels if r.doel_doctype == "Opslagbestand"]
+	in_map = (
+		dict(frappe.get_all("Opslagbestand", filters={"name": ("in", bestanden)}, fields=["name", "map"], as_list=True))
+		if bestanden
+		else {}
+	)
+	return [
+		r
+		for r in regels
+		if (r.doel_doctype == "Opslagmap" and r.doel in mappen)
+		or (r.doel_doctype == "Opslagbestand" and in_map.get(r.doel) in mappen)
+	]
 
 
 @frappe.whitelist()
@@ -683,6 +757,8 @@ def deel(
 		}
 	).insert(ignore_permissions=True)
 	_log(ruimte, "gedeeld", doel_doctype, doel)
+	if soort == "gebruiker":
+		_meld_ontvanger(deling)
 	return {
 		"deling": deling.name,
 		"token": deling.token,
@@ -699,6 +775,121 @@ def _deelrechten(soort: str, rechten: str) -> str:
 	if soort == "link" and rechten == "uploaden":
 		return "uploaden"
 	return "lezen"
+
+
+def _meld_ontvanger(deling) -> None:
+	"""Melding (bel in de desk) en e-mail aan wie er net een map of bestand mee gedeeld kreeg, met de naam, wie het
+	deelde en een link naar /opslag. Via de mail van de site (in de wachtrij); is er geen uitgaande mail, dan staat
+	dat in het foutlog en blijft de deling gewoon staan. Bij intrekken volgt geen mail."""
+	from frappe.utils import escape_html, get_fullname
+
+	if not deling.gebruiker or deling.gebruiker == frappe.session.user:
+		return
+	naam = frappe.db.get_value(deling.doel_doctype, deling.doel, "naam") or deling.doel
+	door = get_fullname(frappe.session.user) or frappe.session.user
+	ruimte_naam = frappe.db.get_value("Ruimte", deling.ruimte, "naam") or deling.ruimte
+	wat = _("de map {0}") if deling.doel_doctype == "Opslagmap" else _("het bestand {0}")
+	onderwerp = _("{0} heeft {1} met je gedeeld").format(door, wat.format(naam))
+	rechten = _("bekijken en bewerken") if deling.rechten == "schrijven" else _("bekijken")
+	pad = f"/opslag?deling={deling.name}"
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Notification Log",
+				"for_user": deling.gebruiker,
+				"from_user": frappe.session.user,
+				"type": "Alert",
+				"subject": escape_html(onderwerp),
+				"document_type": deling.doel_doctype,
+				"document_name": deling.doel,
+				"link": pad,
+			}
+		).insert(ignore_permissions=True)
+	except Exception:
+		frappe.log_error(title="Melding over een deling niet gemaakt")
+	url = get_url(pad)
+	verloopt = (
+		"<p style='color:#6b6b76'>"
+		+ escape_html(_("Gedeeld tot {0}.").format(frappe.utils.format_datetime(deling.verloopt, "d MMMM yyyy HH:mm")))
+		+ "</p>"
+		if deling.verloopt
+		else ""
+	)
+	html = (
+		f"<p>{escape_html(onderwerp)} ({escape_html(ruimte_naam)}).</p>"
+		f"<p>{escape_html(_('Je kunt het {0}.').format(rechten))}</p>"
+		f"<p><a href='{escape_html(url)}' style='display:inline-block;background:#d97706;color:#fff;padding:10px 18px;"
+		f"border-radius:6px;text-decoration:none'>{escape_html(_('Openen'))}</a></p>"
+		f"<p>{escape_html(url)}</p>{verloopt}"
+	)
+	try:
+		frappe.sendmail(
+			recipients=[deling.gebruiker],
+			subject=onderwerp,
+			message=html,
+			reference_doctype="Opslagdeling",
+			reference_name=deling.name,
+		)
+	except Exception:
+		frappe.log_error(title="Mail over een deling niet verstuurd")
+
+
+@frappe.whitelist()
+def gedeeld_met_mij() -> list[dict]:
+	"""Wat anderen met de ingelogde gebruiker deelden (soort `gebruiker`), nieuwste eerst: alleen delingen die nu
+	gelden (niet ingetrokken, niet verlopen, het doel niet verwijderd) in ruimtes die niet gearchiveerd zijn. Per map of
+	bestand één regel, met het hoogste recht. `al_lid` (met `rol`): je bent ook lid van de ruimte; de deling kan dan
+	meer rechten geven dan je rol. Een gedeeld bestand heeft ook `map`, `grootte` en `versie` (om te openen en, bij
+	`schrijven`, een nieuwe versie te uploaden)."""
+	gebruiker = frappe.session.user
+	rijen = frappe.db.sql(
+		"""select d.name, d.ruimte, r.naam as ruimte_naam, d.doel_doctype, d.doel, d.rechten, d.verloopt, d.owner,
+		d.creation from `tabOpslagdeling` d join `tabRuimte` r on r.name = d.ruimte
+		where d.soort = 'gebruiker' and d.gebruiker = %(gebruiker)s and ifnull(d.ingetrokken, 0) = 0
+		and (d.verloopt is null or d.verloopt >= %(nu)s) and ifnull(r.gearchiveerd, 0) = 0
+		order by d.creation desc, d.name""",
+		{"gebruiker": gebruiker, "nu": now_datetime()},
+		as_dict=True,
+	)
+	rollen = dict(
+		frappe.db.sql("select parent, rol from `tabRuimtelid` where parenttype = 'Ruimte' and gebruiker = %s", gebruiker)
+	)
+	namen: dict[str, str] = {}
+	per_doel: dict[tuple[str, str], dict] = {}
+	for r in rijen:
+		sleutel = (r.doel_doctype, r.doel)
+		if sleutel in per_doel:
+			# Dezelfde map of hetzelfde bestand nog eens gedeeld: het hoogste recht telt.
+			if r.rechten == "schrijven" and per_doel[sleutel]["rechten"] != "schrijven":
+				per_doel[sleutel].update({"deling": r.name, "rechten": "schrijven", "verloopt": r.verloopt})
+			continue
+		velden = ["naam", "verwijderd_op"]
+		if r.doel_doctype == "Opslagbestand":
+			velden += ["map", "grootte", "huidige_versie"]
+		doel = frappe.db.get_value(r.doel_doctype, r.doel, velden, as_dict=True)
+		if not doel or doel.verwijderd_op:
+			continue
+		if r.owner not in namen:
+			namen[r.owner] = frappe.db.get_value("User", r.owner, "full_name") or r.owner
+		regel = {
+			"deling": r.name,
+			"doel_doctype": r.doel_doctype,
+			"doel": r.doel,
+			"naam": doel.naam,
+			"ruimte": r.ruimte,
+			"ruimte_naam": r.ruimte_naam,
+			"rechten": r.rechten,
+			"gedeeld_door": r.owner,
+			"gedeeld_door_naam": namen[r.owner],
+			"sinds": r.creation,
+			"verloopt": r.verloopt,
+			"al_lid": r.ruimte in rollen,
+			"rol": rollen.get(r.ruimte),
+		}
+		if r.doel_doctype == "Opslagbestand":
+			regel.update({"map": doel.map, "grootte": cint(doel.grootte), "versie": cint(doel.huidige_versie)})
+		per_doel[sleutel] = regel
+	return list(per_doel.values())
 
 
 @frappe.whitelist()
@@ -839,9 +1030,12 @@ def ruimtes() -> list[dict]:
 
 
 @frappe.whitelist()
-def maak_map(ruimte: str, naam: str, bovenliggende: str | None = None) -> dict:
-	"""Maak een map (of geef de bestaande met dezelfde naam op die plek terug)."""
-	bovenliggende = _controleer_map(ruimte, bovenliggende)
+def maak_map(ruimte: str | None = None, naam: str = "", bovenliggende: str | None = None, deling: str | None = None) -> dict:
+	"""Maak een map (of geef de bestaande met dezelfde naam op die plek terug). Met `deling` is de gedeelde map het
+	hoofdniveau (`bovenliggende` leeg)."""
+	ruimte, wortel = _wortel(ruimte, deling)
+	bovenliggende = _controleer_map(ruimte, bovenliggende or wortel)
+	_binnen(wortel, bovenliggende)
 	map, nieuw = _maak_map(ruimte, naam, bovenliggende)
 	return {"map": map, "nieuw": nieuw}
 
@@ -886,18 +1080,20 @@ KLEIN_MAX_MAPPEN = 1000  # mappen per verzoek (maak_mappen)
 @frappe.whitelist()
 def mogelijkheden() -> dict:
 	"""Wat deze server kent, zodat de desktop-app nieuwe wegen alleen gebruikt waar ze bestaan (een oudere server
-	kent deze methode niet; dan blijft de app bij `bladeren` en uploads per bestand)."""
+	kent deze methode niet; dan blijft de app bij `bladeren` en uploads per bestand). `deling`: de parameter `deling`
+	(een gedeelde map als bovenste map) bestaat."""
 	grenzen = {"max_bestand": KLEIN_MAX_BESTAND, "max_aantal": KLEIN_MAX_AANTAL, "max_bytes": KLEIN_MAX_BYTES}
-	return {"upload_klein": grenzen, "download_klein": grenzen, "boom": True, "maak_mappen": True}
+	return {"upload_klein": grenzen, "download_klein": grenzen, "boom": True, "maak_mappen": True, "deling": True}
 
 
 @frappe.whitelist(methods=["POST"])
-def maak_mappen(ruimte: str, paden) -> dict:
+def maak_mappen(ruimte: str | None = None, paden=None, deling: str | None = None) -> dict:
 	"""Veel mappen in één verzoek, voordat de bestanden erin komen: `paden` is een lijst mappaden met '/' (bijv.
 	`Tekeningen/2026`); ontbrekende mappen, ook tussenliggende, worden aangemaakt zoals bij `maak_map`, bestaande
 	worden hergebruikt (hoofdletters maken niet uit). Antwoord: `{mappen: {pad: map}, fouten: {pad: {fout,
-	foutcode}}}`; een fout bij één pad houdt de andere niet op."""
+	foutcode}}}`; een fout bij één pad houdt de andere niet op. Met `deling` zijn de paden binnen de gedeelde map."""
 	paden = [p.strip("/") for p in _als_lijst(paden) if p and p.strip("/")]
+	ruimte, wortel = _wortel(ruimte, deling)
 	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
 		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
 	if len(paden) > KLEIN_MAX_MAPPEN:
@@ -905,7 +1101,7 @@ def maak_mappen(ruimte: str, paden) -> dict:
 	cache: dict = {}
 	mappen, fouten = {}, {}
 	for pad in sorted(set(paden), key=lambda p: (p.count("/"), p)):
-		uit = _per_bestand(lambda pad=pad: {"map": _map_van_pad(ruimte, pad, cache)})
+		uit = _per_bestand(lambda pad=pad: {"map": _map_van_pad(ruimte, pad, cache, wortel)})
 		if uit["ok"]:
 			mappen[pad] = uit["map"]
 		else:
@@ -915,29 +1111,39 @@ def maak_mappen(ruimte: str, paden) -> dict:
 
 
 @frappe.whitelist()
-def boom(ruimte: str, start: int = 0, aantal: int = 10000) -> dict:
+def boom(ruimte: str | None = None, start: int = 0, aantal: int = 10000, deling: str | None = None) -> dict:
 	"""Alle mappen en bestanden van een ruimte in één keer (in plaats van `bladeren` per map), voor de sync. Mappen
-	allemaal; bestanden per pagina (`start`, `aantal`, hoogstens 50 000), met `meer` als er nog een pagina is. Alleen
-	voor leden van de ruimte (wie alleen via een deling bij een map kan, bladert)."""
-	vereis(ruimte, "read")
+	allemaal; bestanden per pagina (`start`, `aantal`, hoogstens 50 000), met `meer` als er nog een pagina is. Zonder
+	`deling` alleen voor leden van de ruimte; met `deling` alles onder de gedeelde map (`wortel`, zelf niet in
+	`mappen`; de mappen direct eronder hebben hem als `bovenliggende`)."""
+	ruimte, wortel = _wortel(ruimte, deling)
 	start, aantal = max(cint(start), 0), min(max(cint(aantal), 1), 50000)
+	if wortel:
+		vereis_op_plek(ruimte, wortel, "read")
+		binnen = _submappen(wortel)
+		filter_map = {"name": ("in", [m for m in binnen if m != wortel] or [""])}
+		filter_bestand = {"map": ("in", binnen)}
+	else:
+		vereis(ruimte, "read")
+		filter_map, filter_bestand = {}, {}
 	mappen = frappe.get_all(
 		"Opslagmap",
-		filters={"ruimte": ruimte, "verwijderd_op": ("is", "not set")},
+		filters={"ruimte": ruimte, "verwijderd_op": ("is", "not set"), **filter_map},
 		fields=["name", "naam", "bovenliggende", "modified"],
 		order_by="name asc",
 		ignore_permissions=True,
 	)
 	bestanden = frappe.get_all(
 		"Opslagbestand",
-		filters={"ruimte": ruimte, "verwijderd_op": ("is", "not set")},
+		filters={"ruimte": ruimte, "verwijderd_op": ("is", "not set"), **filter_bestand},
 		fields=["name", "naam", "map", "grootte", "huidige_versie", "modified"],
 		order_by="name asc",
 		limit_start=start,
 		limit_page_length=aantal + 1,
 		ignore_permissions=True,
 	)
-	return {"mappen": mappen, "bestanden": bestanden[:aantal], "meer": len(bestanden) > aantal}
+	uit = {"mappen": mappen, "bestanden": bestanden[:aantal], "meer": len(bestanden) > aantal}
+	return {**uit, "wortel": wortel} if wortel else uit
 
 
 def _als_lijst(waarde) -> list:
@@ -968,9 +1174,10 @@ def _per_bestand(functie, *args) -> dict:
 	return {"ok": True, **resultaat}
 
 
-def _map_van_pad(ruimte: str, pad: str, mappen: dict) -> str | None:
-	"""Map-id voor een mappad met '/' (leeg = hoofdniveau); ontbrekende mappen worden aangemaakt zoals `maak_map`."""
-	bovenliggende, gedaan = None, []
+def _map_van_pad(ruimte: str, pad: str, mappen: dict, wortel: str | None = None) -> str | None:
+	"""Map-id voor een mappad met '/' (leeg = hoofdniveau, of de wortel van een deling); ontbrekende mappen worden
+	aangemaakt zoals `maak_map`."""
+	bovenliggende, gedaan = wortel, []
 	for deel in [d for d in (pad or "").split("/") if d]:
 		gedaan.append(deel)
 		sleutel = "/".join(gedaan).lower()
@@ -983,7 +1190,9 @@ def _map_van_pad(ruimte: str, pad: str, mappen: dict) -> str | None:
 	return bovenliggende
 
 
-def _upload_een(ruimte: str, item: dict, inhoud: bytes | None, bron: str, mappen: dict) -> dict:
+def _upload_een(
+	ruimte: str, item: dict, inhoud: bytes | None, bron: str, mappen: dict, wortel: str | None = None
+) -> dict:
 	if inhoud is None:
 		frappe.throw(_("De inhoud van dit bestand ontbreekt in het verzoek"))
 	grootte = cint(item.get("grootte"))
@@ -995,9 +1204,10 @@ def _upload_een(ruimte: str, item: dict, inhoud: bytes | None, bron: str, mappen
 		weiger(_("Dit bestand is te groot om samen met andere te uploaden"), "te_groot_voor_batch")
 	if item.get("map"):
 		map = _controleer_map(ruimte, item["map"])
+		_binnen(wortel, map)
 	else:
-		map = _map_van_pad(ruimte, item.get("pad") or "", mappen)
-	vereis_op_plek(ruimte, map, "write")
+		map = _map_van_pad(ruimte, item.get("pad") or "", mappen, wortel)
+	vereis_op_plek(ruimte, map, "write", _bestaand_id(ruimte, map, item.get("naam")))
 	naam = _controleer_naam(item.get("naam"), ruimte, map)
 	mapsjablonen.controleer_upload(ruimte, map, naam)
 	_controleer_quotum(grootte, ruimte)
@@ -1025,9 +1235,12 @@ def _upload_een(ruimte: str, item: dict, inhoud: bytes | None, bron: str, mappen
 	return {**resultaat, "map": map}
 
 
-def upload_klein_bytes(ruimte: str, bestanden, inhoud: dict[str, bytes], bron: str = "sync") -> dict:
+def upload_klein_bytes(
+	ruimte: str | None, bestanden, inhoud: dict[str, bytes], bron: str = "sync", deling: str | None = None
+) -> dict:
 	"""Kern van `upload_klein`, met de inhoud per veldnaam (zo ook te gebruiken zonder HTTP-verzoek)."""
 	bestanden = _als_lijst(bestanden)
+	ruimte, wortel = _wortel(ruimte, deling)
 	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
 		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
 	if len(bestanden) > KLEIN_MAX_AANTAL or sum(len(b) for b in inhoud.values()) > KLEIN_MAX_BYTES:
@@ -1041,7 +1254,7 @@ def upload_klein_bytes(ruimte: str, bestanden, inhoud: dict[str, bytes], bron: s
 	resultaten = []
 	for index, item in enumerate(bestanden):
 		veld = item.get("veld") or f"f{index}"
-		uit = _per_bestand(_upload_een, ruimte, item, inhoud.get(veld), bron, mappen)
+		uit = _per_bestand(_upload_een, ruimte, item, inhoud.get(veld), bron, mappen, wortel)
 		if not uit["ok"]:
 			# Wat dit bestand aan mappen aanmaakte, is teruggedraaid: de volgende zoekt ze opnieuw op.
 			mappen.clear()
@@ -1050,14 +1263,15 @@ def upload_klein_bytes(ruimte: str, bestanden, inhoud: dict[str, bytes], bron: s
 
 
 @frappe.whitelist(methods=["POST"])
-def upload_klein(ruimte: str, bestanden, bron: str = "sync") -> dict:
+def upload_klein(ruimte: str | None = None, bestanden=None, bron: str = "sync", deling: str | None = None) -> dict:
 	"""Veel kleine bestanden in één verzoek (multipart/form-data): `ruimte`, `bestanden` (JSON-lijst met per bestand
 	`naam`, `map` (id) of `pad` (mappad met '/'; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash`
 	(BLAKE3 van de inhoud), `basis_versie?`, `sha256?` en `veld`) en de inhoud: alle bestanden achter elkaar in één
 	bestandsveld `inhoud` (in de volgorde van `bestanden`, gesneden op `grootte`), of per bestand een bestandsveld
 	met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd. Hoogstens
 	1 MiB per bestand en 64 bestanden of 16 MiB per verzoek. Antwoord: `{resultaten: [{index, ok: true, bestand, naam,
-	versie, conflict, map} | {index, ok: false, fout, foutcode}]}`, in de volgorde van `bestanden`."""
+	versie, conflict, map} | {index, ok: false, fout, foutcode}]}`, in de volgorde van `bestanden`. Met `deling` zijn
+	`pad` en `map` binnen de gedeelde map."""
 	bestanden = _als_lijst(bestanden)
 	velden = frappe.request.files if getattr(frappe, "request", None) else {}
 	inhoud = {}
@@ -1075,7 +1289,7 @@ def upload_klein(ruimte: str, bestanden, bron: str = "sync") -> dict:
 			veld = item.get("veld") or f"f{index}"
 			if veld in velden:
 				inhoud[veld] = velden[veld].stream.read(KLEIN_MAX_BYTES + 1)
-	return upload_klein_bytes(ruimte, bestanden, inhoud, bron)
+	return upload_klein_bytes(ruimte, bestanden, inhoud, bron, deling)
 
 
 def _download_een(item) -> dict:
