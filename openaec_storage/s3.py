@@ -98,6 +98,29 @@ def grootte(sleutel: str) -> int:
 	return int(_client().head_object(Bucket=bucket(), Key=sleutel)["ContentLength"])
 
 
+def zet(sleutel: str, inhoud: bytes) -> None:
+	"""Een klein object in één keer (kleine bestanden in één verzoek, zie api.upload_klein)."""
+	_client().put_object(Bucket=bucket(), Key=sleutel, Body=inhoud, **_versleuteling())
+
+
+def lees_veel(sleutels: list[str], tegelijk: int = 8) -> list:
+	"""De inhoud van een aantal kleine objecten, tegelijk opgehaald: per sleutel de bytes, of de uitzondering."""
+	from concurrent.futures import ThreadPoolExecutor
+
+	if not sleutels:
+		return []
+	client, naam = _client(), bucket()
+
+	def lees(sleutel: str):
+		try:
+			return client.get_object(Bucket=naam, Key=sleutel)["Body"].read()
+		except Exception as fout:
+			return fout
+
+	with ThreadPoolExecutor(max_workers=min(tegelijk, len(sleutels))) as werkers:
+		return list(werkers.map(lees, sleutels))
+
+
 def download_url(sleutel: str, bestandsnaam: str, inhoudstype: str | None = None) -> str:
 	"""Ondertekende downloadlink. Met `inhoudstype` toont de browser het bestand (inline, voor een voorbeeld van een
 	PDF of afbeelding); zonder wordt het een download."""

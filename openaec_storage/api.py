@@ -284,7 +284,14 @@ def upload_klaar(upload: str, delen) -> dict:
 	s3.voltooi(info["sleutel"], info["upload_id"], delen)
 	if s3.grootte(info["sleutel"]) != info["grootte"]:
 		frappe.throw(_("Ontvangen grootte wijkt af van de aangekondigde grootte"))
+	resultaat = _registreer(info)
+	frappe.cache.delete_value(UPLOAD_SLEUTEL + upload)
+	return resultaat
 
+
+def _registreer(info: dict) -> dict:
+	"""Leg een geüploade inhoud (al in S3 onder `info["sleutel"]`) vast als versie, of als conflictkopie: dezelfde
+	regel voor de gewone upload en voor kleine bestanden in één verzoek (`upload_klein`)."""
 	ruimte, map, naam = info["ruimte"], info["map"], info["naam"]
 	bestaand = _actief_bestand(ruimte, map, naam)
 	conflict = False
@@ -316,7 +323,7 @@ def upload_klaar(upload: str, delen) -> dict:
 			"volgnummer": volgnummer,
 			"s3_sleutel": info["sleutel"],
 			"grootte": info["grootte"],
-			"sha256": info["sha256"],
+			"sha256": info.get("sha256"),
 			"bron": info["bron"],
 			"maker": frappe.session.user,
 			"blokgrootte": info.get("blokgrootte") or s3.DEELGROOTTE,
@@ -327,7 +334,6 @@ def upload_klaar(upload: str, delen) -> dict:
 	doc.grootte = info["grootte"]
 	doc.save(ignore_permissions=True)
 	_log(ruimte, soort, "Opslagbestand", doc.name, doc.naam)
-	frappe.cache.delete_value(UPLOAD_SLEUTEL + upload)
 	return {"bestand": doc.name, "naam": doc.naam, "versie": volgnummer, "conflict": conflict}
 
 
@@ -784,6 +790,12 @@ def ruimtes() -> list[dict]:
 def maak_map(ruimte: str, naam: str, bovenliggende: str | None = None) -> dict:
 	"""Maak een map (of geef de bestaande met dezelfde naam op die plek terug)."""
 	bovenliggende = _controleer_map(ruimte, bovenliggende)
+	map, nieuw = _maak_map(ruimte, naam, bovenliggende)
+	return {"map": map, "nieuw": nieuw}
+
+
+def _maak_map(ruimte: str, naam: str, bovenliggende: str | None) -> tuple[str, bool]:
+	"""Map `naam` in `bovenliggende` (al gecontroleerd): de bestaande, of een nieuwe. Geeft (map, nieuw)."""
 	vereis_op_plek(ruimte, bovenliggende, "write")
 	naam = _controleer_naam(naam)
 	# Gelijktijdige aanvragen (parallelle uploads die dezelfde map nodig hebben) wachten op elkaar via een slot op de
@@ -796,10 +808,230 @@ def maak_map(ruimte: str, naam: str, bovenliggende: str | None = None) -> dict:
 		(ruimte, bovenliggende or "", naam),
 	)
 	if bestaand:
-		return {"map": bestaand[0][0], "nieuw": False}
+		return bestaand[0][0], False
 	mapsjablonen.controleer_schrijven(ruimte, bovenliggende)
 	doc = frappe.get_doc(
 		{"doctype": "Opslagmap", "ruimte": ruimte, "naam": naam, "bovenliggende": bovenliggende}
 	).insert(ignore_permissions=True)
 	_log(ruimte, "nieuw", "Opslagmap", doc.name, naam)
-	return {"map": doc.name, "nieuw": True}
+	return doc.name, True
+
+
+# --- veel kleine bestanden in één verzoek (sync van mappen met duizenden kleine bestanden) -------------------
+#
+# Per bestand gelden dezelfde regels als bij `upload_start`/`upload_klaar` en `download`: rechten, quotum (pool en
+# ruimte), mapregels, gearchiveerde ruimtes, versies en conflicten, de wijzigingenlijst. Het antwoord heeft per
+# bestand `ok` met het resultaat, of de fout met de foutcode; een fout bij één bestand houdt de andere niet op.
+
+KLEIN_MAX_BESTAND = 1024 * 1024  # bytes per bestand
+KLEIN_MAX_AANTAL = 64  # bestanden per verzoek
+KLEIN_MAX_BYTES = 16 * 1024 * 1024  # bytes per verzoek
+
+
+@frappe.whitelist()
+def mogelijkheden() -> dict:
+	"""Wat deze server kent, zodat de desktop-app nieuwe wegen alleen gebruikt waar ze bestaan (een oudere server
+	kent deze methode niet; dan blijft de app bij `bladeren` en uploads per bestand)."""
+	grenzen = {"max_bestand": KLEIN_MAX_BESTAND, "max_aantal": KLEIN_MAX_AANTAL, "max_bytes": KLEIN_MAX_BYTES}
+	return {"upload_klein": grenzen, "download_klein": grenzen, "boom": True}
+
+
+@frappe.whitelist()
+def boom(ruimte: str, start: int = 0, aantal: int = 10000) -> dict:
+	"""Alle mappen en bestanden van een ruimte in één keer (in plaats van `bladeren` per map), voor de sync. Mappen
+	allemaal; bestanden per pagina (`start`, `aantal`, hoogstens 50 000), met `meer` als er nog een pagina is. Alleen
+	voor leden van de ruimte (wie alleen via een deling bij een map kan, bladert)."""
+	vereis(ruimte, "read")
+	start, aantal = max(cint(start), 0), min(max(cint(aantal), 1), 50000)
+	mappen = frappe.get_all(
+		"Opslagmap",
+		filters={"ruimte": ruimte, "verwijderd_op": ("is", "not set")},
+		fields=["name", "naam", "bovenliggende", "modified"],
+		order_by="name asc",
+		ignore_permissions=True,
+	)
+	bestanden = frappe.get_all(
+		"Opslagbestand",
+		filters={"ruimte": ruimte, "verwijderd_op": ("is", "not set")},
+		fields=["name", "naam", "map", "grootte", "huidige_versie", "modified"],
+		order_by="name asc",
+		limit_start=start,
+		limit_page_length=aantal + 1,
+		ignore_permissions=True,
+	)
+	return {"mappen": mappen, "bestanden": bestanden[:aantal], "meer": len(bestanden) > aantal}
+
+
+def _als_lijst(waarde) -> list:
+	if isinstance(waarde, str):
+		waarde = json.loads(waarde)
+	return list(waarde or [])
+
+
+def _per_bestand(functie, *args) -> dict:
+	"""Voer `functie` uit voor één bestand van een batch: een weigering wordt het antwoord voor dat bestand (met de
+	foutcode), zonder dat de batch stopt. Wat het bestand al in de database schreef, wordt teruggedraaid."""
+	frappe.db.savepoint("klein_bestand")
+	frappe.local.response.pop("foutcode", None)
+	try:
+		resultaat = functie(*args)
+	except Exception as fout:
+		frappe.db.rollback(save_point="klein_bestand")
+		foutcode = frappe.local.response.pop("foutcode", None)
+		frappe.clear_messages()
+		if not isinstance(fout, frappe.ValidationError | frappe.PermissionError | frappe.DoesNotExistError):
+			frappe.log_error(title="openaec_storage: bestand in batch mislukt")
+		return {"ok": False, "fout": str(fout) or fout.__class__.__name__, "foutcode": foutcode}
+	return {"ok": True, **resultaat}
+
+
+def _map_van_pad(ruimte: str, pad: str, mappen: dict) -> str | None:
+	"""Map-id voor een mappad met '/' (leeg = hoofdniveau); ontbrekende mappen worden aangemaakt zoals `maak_map`."""
+	bovenliggende, gedaan = None, []
+	for deel in [d for d in (pad or "").split("/") if d]:
+		gedaan.append(deel)
+		sleutel = "/".join(gedaan).lower()
+		if sleutel not in mappen:
+			mappen[sleutel] = _maak_map(ruimte, deel, bovenliggende)[0]
+		bovenliggende = mappen[sleutel]
+	return bovenliggende
+
+
+def _upload_een(ruimte: str, item: dict, inhoud: bytes | None, bron: str, mappen: dict) -> dict:
+	if inhoud is None:
+		frappe.throw(_("De inhoud van dit bestand ontbreekt in het verzoek"))
+	grootte = cint(item.get("grootte"))
+	if grootte != len(inhoud):
+		frappe.throw(_("Ontvangen grootte wijkt af van de aangekondigde grootte"))
+	if grootte > KLEIN_MAX_BESTAND:
+		weiger(_("Dit bestand is te groot om samen met andere te uploaden"), "te_groot_voor_batch")
+	if item.get("map"):
+		map = _controleer_map(ruimte, item["map"])
+	else:
+		map = _map_van_pad(ruimte, item.get("pad") or "", mappen)
+	vereis_op_plek(ruimte, map, "write")
+	naam = _controleer_naam(item.get("naam"))
+	mapsjablonen.controleer_upload(ruimte, map, naam)
+	_controleer_quotum(grootte, ruimte)
+	basis_versie = item.get("basis_versie")
+	sleutel = s3.nieuwe_sleutel()
+	s3.zet(sleutel, inhoud)
+	try:
+		resultaat = _registreer(
+			{
+				"ruimte": ruimte,
+				"map": map,
+				"naam": naam,
+				"grootte": grootte,
+				"basis_versie": None if basis_versie in (None, "") else cint(basis_versie),
+				"sha256": item.get("sha256"),
+				"bron": bron if bron in BRONNEN else "api",
+				"sleutel": sleutel,
+				"blokgrootte": s3.blokgrootte(grootte),
+				"blokhashes": [item["blokhash"]] if item.get("blokhash") else None,
+			}
+		)
+	except Exception:
+		s3.verwijder(sleutel)
+		raise
+	return {**resultaat, "map": map}
+
+
+def upload_klein_bytes(ruimte: str, bestanden, inhoud: dict[str, bytes], bron: str = "sync") -> dict:
+	"""Kern van `upload_klein`, met de inhoud per veldnaam (zo ook te gebruiken zonder HTTP-verzoek)."""
+	bestanden = _als_lijst(bestanden)
+	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
+		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
+	if len(bestanden) > KLEIN_MAX_AANTAL or sum(len(b) for b in inhoud.values()) > KLEIN_MAX_BYTES:
+		weiger(
+			_("Te veel in één verzoek: hoogstens {0} bestanden en {1} MiB").format(
+				KLEIN_MAX_AANTAL, KLEIN_MAX_BYTES // (1024 * 1024)
+			),
+			"batch_te_groot",
+		)
+	mappen: dict = {}
+	resultaten = []
+	for index, item in enumerate(bestanden):
+		veld = item.get("veld") or f"f{index}"
+		uit = _per_bestand(_upload_een, ruimte, item, inhoud.get(veld), bron, mappen)
+		if not uit["ok"]:
+			# Wat dit bestand aan mappen aanmaakte, is teruggedraaid: de volgende zoekt ze opnieuw op.
+			mappen.clear()
+		resultaten.append({"index": index, **uit})
+	return {"resultaten": resultaten}
+
+
+@frappe.whitelist(methods=["POST"])
+def upload_klein(ruimte: str, bestanden, bron: str = "sync") -> dict:
+	"""Veel kleine bestanden in één verzoek (multipart/form-data): `ruimte`, `bestanden` (JSON-lijst met per bestand
+	`naam`, `map` (id) of `pad` (mappad met '/'; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash`
+	(BLAKE3 van de inhoud), `basis_versie?`, `sha256?` en `veld`) en per bestand de inhoud als bestandsveld met de
+	naam uit `veld` (standaard `f<index>`). Hoogstens 1 MiB per bestand en 64 bestanden of 16 MiB per verzoek.
+	Antwoord: `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} | {index, ok: false, fout,
+	foutcode}]}`, in de volgorde van `bestanden`."""
+	bestanden = _als_lijst(bestanden)
+	velden = frappe.request.files if getattr(frappe, "request", None) else {}
+	inhoud = {}
+	for index, item in enumerate(bestanden):
+		veld = item.get("veld") or f"f{index}"
+		if veld in velden:
+			inhoud[veld] = velden[veld].stream.read(KLEIN_MAX_BYTES + 1)
+	return upload_klein_bytes(ruimte, bestanden, inhoud, bron)
+
+
+def _download_een(item) -> dict:
+	bestand = item.get("bestand") if isinstance(item, dict) else item
+	versie = item.get("versie") if isinstance(item, dict) else None
+	doc = _bestand(bestand, "read")
+	volgnummer = cint(versie) or cint(doc.huidige_versie)
+	rij = frappe.db.get_value(
+		"Bestandsversie",
+		{"bestand": bestand, "volgnummer": volgnummer},
+		["s3_sleutel", "grootte", "blokhashes"],
+		as_dict=True,
+	)
+	if not rij:
+		frappe.throw(_("Versie bestaat niet"), frappe.DoesNotExistError)
+	if cint(rij.grootte) > KLEIN_MAX_BESTAND:
+		weiger(_("Dit bestand is te groot om samen met andere te downloaden"), "te_groot_voor_batch")
+	hashes = json.loads(rij.blokhashes) if rij.blokhashes else None
+	return {
+		"bestand": doc.name,
+		"naam": doc.naam,
+		"versie": volgnummer,
+		"grootte": cint(rij.grootte),
+		"blokhash": hashes[0] if hashes else None,
+		"sleutel": rij.s3_sleutel,
+	}
+
+
+@frappe.whitelist()
+def download_klein(bestanden) -> dict:
+	"""Veel kleine bestanden in één antwoord: `bestanden` is een lijst bestand-id's (of `{bestand, versie}`).
+	Hoogstens 1 MiB per bestand en 64 bestanden of 16 MiB per verzoek; wat er niet meer bij past, krijgt de foutcode
+	`batch_te_groot` (vraag het in een volgend verzoek). Antwoord: `{bestanden: [{index, ok: true, bestand, naam,
+	versie, grootte, blokhash, inhoud (base64)} | {index, ok: false, fout, foutcode}]}`, in de volgorde van
+	`bestanden`."""
+	import base64
+
+	bestanden = _als_lijst(bestanden)
+	if len(bestanden) > KLEIN_MAX_AANTAL:
+		weiger(_("Te veel in één verzoek: hoogstens {0} bestanden").format(KLEIN_MAX_AANTAL), "batch_te_groot")
+	uit, totaal = [], 0
+	for index, item in enumerate(bestanden):
+		r = _per_bestand(_download_een, item)
+		if r["ok"]:
+			totaal += r["grootte"]
+			if totaal > KLEIN_MAX_BYTES:
+				r = {"ok": False, "fout": _("Past niet meer in dit verzoek"), "foutcode": "batch_te_groot"}
+		uit.append({"index": index, **r})
+	# De inhoud tegelijk uit S3 halen: anders wacht één verzoek met 64 bestanden 64 keer na elkaar op S3.
+	klaar = [r for r in uit if r["ok"]]
+	for r, data in zip(klaar, s3.lees_veel([r.pop("sleutel") for r in klaar]), strict=True):
+		if isinstance(data, Exception):
+			index = r["index"]
+			r.clear()
+			r.update({"index": index, "ok": False, "fout": str(data), "foutcode": None})
+		else:
+			r["inhoud"] = base64.b64encode(data).decode()
+	return {"bestanden": uit}
