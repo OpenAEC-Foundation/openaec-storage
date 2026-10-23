@@ -836,6 +836,7 @@ def _maak_map(ruimte: str, naam: str, bovenliggende: str | None) -> tuple[str, b
 KLEIN_MAX_BESTAND = 1024 * 1024  # bytes per bestand
 KLEIN_MAX_AANTAL = 64  # bestanden per verzoek
 KLEIN_MAX_BYTES = 16 * 1024 * 1024  # bytes per verzoek
+KLEIN_MAX_MAPPEN = 1000  # mappen per verzoek (maak_mappen)
 
 
 @frappe.whitelist()
@@ -843,7 +844,30 @@ def mogelijkheden() -> dict:
 	"""Wat deze server kent, zodat de desktop-app nieuwe wegen alleen gebruikt waar ze bestaan (een oudere server
 	kent deze methode niet; dan blijft de app bij `bladeren` en uploads per bestand)."""
 	grenzen = {"max_bestand": KLEIN_MAX_BESTAND, "max_aantal": KLEIN_MAX_AANTAL, "max_bytes": KLEIN_MAX_BYTES}
-	return {"upload_klein": grenzen, "download_klein": grenzen, "boom": True}
+	return {"upload_klein": grenzen, "download_klein": grenzen, "boom": True, "maak_mappen": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def maak_mappen(ruimte: str, paden) -> dict:
+	"""Veel mappen in één verzoek, voordat de bestanden erin komen: `paden` is een lijst mappaden met '/' (bijv.
+	`Tekeningen/2026`); ontbrekende mappen, ook tussenliggende, worden aangemaakt zoals bij `maak_map`, bestaande
+	worden hergebruikt (hoofdletters maken niet uit). Antwoord: `{mappen: {pad: map}, fouten: {pad: {fout,
+	foutcode}}}`; een fout bij één pad houdt de andere niet op."""
+	paden = [p.strip("/") for p in _als_lijst(paden) if p and p.strip("/")]
+	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
+		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
+	if len(paden) > KLEIN_MAX_MAPPEN:
+		weiger(_("Te veel mappen in één verzoek: hoogstens {0}").format(KLEIN_MAX_MAPPEN), "batch_te_groot")
+	cache: dict = {}
+	mappen, fouten = {}, {}
+	for pad in sorted(set(paden), key=lambda p: (p.count("/"), p)):
+		uit = _per_bestand(lambda pad=pad: {"map": _map_van_pad(ruimte, pad, cache)})
+		if uit["ok"]:
+			mappen[pad] = uit["map"]
+		else:
+			cache.clear()
+			fouten[pad] = {"fout": uit["fout"], "foutcode": uit["foutcode"]}
+	return {"mappen": mappen, "fouten": fouten}
 
 
 @frappe.whitelist()
@@ -886,7 +910,12 @@ def _per_bestand(functie, *args) -> dict:
 	try:
 		resultaat = functie(*args)
 	except Exception as fout:
-		frappe.db.rollback(save_point="klein_bestand")
+		try:
+			frappe.db.rollback(save_point="klein_bestand")
+		except Exception:
+			# De hele transactie is al weg (bijv. door een gelijktijdige wijziging): dan mislukt het hele verzoek en
+			# probeert de app elk bestand apart.
+			raise fout from None
 		foutcode = frappe.local.response.pop("foutcode", None)
 		frappe.clear_messages()
 		if not isinstance(fout, frappe.ValidationError | frappe.PermissionError | frappe.DoesNotExistError):
@@ -902,7 +931,10 @@ def _map_van_pad(ruimte: str, pad: str, mappen: dict) -> str | None:
 		gedaan.append(deel)
 		sleutel = "/".join(gedaan).lower()
 		if sleutel not in mappen:
-			mappen[sleutel] = _maak_map(ruimte, deel, bovenliggende)[0]
+			# Eerst zonder slot kijken: alleen een map die er nog niet is, vraagt het slot op de ruimte (anders
+			# wachten alle verzoeken met kleine bestanden in dezelfde ruimte op elkaar).
+			bestaand = _actieve_map(ruimte, bovenliggende, deel.strip())
+			mappen[sleutel] = bestaand[0][0] if bestaand else _maak_map(ruimte, deel, bovenliggende)[0]
 		bovenliggende = mappen[sleutel]
 	return bovenliggende
 

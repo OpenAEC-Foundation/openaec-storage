@@ -210,3 +210,18 @@ class TestBatch(IntegrationTestCase):
 		frappe.set_user(self.buiten)
 		with self.assertRaises(frappe.PermissionError):
 			api.boom(ruimte=self.ruimte)
+
+	def test_maak_mappen_in_een_verzoek(self):
+		bestaand = api.maak_map(ruimte=self.ruimte, naam="Tekeningen")["map"]
+		r = api.maak_mappen(ruimte=self.ruimte, paden=["tekeningen/2026/Maart", "Notities", "/Notities/", "nul", "Notities/con"])
+		self.assertEqual(sorted(r["mappen"]), ["Notities", "tekeningen/2026/Maart"])
+		self.assertEqual(frappe.db.get_value("Opslagmap", r["mappen"]["tekeningen/2026/Maart"], "naam"), "Maart")
+		maart = frappe.db.get_value("Opslagmap", r["mappen"]["tekeningen/2026/Maart"], "bovenliggende")
+		self.assertEqual(frappe.db.get_value("Opslagmap", maart, "bovenliggende"), bestaand)
+		self.assertEqual({p: f["foutcode"] for p, f in r["fouten"].items()}, {"nul": "ongeldige_naam", "Notities/con": "ongeldige_naam"})
+		# Nog eens: niets nieuws.
+		aantal = frappe.db.count("Opslagmap", {"ruimte": self.ruimte})
+		self.assertEqual(api.maak_mappen(ruimte=self.ruimte, paden=["Notities", "Tekeningen/2026"])["fouten"], {})
+		self.assertEqual(frappe.db.count("Opslagmap", {"ruimte": self.ruimte}), aantal)
+		frappe.set_user(self.lezer)
+		self.assertIn("Lezer", api.maak_mappen(ruimte=self.ruimte, paden=["Lezer"])["fouten"])
