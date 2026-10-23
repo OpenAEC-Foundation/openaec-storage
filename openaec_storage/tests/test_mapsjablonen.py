@@ -95,6 +95,18 @@ class TestMapsjabloon(IntegrationTestCase):
 		frappe.set_user(met_rol(gebruiker("omgeving"), "OpenAEC Beheerder"))
 		self.assertTrue(frappe.has_permission("Mapsjabloon", "write", "Test rechten"))
 
+	def test_bij_team_ook_de_bedrijfssjablonen(self):
+		self.sjabloon("Test team", [{"pad": "A"}], soort="team")
+		self.sjabloon("Test bedrijf", [{"pad": "B"}], soort="bedrijf")
+		self.sjabloon("Test project", [{"pad": "C"}], soort="project")
+
+		def namen(soort):
+			return {s["naam"] for s in mapsjablonen.sjablonen(soort=soort) if s["naam"].startswith("Test ")}
+		self.assertEqual(namen("team"), {"Test team", "Test bedrijf"})
+		self.assertEqual(namen("bedrijf"), {"Test bedrijf"})
+		self.assertEqual(namen("project"), {"Test project"})
+		self.assertEqual(namen(None), {"Test team", "Test bedrijf", "Test project"})
+
 	def test_mappen_worden_aangelegd_ook_tussenliggende(self):
 		self.sjabloon("Test diep", [{"pad": "Ontwerp/Constructie/Berekeningen", "volgorde": 2}, {"pad": "Algemeen", "volgorde": 1}])
 		naam = ruimte_met_sjabloon("Diep", "Test diep", {})

@@ -1,6 +1,7 @@
 import frappe
 import requests
 from frappe.tests import IntegrationTestCase
+from frappe.utils import add_to_date, now_datetime
 
 from openaec_storage import api, delen, ruimtebeheer
 from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, met_rol, ruim_op, ruimte, upload
@@ -155,6 +156,24 @@ class TestArchiveren(ArchiefBasis):
 
 class TestArchiefEnLinks(ArchiefBasis):
 	"""Deellinks naar een gearchiveerde ruimte werken niet (ook niet om te lezen); na terugzetten weer wel."""
+
+	def test_aantal_actieve_deellinks_voor_de_waarschuwing(self):
+		# Telt: de bestandslink uit setUp en een uploadlink. Niet: verlopen, ingetrokken, deling met een gebruiker.
+		api.deel(doel_doctype="Opslagmap", doel=self.map, rechten="uploaden")
+		verlopen = api.deel(doel_doctype="Opslagbestand", doel=self.bestand)
+		frappe.db.set_value("Opslagdeling", verlopen["deling"], "verloopt", add_to_date(now_datetime(), days=-1))
+		api.trek_in(deling=api.deel(doel_doctype="Opslagbestand", doel=self.bestand)["deling"])
+		api.deel(doel_doctype="Opslagbestand", doel=self.bestand, soort="gebruiker", gebruiker=self.lezer)
+		api.deel(
+			doel_doctype="Opslagbestand", doel=self.bestand, verloopt=str(add_to_date(now_datetime(), days=7))
+		)
+		frappe.set_user(self.beheerder)
+		rij = next(r for r in ruimtebeheer.lijst() if r["name"] == self.ruimte)
+		self.assertEqual(rij["aantal_actieve_deellinks"], 3)
+		self.assertEqual(ruimtebeheer.archiveer(ruimte=self.ruimte)["aantal_actieve_deellinks"], 3)
+		self.assertEqual(ruimtebeheer.herstel(ruimte=self.ruimte)["aantal_actieve_deellinks"], 3)
+		andere = ruimte("Zonder links", {self.beheerder: "beheerder"})
+		self.assertEqual(next(r for r in ruimtebeheer.lijst() if r["name"] == andere)["aantal_actieve_deellinks"], 0)
 
 	def test_deellink_geweigerd_zolang_gearchiveerd(self):
 		self.archiveer()

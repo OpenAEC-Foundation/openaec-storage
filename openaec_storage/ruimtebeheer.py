@@ -28,12 +28,32 @@ def _ruimte_voor_beheer(ruimte: str):
 	return frappe.get_doc("Ruimte", ruimte)
 
 
+def actieve_deellinks(ruimte: str | None = None) -> dict[str, int]:
+	"""Aantal geldige deellinks per ruimte (ook uploadlinks), met dezelfde regel als delen._deling: een link die niet
+	is ingetrokken en niet is verlopen. Zolang de ruimte gearchiveerd is, werken ze niet; het beheer kan daarvoor
+	waarschuwen."""
+	voorwaarde, waarden = "", {"nu": now_datetime()}
+	if ruimte:
+		voorwaarde, waarden["ruimte"] = "and ruimte = %(ruimte)s", ruimte
+	return {
+		r.ruimte: cint(r.aantal)
+		for r in frappe.db.sql(
+			f"""select ruimte, count(*) as aantal from `tabOpslagdeling`
+			where soort = 'link' and ifnull(ingetrokken, 0) = 0 and (verloopt is null or verloopt >= %(nu)s) {voorwaarde}
+			group by ruimte""",
+			waarden,
+			as_dict=True,
+		)
+	}
+
+
 def _stand(doc) -> dict:
 	return {
 		"ruimte": doc.name,
 		"gearchiveerd": bool(cint(doc.gearchiveerd)),
 		"gearchiveerd_op": doc.gearchiveerd_op,
 		"gearchiveerd_door": doc.gearchiveerd_door,
+		"aantal_actieve_deellinks": actieve_deellinks(doc.name).get(doc.name, 0),
 	}
 
 
@@ -124,8 +144,10 @@ def lijst(gearchiveerd: str | int | None = None) -> list[dict]:
 			"""select ruimte, coalesce(sum(grootte), 0) as bytes from `tabBestandsversie` group by ruimte""", as_dict=True
 		)
 	}
+	links = actieve_deellinks()
 	for r in ruimtes:
 		r["gearchiveerd"] = bool(cint(r.gearchiveerd))
+		r["aantal_actieve_deellinks"] = links.get(r.name, 0)
 		r["aantal_leden"] = cint(leden.get(r.name))
 		r["gebruikt_bytes"] = cint(gebruikt.get(r.name))
 		r["limiet_bytes"] = int(flt(r.quotum_gb) * 1_000_000_000) or None

@@ -76,7 +76,9 @@ Gearchiveerd).
 Deellinks naar een gearchiveerde ruimte werken niet, ook niet om te lezen of te downloaden: de deelpagina geeft 410
 ("Niet meer beschikbaar") en `delen.openen`, `download` en `upload_start` geven 403 met `ruimte_gearchiveerd`. Dat is
 de veiligste keuze: een gearchiveerd project is af, en een link die maanden later nog werkt is een risico dat niemand
-meer ziet. De links blijven bestaan en werken weer na terugzetten. Gebruikersdelingen blijven lezen toestaan, net als
+meer ziet. De links blijven bestaan en werken weer na terugzetten. `aantal_actieve_deellinks` (in `lijst`,
+`archiveer` en `herstel`) telt de links die nu werken, ook uploadlinks: niet ingetrokken en niet verlopen, dezelfde
+regel als bij het openen van een link. Daarmee kan het beheer vooraf waarschuwen hoeveel externe links stoppen. Gebruikersdelingen blijven lezen toestaan, net als
 het lidmaatschap.
 
 Archiveren en terugzetten mag een beheerder van de ruimte of een beheerder van de omgeving (zie Ruimtes aanmaken,
@@ -108,7 +110,8 @@ Een nieuwe ruimte met `mapsjabloon` krijgt bij het aanmaken alle mappen (ook tus
 regels in `mapregels`; de nieuwe mappen staan in de wijzigingenlijst. Daarna verandert de ruimte niet mee als het
 sjabloon wordt aangepast; een beheerder van de ruimte kan de regels op de ruimte zelf aanpassen. `standaard` is de
 keuze die het beheer voorselecteert bij een nieuwe ruimte van die soort; zonder `mapsjabloon` legt de server niets
-aan.
+aan. Er is geen ruimtesoort `bedrijf`: een bedrijfsmap is een teamruimte, dus `sjablonen(soort="team")` geeft ook de
+sjablonen van soort `bedrijf`.
 
 Op een plek geldt de regel van de map zelf of anders die van de dichtstbijzijnde bovenliggende map met een regel,
 langs elke weg (browser, desktop-app, WebDAV, uploadlink, formulier):
@@ -135,13 +138,13 @@ Met de inlog van de gebruiker; methodes die iets veranderen alleen met POST. Ant
 
 | Methode | Wie | Parameters | Antwoord |
 |---|---|---|---|
-| `openaec_storage.ruimtebeheer.archiveer` (POST) | beheerder van de ruimte of de omgeving | `ruimte` | `{ruimte, gearchiveerd: true, gearchiveerd_op, gearchiveerd_door}`; nogmaals aanroepen verandert niets |
-| `openaec_storage.ruimtebeheer.herstel` (POST) | idem | `ruimte` | `{ruimte, gearchiveerd: false, gearchiveerd_op: null, gearchiveerd_door: null}` |
+| `openaec_storage.ruimtebeheer.archiveer` (POST) | beheerder van de ruimte of de omgeving | `ruimte` | `{ruimte, gearchiveerd: true, gearchiveerd_op, gearchiveerd_door, aantal_actieve_deellinks}`; nogmaals aanroepen verandert niets |
+| `openaec_storage.ruimtebeheer.herstel` (POST) | idem | `ruimte` | `{ruimte, gearchiveerd: false, gearchiveerd_op: null, gearchiveerd_door: null, aantal_actieve_deellinks}` |
 | `openaec_storage.ruimtebeheer.zet_quotum` (POST) | beheerder van de omgeving | `ruimte`, `quotum_gb` (0 of leeg = geen eigen limiet) | `{ruimte, quotum_gb, limiet_bytes \| null}` |
-| `openaec_storage.ruimtebeheer.lijst` | beheerder van de omgeving: alle ruimtes; anders de ruimtes waarvan je beheerder bent | `gearchiveerd?` (leeg = alle, 0 = actief, 1 = gearchiveerd) | `[{name, naam, soort, gearchiveerd, gearchiveerd_op, gearchiveerd_door, quotum_gb, mapsjabloon, aantal_leden, gebruikt_bytes, limiet_bytes \| null}]`, op naam |
+| `openaec_storage.ruimtebeheer.lijst` | beheerder van de omgeving: alle ruimtes; anders de ruimtes waarvan je beheerder bent | `gearchiveerd?` (leeg = alle, 0 = actief, 1 = gearchiveerd) | `[{name, naam, soort, gearchiveerd, gearchiveerd_op, gearchiveerd_door, quotum_gb, mapsjabloon, aantal_leden, aantal_actieve_deellinks, gebruikt_bytes, limiet_bytes \| null}]`, op naam |
 | `openaec_storage.ruimtebeheer.activiteit` | beheerder van de ruimte of de omgeving | `ruimte`, `vanaf?` (datum of datum-tijd), `start?` (0), `aantal?` (50, hoogstens 500) | `{ruimte, totaal, start, aantal, meer, regels: [{volgnummer, tijd, soort, doel_doctype, doel, naam, door, door_naam}]}`, nieuwste eerst |
 | `openaec_storage.api.quotum_ruimte` | leden van de ruimte, beheerder van de omgeving | `ruimte` | `{gebruikt_bytes, limiet_bytes \| null}` |
-| `openaec_storage.mapsjablonen.sjablonen` | ingelogd | `soort?` | `[{naam, omschrijving, soort, standaard, mappen: [{map: null, pad, weergavenaam, volgorde, pictogram, extensies: [..], alleen_lezen}]}]` |
+| `openaec_storage.mapsjablonen.sjablonen` | ingelogd | `soort?` (`team` geeft ook de sjablonen van soort `bedrijf`) | `[{naam, omschrijving, soort, standaard, mappen: [{map: null, pad, weergavenaam, volgorde, pictogram, extensies: [..], alleen_lezen}]}]` |
 | `openaec_storage.mapsjablonen.regels` | leden van de ruimte | `ruimte` | `[{map, pad, weergavenaam, volgorde, pictogram, extensies: [..], alleen_lezen}]` |
 
 Een ruimte met sjabloon aanmaken gaat zoals elke ruimte (beheerder van de omgeving), met het veld `mapsjabloon`,

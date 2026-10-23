@@ -21,6 +21,9 @@ from frappe.utils import cint
 from openaec_storage.rechten import mag_ruimte_beheren, vereis, voorouders, weiger
 
 SOORTEN = ("team", "project", "bedrijf")
+# Welke sjablonen passen bij een soort: een bedrijfsmap is een teamruimte, dus bij "team" horen ook de
+# bedrijfssjablonen. Er is geen ruimtesoort "bedrijf".
+PASSENDE_SOORTEN = {"team": ("team", "bedrijf")}
 
 
 # --- paden en extensies ------------------------------------------------------------------------------
@@ -201,10 +204,11 @@ def regels(ruimte: str) -> list[dict]:
 
 @frappe.whitelist()
 def sjablonen(soort: str | None = None) -> list[dict]:
-	"""De mapsjablonen van deze omgeving (eventueel van één soort), met hun mappen: om er een te kiezen."""
+	"""De mapsjablonen van deze omgeving, met hun mappen: om er een te kiezen. Met `soort` alleen de passende:
+	bij `team` ook de sjablonen van soort `bedrijf` (een bedrijfsmap is een teamruimte), anders die ene soort."""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Log eerst in"), frappe.PermissionError)
-	filters = {"soort": soort} if soort else {}
+	filters = {"soort": ("in", PASSENDE_SOORTEN.get(soort, (soort,)))} if soort else {}
 	uit = []
 	for naam in frappe.get_all("Mapsjabloon", filters=filters, order_by="naam asc", pluck="name", ignore_permissions=True):
 		doc = frappe.get_doc("Mapsjabloon", naam)
