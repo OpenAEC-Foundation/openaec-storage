@@ -47,6 +47,121 @@ Heeft iemand op `/opslag` nog geen enkele ruimte, dan ziet een beheerder van de 
 Beheer" (naar `/beheer/opslag`) en een ander de vraag om zijn beheerder hem toe te voegen. Welke van de twee bepaalt
 de server met dezelfde regel als bij het aanmaken.
 
+## Ruimtebeheer
+
+### Velden op Ruimte
+
+| Veld | Soort | Betekenis |
+|---|---|---|
+| `gearchiveerd` | Check (alleen lezen) | De ruimte staat in het archief; alleen te wijzigen met `archiveer`/`herstel` |
+| `gearchiveerd_op` | Datetime (alleen lezen) | Wanneer gearchiveerd (leeg na terugzetten) |
+| `gearchiveerd_door` | Link User (alleen lezen) | Wie archiveerde (leeg na terugzetten) |
+| `quotum_gb` | Float | Eigen quotum van de ruimte in GB; 0 of leeg = geen eigen limiet. Alleen een beheerder van de omgeving wijzigt het |
+| `mapsjabloon` | Link Mapsjabloon (eenmalig) | Sjabloon waarmee de ruimte is aangemaakt |
+| `mapregels` | Tabel Ruimtemapregel | Regels per map: `map` (Link Opslagmap), `pad`, `weergavenaam`, `volgorde`, `pictogram`, `extensies`, `alleen_lezen` |
+
+### Archiveren
+
+Een gearchiveerde ruimte is voor iedereen alleen te lezen, ook voor Administrator en de beheerders. Uploaden (ook
+het afronden van een upload die al liep), verplaatsen, hernoemen, verwijderen, herstellen uit de prullenbak, mappen
+maken, vergrendelen, een slot openbreken en delen geven 403 met de foutcode `ruimte_gearchiveerd`, langs elke weg die
+de API gebruikt: browser, desktop-app, WebDAV en uploadlinks. Ook het formulier en `/api/resource` geven geen
+schrijfrecht meer (daar zonder foutcode). Bladeren, downloaden, versies en de wijzigingenlijst blijven werken, en de
+leden blijven te beheren. Wie geen lid is, krijgt de gewone melding "Geen toegang".
+
+De ruimte staat niet meer in `api.ruimtes`, dus niet op `/opslag` en niet in de desktop-app; die stopt met syncen.
+Het beheer ziet hem in `ruimtebeheer.lijst` (filter `gearchiveerd`) en in de lijst van Ruimte in de desk (filter
+Gearchiveerd).
+
+Deellinks naar een gearchiveerde ruimte werken niet, ook niet om te lezen of te downloaden: de deelpagina geeft 410
+("Niet meer beschikbaar") en `delen.openen`, `download` en `upload_start` geven 403 met `ruimte_gearchiveerd`. Dat is
+de veiligste keuze: een gearchiveerd project is af, en een link die maanden later nog werkt is een risico dat niemand
+meer ziet. De links blijven bestaan en werken weer na terugzetten. Gebruikersdelingen blijven lezen toestaan, net als
+het lidmaatschap.
+
+Archiveren en terugzetten mag een beheerder van de ruimte of een beheerder van de omgeving (zie Ruimtes aanmaken,
+`openaec_storage_ruimte_makers`). Beide komen in de wijzigingenlijst (Opslagwijziging) met de soort `gearchiveerd`
+of `teruggezet`, `doel_doctype` `Ruimte` en `doel` de ruimte.
+
+### Quotum per ruimte
+
+`quotum_gb` is een limiet binnen het quotum van de omgeving (`openaec_storage_quotum_gb`, de pool). Het gebruik van
+een ruimte telt zoals de pool: alle versies van alle bestanden in de ruimte, ook oudere versies en de prullenbak
+(niet de overdrachten, die horen bij geen ruimte). Een upload, ook via de desktop-app, WebDAV of een uploadlink,
+moet in beide passen; anders 417 met de foutcode `quotum_pool_vol` of `quotum_ruimte_vol` (eerst wordt de pool
+getoetst). De melding bevat het woord "quotum", zodat de WebDAV-gateway 507 Insufficient Storage geeft.
+
+De quota van de ruimtes samen mogen groter zijn dan de pool (overboeking): niet elke ruimte zit tegelijk vol. Wat
+het eerst vol is, de pool of de ruimte, weigert. `api.quotum` geeft de pool zoals altijd.
+
+### Mapsjablonen
+
+Een Mapsjabloon is een vaste mappenindeling voor een nieuwe ruimte, per klantsite te beheren in de desk of het
+beheer (kiezen mag iedereen die is ingelogd, wijzigen alleen een beheerder van de omgeving).
+
+| DocType | Velden |
+|---|---|
+| `Mapsjabloon` (naam = `naam`) | `naam`, `omschrijving`, `soort` (`team`, `project`, `bedrijf`), `standaard` (één per soort), `mappen` |
+| `Mapsjabloonmap` (tabel) | `pad` (mapnamen met `/`, bijv. `Projecten/Lopend`), `weergavenaam` (standaard het laatste deel van het pad), `volgorde`, `pictogram` (naam uit @openaec/icons, bijv. `ui/document`), `extensies` (bijv. `pdf, dwg`; leeg = alles), `alleen_lezen` |
+
+Een nieuwe ruimte met `mapsjabloon` krijgt bij het aanmaken alle mappen (ook tussenliggende) en een kopie van de
+regels in `mapregels`; de nieuwe mappen staan in de wijzigingenlijst. Daarna verandert de ruimte niet mee als het
+sjabloon wordt aangepast; een beheerder van de ruimte kan de regels op de ruimte zelf aanpassen. `standaard` is de
+keuze die het beheer voorselecteert bij een nieuwe ruimte van die soort; zonder `mapsjabloon` legt de server niets
+aan.
+
+Op een plek geldt de regel van de map zelf of anders die van de dichtstbijzijnde bovenliggende map met een regel,
+langs elke weg (browser, desktop-app, WebDAV, uploadlink, formulier):
+
+- `alleen_lezen`: niets toevoegen, wijzigen, verplaatsen, hernoemen, verwijderen of vergrendelen, voor iedereen
+  behalve een beheerder van de ruimte (en Administrator/System Manager): 403 met `map_alleen_lezen`. Ook een map
+  waar ergens een alleen-lezenmap in zit, gaat niet naar de prullenbak. Een bestaande map opvragen met `maak_map`
+  gaat wel.
+- `extensies`: alleen bestanden met die extensies (hoofdletters maken niet uit), voor iedereen, ook bij hernoemen en
+  verplaatsen naar de map: 417 met `extensie_niet_toegestaan`; de melding noemt de map en de toegestane soorten.
+
+Bij installeren en migreren maakt een seed de sjablonen die er nog niet zijn; een bestaand (ook aangepast) sjabloon
+blijft zoals het is, een verwijderd standaardsjabloon komt bij de volgende migratie terug.
+
+- "Bedrijf" (soort `bedrijf`, standaard): Algemeen, Contracten, Projecten, Huisstijl (alleen lezen).
+- "Project (BIM)" (soort `project`, standaard): 00 Projectinformatie, 01 Contract en financieel, 02 Correspondentie,
+  03 Vergunningen, 04 Ontwerp (Architectuur, Constructie, Installaties), 05 BIM-modellen (Werk; Gedeeld: ifc, ifczip,
+  ifcxml, bcf, bcfzip; Gepubliceerd: alleen lezen, ifc, ifczip, ifcxml, pdf), 06 Tekeningen (pdf, dwg, dxf),
+  07 Berekeningen, 08 Uitvoering, 09 Oplevering en beheer, 10 Foto's (jpg, jpeg, png, heic, webp).
+
+### API voor het beheer
+
+Met de inlog van de gebruiker; methodes die iets veranderen alleen met POST. Antwoorden in `message`.
+
+| Methode | Wie | Parameters | Antwoord |
+|---|---|---|---|
+| `openaec_storage.ruimtebeheer.archiveer` (POST) | beheerder van de ruimte of de omgeving | `ruimte` | `{ruimte, gearchiveerd: true, gearchiveerd_op, gearchiveerd_door}`; nogmaals aanroepen verandert niets |
+| `openaec_storage.ruimtebeheer.herstel` (POST) | idem | `ruimte` | `{ruimte, gearchiveerd: false, gearchiveerd_op: null, gearchiveerd_door: null}` |
+| `openaec_storage.ruimtebeheer.zet_quotum` (POST) | beheerder van de omgeving | `ruimte`, `quotum_gb` (0 of leeg = geen eigen limiet) | `{ruimte, quotum_gb, limiet_bytes \| null}` |
+| `openaec_storage.ruimtebeheer.lijst` | beheerder van de omgeving: alle ruimtes; anders de ruimtes waarvan je beheerder bent | `gearchiveerd?` (leeg = alle, 0 = actief, 1 = gearchiveerd) | `[{name, naam, soort, gearchiveerd, gearchiveerd_op, gearchiveerd_door, quotum_gb, mapsjabloon, aantal_leden, gebruikt_bytes, limiet_bytes \| null}]`, op naam |
+| `openaec_storage.ruimtebeheer.activiteit` | beheerder van de ruimte of de omgeving | `ruimte`, `vanaf?` (datum of datum-tijd), `start?` (0), `aantal?` (50, hoogstens 500) | `{ruimte, totaal, start, aantal, meer, regels: [{volgnummer, tijd, soort, doel_doctype, doel, naam, door, door_naam}]}`, nieuwste eerst |
+| `openaec_storage.api.quotum_ruimte` | leden van de ruimte, beheerder van de omgeving | `ruimte` | `{gebruikt_bytes, limiet_bytes \| null}` |
+| `openaec_storage.mapsjablonen.sjablonen` | ingelogd | `soort?` | `[{naam, omschrijving, soort, standaard, mappen: [{map: null, pad, weergavenaam, volgorde, pictogram, extensies: [..], alleen_lezen}]}]` |
+| `openaec_storage.mapsjablonen.regels` | leden van de ruimte | `ruimte` | `[{map, pad, weergavenaam, volgorde, pictogram, extensies: [..], alleen_lezen}]` |
+
+Een ruimte met sjabloon aanmaken gaat zoals elke ruimte (beheerder van de omgeving), met het veld `mapsjabloon`,
+bijv. `frappe.client.insert` met `{"doctype": "Ruimte", "naam": "…", "soort": "project", "mapsjabloon":
+"Project (BIM)", "leden": […]}`.
+
+### Foutcodes
+
+Bij een weigering met een vaste reden staat naast de melding een `foutcode` in het JSON-antwoord (op hetzelfde niveau
+als `exc_type` en `_server_messages`), zodat de browser, de desktop-app en de gateway de reden kennen zonder de tekst
+te lezen.
+
+| Foutcode | HTTP | Wanneer |
+|---|---|---|
+| `ruimte_gearchiveerd` | 403 | Schrijven in een gearchiveerde ruimte, of een deellink naar een gearchiveerde ruimte |
+| `quotum_pool_vol` | 417 | Het quotum van de omgeving is vol |
+| `quotum_ruimte_vol` | 417 | Het eigen quotum van de ruimte is vol |
+| `map_alleen_lezen` | 403 | Wijzigen in een alleen-lezenmap zonder beheerder van de ruimte te zijn |
+| `extensie_niet_toegestaan` | 417 | Bestandssoort niet toegestaan in deze map |
+
 ## Overdrachten
 
 Losse bestanden versturen via een link, eventueel met een e-mail aan de ontvangers ("Versturen met SuperCloud
@@ -122,6 +237,10 @@ handeling gaat via de API hierboven met de inlog van de gebruiker.
 - Schrijven gaat als (delta-)upload met de huidige versie als basis: overschrijven wordt een nieuwe versie, of een
   conflictkopie als een ander het bestand intussen wijzigde of vergrendelde. Opslaan via een tijdelijk bestand en
   `MOVE` (of `COPY`) over het origineel wordt eveneens een nieuwe versie van hetzelfde bestand.
+- Een gearchiveerde ruimte staat niet in de wortel (net als in `api.ruimtes`). Weigeringen volgen de API: 403
+  (gearchiveerd, alleen-lezenmap) en 417 (extensie) worden 403 Forbidden, een vol quotum 507 Insufficient Storage.
+  Let op: programma's die via een tijdelijk bestand opslaan (bijv. `.tmp`), kunnen dat niet in een map die alleen
+  bepaalde extensies toestaat.
 - Instellingen: `OPENAEC_BASIS` (adres van de klantomgeving) en `OPENAEC_DAV_ADRES` (standaard `0.0.0.0:8310`).
 
 ```bash
