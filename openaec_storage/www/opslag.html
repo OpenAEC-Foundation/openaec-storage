@@ -6,6 +6,7 @@
 		<h1>OpenAEC Storage</h1>
 		<nav class="oas-tabs">
 			<button type="button" data-tab="bestanden" class="actief">Bestanden</button>
+			<button type="button" data-tab="gedeeld">Gedeeld met mij</button>
 			<button type="button" data-tab="delingen">Mijn delingen</button>
 		</nav>
 	</header>
@@ -29,7 +30,16 @@
 			{% else %}
 			<p>Je bent nog geen lid van een ruimte. Vraag je beheerder om je toe te voegen.</p>
 			{% endif %}
+			<p class="oas-ook-gedeeld" hidden>Er is wel iets met je gedeeld: zie <button type="button" class="oas-naar-gedeeld">Gedeeld met mij</button>.</p>
 		</div>
+	</section>
+
+	<section class="oas-gedeeld" hidden>
+		<table class="oas-tabel">
+			<thead><tr><th>Naam</th><th>Gedeeld door</th><th>Je kunt</th><th>Geldig tot</th><th></th></tr></thead>
+			<tbody></tbody>
+		</table>
+		<input type="file" class="oas-nieuwe-versie" hidden>
 	</section>
 
 	<section class="oas-delingen" hidden>
@@ -61,6 +71,8 @@
 </div>
 <style>
 	.oas-app { max-width: 960px; margin: 2rem auto; }
+	/* `hidden` wint van de eigen weergave (display: flex) en die van de knoppen. */
+	.oas-app [hidden] { display: none !important; }
 	.oas-kop { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 	.oas-kop h1 { font-size: 1.4rem; margin: 0; }
 	.oas-tabs button { border: none; background: none; padding: .25rem .5rem; color: var(--text-muted); }
@@ -81,6 +93,8 @@
 	.oas-fout { color: var(--red-600, #c0392b) !important; }
 	.oas-leeg { padding: 1.5rem 0; color: var(--text-muted); }
 	.oas-leeg p { margin-bottom: .75rem; }
+	.oas-leeg button { border: none; background: none; padding: 0; color: var(--primary); }
+	.oas-gedeeld .oas-sub { display: block; color: var(--text-muted); font-size: .85em; }
 	.oas-deeldialoog { border: 1px solid var(--border-color); border-radius: .5rem; padding: 1.25rem; max-width: 460px; width: 100%; }
 	.oas-deeldialoog h2 { font-size: 1.1rem; margin: 0 0 1rem; }
 	.oas-deeldialoog label { display: block; margin-bottom: .75rem; }
@@ -107,10 +121,14 @@
 	// Lege toestand: de server zette de juiste inhoud klaar (knop naar het beheer of de vraag om de beheerder).
 	const leeg = root.querySelector(".oas-leeg")
 
-	// Waar we zijn: geen ruimte = de lijst met ruimtes; anders de ruimte en het spoor van mappen.
+	// Waar we zijn: geen ruimte = de lijst met ruimtes; anders de ruimte en het spoor van mappen. In een map die met
+	// je gedeeld is (`deling`), is die map het hoofdniveau en bepalen de rechten van de deling wat er kan; de server
+	// controleert het opnieuw.
 	let ruimte = null
+	let deling = null
 	const spoor = []
 	let inhoud = { mappen: [], bestanden: [] }
+	let gedeeld = []
 
 	const grootte = (b) => {
 		const e = ["B", "kB", "MB", "GB", "TB"]
@@ -158,9 +176,16 @@
 	// --- bladeren ---------------------------------------------------------------------------------
 
 	const huidigeMap = () => (spoor.length ? spoor[spoor.length - 1].map : null)
+	// De map op de server waar we nu zijn: in een gedeelde map is het hoofdniveau die map zelf.
+	const plek = () => huidigeMap() || (deling ? deling.doel : null)
+	const magSchrijven = () => !deling || deling.rechten === "schrijven"
 
 	const toonPad = () => {
-		pad.replaceChildren(knop("Ruimtes", () => { ruimte = null; spoor.length = 0; return laad() }))
+		if (deling) {
+			pad.replaceChildren(knop("Gedeeld met mij", () => toonTab("gedeeld")))
+		} else {
+			pad.replaceChildren(knop("Ruimtes", () => { ruimte = null; spoor.length = 0; return laad() }))
+		}
 		if (!ruimte) return
 		pad.append(" / ", knop(ruimte.naam, () => { spoor.length = 0; return laad() }))
 		spoor.forEach((stap, i) => pad.append(" / ", knop(stap.naam, () => { spoor.length = i + 1; return laad() })))
@@ -170,6 +195,7 @@
 		balk.hidden = true
 		tabel.replaceChildren()
 		leeg.hidden = lijst.length > 0
+		root.querySelector(".oas-ook-gedeeld").hidden = !gedeeld.length
 		for (const r of lijst) {
 			const tr = document.createElement("tr")
 			tr.append(
@@ -187,11 +213,8 @@
 		for (const m of inhoud.mappen.filter((m) => past(m.naam))) {
 			const tr = document.createElement("tr")
 			const acties = document.createElement("span")
-			acties.append(
-				knop("Delen", () => openDelen("Opslagmap", m.name, m.naam)),
-				knop("Hernoemen", () => hernoem("map", m)),
-				knop("Verwijderen", () => verwijder("map", m)),
-			)
+			if (!deling) acties.append(knop("Delen", () => openDelen("Opslagmap", m.name, m.naam)))
+			if (magSchrijven()) acties.append(knop("Hernoemen", () => hernoem("map", m)), knop("Verwijderen", () => verwijder("map", m)))
 			tr.append(
 				cel(knop(`📁 ${m.naam}`, () => { spoor.push({ map: m.name, naam: m.naam }); return laad() }, "oas-naam")),
 				cel("", "oas-rechts"),
@@ -203,11 +226,8 @@
 		for (const b of inhoud.bestanden.filter((b) => past(b.naam))) {
 			const tr = document.createElement("tr")
 			const acties = document.createElement("span")
-			acties.append(
-				knop("Delen", () => openDelen("Opslagbestand", b.name, b.naam)),
-				knop("Hernoemen", () => hernoem("bestand", b)),
-				knop("Verwijderen", () => verwijder("bestand", b)),
-			)
+			if (!deling) acties.append(knop("Delen", () => openDelen("Opslagbestand", b.name, b.naam)))
+			if (magSchrijven()) acties.append(knop("Hernoemen", () => hernoem("bestand", b)), knop("Verwijderen", () => verwijder("bestand", b)))
 			tr.append(
 				cel(knop(b.naam, () => download(b), "oas-naam")),
 				cel(grootte(b.grootte || 0), "oas-rechts"),
@@ -228,9 +248,13 @@
 			if (melding.textContent === "Laden…") zeg("")
 			return
 		}
-		inhoud = await roep("bladeren", { ruimte: ruimte.name, map: huidigeMap() })
+		inhoud = deling
+			? await roep("bladeren", { deling: deling.deling, map: huidigeMap() })
+			: await roep("bladeren", { ruimte: ruimte.name, map: huidigeMap() })
 		balk.hidden = false
-		zeg("")
+		balk.querySelector(".oas-nieuwe-map").hidden = !magSchrijven()
+		balk.querySelector(".oas-uploaden").hidden = !magSchrijven()
+		zeg(deling && !magSchrijven() ? `Gedeeld door ${deling.gedeeld_door_naam} om te bekijken.` : "")
 		toonInhoud()
 	}
 
@@ -244,15 +268,17 @@
 	const nieuweMap = async () => {
 		const naam = (window.prompt("Naam van de nieuwe map") || "").trim()
 		if (!naam) return
-		await roep("maak_map", { ruimte: ruimte.name, naam, bovenliggende: huidigeMap() })
+		await roep("maak_map", deling
+			? { deling: deling.deling, naam, bovenliggende: huidigeMap() }
+			: { ruimte: ruimte.name, naam, bovenliggende: huidigeMap() })
 		await laad()
 	}
 
 	const hernoem = async (soort, item) => {
 		const naam = (window.prompt("Nieuwe naam", item.naam) || "").trim()
 		if (!naam || naam === item.naam) return
-		if (soort === "map") await roep("verplaats_map", { map: item.name, naam, bovenliggende: huidigeMap() })
-		else await roep("verplaats", { bestand: item.name, naam, map: huidigeMap() })
+		if (soort === "map") await roep("verplaats_map", { map: item.name, naam, bovenliggende: plek() })
+		else await roep("verplaats", { bestand: item.name, naam, map: plek() })
 		await laad()
 	}
 
@@ -267,7 +293,8 @@
 		zeg(`${item.naam} staat in de prullenbak.`)
 	}
 
-	const upload = async (bestand) => {
+	// `doel`: waar het bestand komt (standaard hier); met `basis_versie` een nieuwe versie van een bestaand bestand.
+	const upload = async (bestand, doel = null) => {
 		const li = document.createElement("li")
 		const naam = document.createElement("span")
 		naam.textContent = bestand.name
@@ -275,8 +302,8 @@
 		li.append(naam, stand)
 		voortgang.prepend(li)
 		try {
-			const start = await roep("upload_start", {
-				ruimte: ruimte.name, map: huidigeMap(), naam: bestand.name, grootte: bestand.size, bron: "web",
+			const start = await roep("upload_start", doel || {
+				ruimte: ruimte.name, map: plek(), naam: bestand.name, grootte: bestand.size, bron: "web",
 			})
 			const delen = []
 			let verstuurd = 0
@@ -300,6 +327,7 @@
 
 	let wachtrij = Promise.resolve()
 	const uploadAlles = (bestanden) => {
+		if (!magSchrijven()) return zeg("Dit is met je gedeeld om te bekijken; uploaden kan niet.", true)
 		for (const b of bestanden) wachtrij = wachtrij.then(() => upload(b))
 		wachtrij = wachtrij.then(() => laad().catch((e) => zeg(e.message, true)))
 	}
@@ -368,26 +396,106 @@
 		zeg(lijst.length ? "" : "Je hebt nog niets gedeeld.")
 	}
 
+	// --- gedeeld met mij -------------------------------------------------------------------------
+	// Mappen en bestanden die een ander met je deelde. Een map open je zoals een ruimte (binnen de rechten van de
+	// deling); een bestand download je, en met "bewerken" kun je er een nieuwe versie van uploaden.
+
+	const gedeeldTabel = root.querySelector(".oas-gedeeld tbody")
+	const versieKiezer = root.querySelector(".oas-nieuwe-versie")
+	let versieVoor = null
+
+	const openGedeeld = (d) => {
+		deling = d
+		ruimte = { name: d.ruimte, naam: d.naam }
+		spoor.length = 0
+		return toonTab("bestanden", false)
+	}
+
+	const laadGedeeld = async () => {
+		gedeeld = await roep("gedeeld_met_mij")
+		return gedeeld
+	}
+
+	const toonGedeeld = async () => {
+		zeg("Laden…")
+		await laadGedeeld()
+		gedeeldTabel.replaceChildren()
+		for (const d of gedeeld) {
+			const isMap = d.doel_doctype === "Opslagmap"
+			const naam = document.createElement("span")
+			naam.append(isMap ? knop(`📁 ${d.naam}`, () => openGedeeld(d), "oas-naam") : d.naam)
+			const sub = document.createElement("span")
+			sub.className = "oas-sub"
+			sub.textContent = d.al_lid ? `${d.ruimte_naam} · je bent ook ${d.rol} in deze ruimte` : d.ruimte_naam
+			naam.append(sub)
+			const acties = document.createElement("span")
+			if (isMap) acties.append(knop("Openen", () => openGedeeld(d)))
+			else {
+				acties.append(knop("Downloaden", () => download({ name: d.doel })))
+				if (d.rechten === "schrijven") acties.append(knop("Nieuwe versie", () => { versieVoor = d; versieKiezer.click() }))
+			}
+			const tr = document.createElement("tr")
+			tr.append(
+				cel(naam),
+				cel(d.gedeeld_door_naam),
+				cel(d.rechten === "schrijven" ? "bekijken en bewerken" : "bekijken"),
+				cel(d.verloopt ? datum(d.verloopt) : ""),
+				cel(acties, "oas-acties"),
+			)
+			gedeeldTabel.append(tr)
+		}
+		zeg(gedeeld.length ? "" : "Er is nog niets met je gedeeld.")
+	}
+
+	versieKiezer.addEventListener("change", () => {
+		const [bestand] = versieKiezer.files
+		const d = versieVoor
+		versieKiezer.value = ""
+		if (!bestand || !d) return
+		// Onder de naam op de server, op de huidige versie: zo wordt het een nieuwe versie (of een conflictkopie als
+		// iemand anders het intussen wijzigde).
+		wachtrij = wachtrij
+			.then(() => upload(bestand, {
+				ruimte: d.ruimte, map: d.map, naam: d.naam, grootte: bestand.size, basis_versie: d.versie, bron: "web",
+			}))
+			.then(() => toonGedeeld().catch((e) => zeg(e.message, true)))
+	})
+
 	// --- tabs en start ----------------------------------------------------------------------------
 
-	root.querySelectorAll(".oas-tabs button").forEach((tab) => tab.addEventListener("click", poging(async () => {
-		root.querySelectorAll(".oas-tabs button").forEach((t) => t.classList.toggle("actief", t === tab))
-		const delingen = tab.dataset.tab === "delingen"
-		root.querySelector(".oas-bestanden").hidden = delingen
-		root.querySelector(".oas-delingen").hidden = !delingen
-		await (delingen ? laadDelingen() : laad())
-	})))
+	const toonTab = async (naam, opnieuw = true) => {
+		root.querySelectorAll(".oas-tabs button").forEach((t) => t.classList.toggle("actief", t.dataset.tab === naam))
+		root.querySelector(".oas-bestanden").hidden = naam !== "bestanden"
+		root.querySelector(".oas-gedeeld").hidden = naam !== "gedeeld"
+		root.querySelector(".oas-delingen").hidden = naam !== "delingen"
+		if (naam === "delingen") return laadDelingen()
+		if (naam === "gedeeld") return toonGedeeld()
+		if (opnieuw && deling) { deling = null; ruimte = null; spoor.length = 0 }
+		return laad()
+	}
+
+	root.querySelectorAll(".oas-tabs button").forEach((tab) => tab.addEventListener("click", poging(() => toonTab(tab.dataset.tab))))
+	root.querySelector(".oas-naar-gedeeld").addEventListener("click", poging(() => toonTab("gedeeld")))
 
 	zoek.addEventListener("input", toonInhoud)
 	root.querySelector(".oas-nieuwe-map").addEventListener("click", poging(nieuweMap))
 	kiezer.addEventListener("change", () => { uploadAlles([...kiezer.files]); kiezer.value = "" })
-	root.querySelector(".oas-bestanden").addEventListener("dragover", (ev) => { if (ruimte) ev.preventDefault() })
+	root.querySelector(".oas-bestanden").addEventListener("dragover", (ev) => { if (ruimte && magSchrijven()) ev.preventDefault() })
 	root.querySelector(".oas-bestanden").addEventListener("drop", (ev) => {
 		if (!ruimte) return
 		ev.preventDefault()
 		uploadAlles([...ev.dataTransfer.files])
 	})
-	poging(laad)()
+	// Start: met ?deling=… (de link uit de mail of de melding) meteen naar wat er gedeeld is.
+	poging(async () => {
+		const gevraagd = new URLSearchParams(window.location.search).get("deling")
+		await laadGedeeld().catch(() => [])
+		if (!gevraagd) return laad()
+		const d = gedeeld.find((g) => g.deling === gevraagd)
+		if (d && d.doel_doctype === "Opslagmap") return openGedeeld(d)
+		await toonTab("gedeeld")
+		if (!d) zeg("Deze deling is niet (meer) beschikbaar: ingetrokken, verlopen of verwijderd.", true)
+	})()
 })()
 </script>
 {% endblock %}

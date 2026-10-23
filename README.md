@@ -185,6 +185,13 @@ te lezen.
 | `gebruiker_onbekend` | 417 | `deel` met `soort: "gebruiker"` voor een gebruiker die niet bestaat (melding "Kies een bestaande gebruiker om mee te delen") |
 | `te_groot_voor_batch` | 417 | Eén bestand in `upload_klein`/`download_klein` is groter dan 1 MiB (gebruik de gewone weg) |
 | `batch_te_groot` | 417 | Te veel in één verzoek (meer dan 64 bestanden, 16 MiB of 1000 mappen); bij `download_klein` per bestand voor wat er niet meer bij past |
+| `alleen_lezen_deling` | 403 | Wijzigen (uploaden, map maken, verplaatsen, hernoemen, verwijderen, vergrendelen) in iets dat met je gedeeld is om te bekijken |
+| `buiten_deling` | 403 | Wie via een deling bij de ruimte kan, vraagt iets buiten de gedeelde map of het gedeelde bestand (ook: de gedeelde map zelf hernoemen, verplaatsen of verwijderen) |
+| `deling_ingetrokken` | 403 | De deling op deze plek is ingetrokken (ook midden in een upload of sync) |
+| `deling_verlopen` | 403 | De deling op deze plek is verlopen |
+| `deling_onbekend` | 403 | `deling` bestaat niet, is een link of is met iemand anders gedeeld |
+| `deling_weg` | 404 | De gedeelde map is verwijderd (bij `deling` als wortel) |
+| `deling_geen_map` | 417 | `deling` is een gedeeld bestand; dat kan niet als bovenste map |
 
 In een batch (`upload_klein`, `download_klein`, `maak_mappen`) staat de foutcode per bestand of pad in het antwoord,
 niet in `foutcode` van het hele antwoord.
@@ -216,9 +223,69 @@ methodes onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de 
 | Methode | Wie | Parameters | Antwoord |
 |---|---|---|---|
 | `collegas` | wie in `ruimte` mag delen (schrijver of beheerder; een gearchiveerde ruimte geeft 403 met `ruimte_gearchiveerd`), of een beheerder van de omgeving (ook zonder `ruimte`); anders 403 | `tekst?` (zoekt in e-mailadres en volledige naam), `ruimte?` | `[{gebruiker, naam, lid_als}]`, hoogstens 20, op naam: actieve systeemgebruikers (geen websitegebruikers, gasten of Administrator); `lid_als` is de rol in `ruimte` (`beheerder`, `schrijver`, `lezer`, `gast`) of `null` |
-| `deel` (POST) | schrijver of beheerder op die plek | `doel_doctype` (`Opslagmap`/`Opslagbestand`), `doel`, `soort` (`link` of `gebruiker`), `gebruiker?`, `rechten` (`lezen`; `schrijven` alleen met een gebruiker; `uploaden` alleen met een link naar een map), `wachtwoord?`, `verloopt?` | `{deling, token, rechten, url}`; een onbekende gebruiker geeft 417 met `gebruiker_onbekend` |
+| `deel` (POST) | schrijver of beheerder op die plek | `doel_doctype` (`Opslagmap`/`Opslagbestand`), `doel`, `soort` (`link` of `gebruiker`), `gebruiker?`, `rechten` (`lezen`; `schrijven` alleen met een gebruiker; `uploaden` alleen met een link naar een map), `wachtwoord?`, `verloopt?` | `{deling, token, rechten, url}`; een onbekende gebruiker geeft 417 met `gebruiker_onbekend`. Met een gebruiker krijgt die een melding en een e-mail (zie Gedeeld met mij) |
 | `delingen` | wie de ruimte kan lezen | `doel_doctype`, `doel` | `[{name, soort, gebruiker, rechten, verloopt, token, creation, beveiligd, verlopen, gemaakt_door, gemaakt_door_naam}]`: de niet ingetrokken delingen, ook verlopen. `beveiligd` zegt of er een wachtwoord op zit (de hash komt nooit mee); `verlopen` is `true` als `verloopt` voorbij is |
 | `trek_in` (POST) | schrijver of beheerder van de ruimte | `deling` | — |
+
+## Gedeeld met mij
+
+Een map of bestand dat iemand met een collega deelt (`deel` met `soort: "gebruiker"`), is voor die collega bruikbaar
+zonder lid van de ruimte te zijn: zien, openen, bewerken (bij `schrijven`) en syncen. De rechten komen uit de deling
+(`lezen` of `schrijven`) en gelden voor de map en alles eronder; de ruimte zelf blijft voor hem verborgen. Leden van de
+ruimte houden hun rol; een deling kan hen op een plek meer rechten geven.
+
+Alle methodes onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de ontvanger; antwoorden in
+`message`.
+
+| Methode | Parameters | Antwoord |
+|---|---|---|
+| `gedeeld_met_mij` | — | `[{deling, doel_doctype, doel, naam, ruimte, ruimte_naam, rechten, gedeeld_door, gedeeld_door_naam, sinds, verloopt, al_lid, rol}]`, nieuwste eerst. Een gedeeld bestand heeft ook `map`, `grootte` en `versie` |
+| `bladeren` | `deling`, `map?` (leeg = de gedeelde map) | `{mappen, bestanden}` zoals altijd |
+| `boom` | `deling`, `start?`, `aantal?` | als hierboven, met `wortel` (de gedeelde map; zelf niet in `mappen`, de mappen direct eronder hebben hem als `bovenliggende`) |
+| `wijzigingen` | `deling`, `sinds?`, `limiet?` | `{cursor, meer, wijzigingen}`: alleen de wijzigingen over de gedeelde map, een map eronder (ook een verwijderde) of een bestand daarin; de cursor loopt over de hele ruimte |
+| `maak_map` (POST) | `deling`, `naam`, `bovenliggende?` (leeg = de gedeelde map) | `{map, nieuw}` |
+| `maak_mappen` (POST) | `deling`, `paden` (binnen de gedeelde map) | `{mappen, fouten}` |
+| `upload_klein` (POST) | `deling`, `bestanden` (`pad` binnen de gedeelde map, of `map` daarbinnen) | `{resultaten}` |
+
+`ruimte` mag bij deze methodes weg (hij volgt uit de deling); staat hij erbij, dan moet hij kloppen. Zonder `deling`
+werkt alles zoals vroeger. De methodes per bestand of map (`upload_start`/`upload_klaar` met `map` = de gedeelde map
+of een map daarin, `download`, `download_klein`, `blokken`, `versies`, `info`, `verplaats`, `verplaats_map`,
+`verwijder`, `verwijder_map`, `vergrendel`) hebben geen `deling` nodig: ze volgen de rechten op de plek, en die
+komen ook uit de deling. `deling` bij de methodes hierboven moet een deling met de ingelogde gebruiker zijn die nu
+geldt (anders `deling_onbekend`, `deling_ingetrokken`, `deling_verlopen` of `deling_weg`), en een map
+(`deling_geen_map`).
+
+Gedrag:
+
+- **Binnen de wortel.** Wie geen lid is, komt nooit buiten de gedeelde map: een map, pad of bestand ernaast of erboven
+  geeft 403 met `buiten_deling` (ook in de batch, per bestand of pad). Een pad met `..` is gewoon een ongeldige naam
+  (`ongeldige_naam`). De gedeelde map zelf hernoemen, verplaatsen of verwijderen gaat niet (`buiten_deling`):
+  daarvoor is schrijfrecht op de map erboven nodig. Binnen de map kan alles wat de rechten toestaan.
+- **Lezen tegenover schrijven.** Bij `lezen` geven uploaden, mappen maken, verplaatsen, hernoemen, verwijderen en
+  vergrendelen 403 met `alleen_lezen_deling`; bladeren, downloaden, versies en de wijzigingenlijst werken.
+- **Quotum en mapregels** gelden zoals voor een lid: `quotum_pool_vol`, `quotum_ruimte_vol`, `map_alleen_lezen` (de
+  ontvanger is geen beheerder van de ruimte) en `extensie_niet_toegestaan`. Een gearchiveerde ruimte is alleen te
+  lezen (`ruimte_gearchiveerd`) en staat niet in `gedeeld_met_mij`.
+- **Een gedeeld bestand** synct niet als map (`deling_geen_map`): het is te openen en te downloaden, en bij
+  `schrijven` kan er een nieuwe versie komen (`upload_start` met `map` en `naam` van het bestand en `basis_versie`).
+  Een bestand ernaast uploaden, het bestand hernoemen of verwijderen gaat niet (`buiten_deling`).
+- **Intrekken en verlopen.** Na `trek_in` (of als `verloopt` voorbij is) heeft de ontvanger meteen geen toegang meer:
+  elke volgende aanroep op die plek geeft 403 met `deling_ingetrokken` of `deling_verlopen`, ook `upload_klaar` van
+  een upload die al liep en de batch (per bestand). Een andere deling die nog geldt (bijv. op een submap) blijft
+  werken. Bij intrekken krijgt de ontvanger geen mail.
+- **Melding.** Bij `deel` met een gebruiker krijgt de ontvanger een melding in de desk (Notification Log, soort
+  `Alert`, met `link` naar `/opslag?deling=<deling>`) en een e-mail met de naam, wie het deelde, wat hij ermee kan en
+  dezelfde link. De mail gaat via de mail van de site (in de wachtrij). Lukt de melding of de mail niet, bijvoorbeeld
+  omdat er geen uitgaand e-mailaccount is, dan blijft de deling gewoon staan en staat het in het foutlog ("Melding
+  over een deling niet gemaakt" of "Mail over een deling niet verstuurd").
+- **`al_lid`.** Wie ook lid is van de ruimte, ziet de deling in `gedeeld_met_mij` met `al_lid: true` en zijn `rol`:
+  de deling kan op die plek meer rechten geven dan de rol. Twee delingen op dezelfde map of hetzelfde bestand geven
+  één regel met het hoogste recht.
+
+Op `/opslag` staat het tabblad **Gedeeld met mij**: per map of bestand wie het deelde, wat je kunt en tot wanneer.
+Een map open je zoals een ruimte (bladeren, uploaden, mappen maken, hernoemen en verwijderen binnen de rechten); een
+bestand download je, en bij bewerken kun je een nieuwe versie uploaden. De link uit de mail en de melding
+(`/opslag?deling=<deling>`) opent de gedeelde map meteen.
 
 ## Desktop-sync: veel kleine bestanden
 
@@ -230,10 +297,10 @@ onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de gebruiker
 
 | Methode | Parameters | Antwoord |
 |---|---|---|
-| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg |
-| `boom` | `ruimte`, `start?` (0), `aantal?` (10 000, hoogstens 50 000) | `{mappen: [{name, naam, bovenliggende, modified}], bestanden: [{name, naam, map, grootte, huidige_versie, modified}], meer}`: alle mappen en een pagina bestanden (op `name`), zonder de prullenbak. Alleen voor leden van de ruimte |
-| `maak_mappen` (POST) | `ruimte`, `paden` (lijst mappaden met `/`, hoogstens 1000) | `{mappen: {pad: map}, fouten: {pad: {fout, foutcode}}}`; ontbrekende mappen (ook tussenliggende) worden aangemaakt zoals bij `maak_map`, bestaande hergebruikt (hoofdletters maken niet uit) |
-| `upload_klein` (POST, multipart/form-data) | `ruimte`, `bron?` (`sync`), `bestanden` (JSON-lijst: per bestand `naam`, `map` (id) of `pad` (mappad; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash` (BLAKE3 van de inhoud), `basis_versie?`, `sha256?`, `veld`), en de inhoud: alles achter elkaar in één bestandsveld `inhoud` (gesneden op `grootte`; zo doet de desktop-app het) of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd | `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} \| {index, ok: false, fout, foutcode}]}`, in de volgorde van `bestanden` |
+| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true, deling: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg. `deling`: de parameter `deling` (zie Gedeeld met mij) bestaat |
+| `boom` | `ruimte`, `start?` (0), `aantal?` (10 000, hoogstens 50 000), `deling?` | `{mappen: [{name, naam, bovenliggende, modified}], bestanden: [{name, naam, map, grootte, huidige_versie, modified}], meer}`: alle mappen en een pagina bestanden (op `name`), zonder de prullenbak. Zonder `deling` alleen voor leden van de ruimte; met `deling` alles onder de gedeelde map, plus `wortel` |
+| `maak_mappen` (POST) | `ruimte`, `paden` (lijst mappaden met `/`, hoogstens 1000), `deling?` (dan zijn de paden binnen de gedeelde map) | `{mappen: {pad: map}, fouten: {pad: {fout, foutcode}}}`; ontbrekende mappen (ook tussenliggende) worden aangemaakt zoals bij `maak_map`, bestaande hergebruikt (hoofdletters maken niet uit) |
+| `upload_klein` (POST, multipart/form-data) | `ruimte`, `bron?` (`sync`), `deling?` (dan zijn `pad` en `map` binnen de gedeelde map), `bestanden` (JSON-lijst: per bestand `naam`, `map` (id) of `pad` (mappad; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash` (BLAKE3 van de inhoud), `basis_versie?`, `sha256?`, `veld`), en de inhoud: alles achter elkaar in één bestandsveld `inhoud` (gesneden op `grootte`; zo doet de desktop-app het) of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd | `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} \| {index, ok: false, fout, foutcode}]}`, in de volgorde van `bestanden` |
 | `download_klein` | `bestanden` (lijst bestand-id's of `{bestand, versie}`) | `{bestanden: [{index, ok: true, bestand, naam, versie, grootte, blokhash, inhoud (base64)} \| {index, ok: false, fout, foutcode}]}`; de inhoud komt tegelijk uit S3 |
 
 Grenzen: hoogstens 1 MiB per bestand, en 64 bestanden of 16 MiB per verzoek (`KLEIN_MAX_*` in `api.py`). Een groter
