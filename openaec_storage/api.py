@@ -21,10 +21,15 @@ from frappe.utils import get_url, add_to_date, cint, flt, now_datetime
 
 from openaec_storage import mapsjablonen, namen, s3
 from openaec_storage.rechten import (
+	RANG,
 	actieve_deling,
+	eigen_recht,
+	heeft_deling_in,
 	mag,
+	mag_delen,
 	mag_ruimte_maken,
 	vereis,
+	vereis_delen,
 	vereis_op_plek,
 	voorouders,
 	weiger,
@@ -725,19 +730,16 @@ def deel(
 	verloopt: str | None = None,
 ) -> dict:
 	"""Deel een map of bestand: als link zonder account, of met een (gast)gebruiker. Een link naar een map met
-	`rechten="uploaden"` is een uploadlink (bestanden opvragen): de ontvanger kan alleen bestanden aanleveren."""
+	`rechten="uploaden"` is een uploadlink (bestanden opvragen): de ontvanger kan alleen bestanden aanleveren. Met een
+	gebruiker `lezen`, `schrijven` of `beheren`; nooit meer dan je zelf hebt (zie rechten.vereis_delen)."""
 	from frappe.utils.password import passlibctx
 
 	if doel_doctype not in ("Opslagmap", "Opslagbestand"):
 		frappe.throw(_("Alleen mappen en bestanden kunnen gedeeld worden"))
-	if doel_doctype == "Opslagbestand":
-		ruimte, map = frappe.db.get_value("Opslagbestand", doel, ["ruimte", "map"]) or (None, None)
-		vereis_op_plek(ruimte, map, "write", doel)
-	else:
-		ruimte = frappe.db.get_value("Opslagmap", doel, "ruimte")
-		vereis_op_plek(ruimte, doel, "write")
+	ruimte, map, bestand = _plek_van(doel_doctype, doel)
 	if soort not in ("link", "gebruiker"):
 		frappe.throw(_("Onbekende soort deling"))
+	vereis_delen(ruimte, map, bestand, _deelrechten(soort, rechten) if soort == "gebruiker" else None)
 	if soort == "gebruiker" and not (gebruiker and frappe.db.exists("User", gebruiker)):
 		weiger(_("Kies een bestaande gebruiker om mee te delen"), "gebruiker_onbekend")
 	if rechten == "uploaden" and not (soort == "link" and doel_doctype == "Opslagmap"):
@@ -768,13 +770,31 @@ def deel(
 	}
 
 
+def _plek_van(doel_doctype: str, doel: str) -> tuple[str | None, str | None, str | None]:
+	"""Ruimte, map en (bij een bestand) bestand van het doel van een deling."""
+	if doel_doctype == "Opslagbestand":
+		ruimte, map = frappe.db.get_value("Opslagbestand", doel, ["ruimte", "map"]) or (None, None)
+		return ruimte, map, doel
+	if doel_doctype == "Opslagmap":
+		return frappe.db.get_value("Opslagmap", doel, "ruimte"), doel, None
+	return None, None, None
+
+
 def _deelrechten(soort: str, rechten: str) -> str:
-	"""Schrijven alleen voor een gebruiker; uploaden (bestanden opvragen) alleen voor een link."""
-	if soort == "gebruiker" and rechten == "schrijven":
-		return "schrijven"
+	"""Schrijven en beheren alleen voor een gebruiker; uploaden (bestanden opvragen) alleen voor een link."""
+	if soort == "gebruiker" and rechten in ("schrijven", "beheren"):
+		return rechten
 	if soort == "link" and rechten == "uploaden":
 		return "uploaden"
 	return "lezen"
+
+
+# Per recht: de rol zoals de ontvanger hem leest, en wat hij ermee kan (in de mail).
+ROLNAMEN = {
+	"lezen": ("kan bekijken", "bekijken en downloaden"),
+	"schrijven": ("kan bewerken", "bekijken, bewerken en nieuwe bestanden toevoegen"),
+	"beheren": ("kan beheren", "bekijken en bewerken, en verder delen met anderen"),
+}
 
 
 def _meld_ontvanger(deling) -> None:
@@ -789,8 +809,9 @@ def _meld_ontvanger(deling) -> None:
 	door = get_fullname(frappe.session.user) or frappe.session.user
 	ruimte_naam = frappe.db.get_value("Ruimte", deling.ruimte, "naam") or deling.ruimte
 	wat = _("de map {0}") if deling.doel_doctype == "Opslagmap" else _("het bestand {0}")
-	onderwerp = _("{0} heeft {1} met je gedeeld").format(door, wat.format(naam))
-	rechten = _("bekijken en bewerken") if deling.rechten == "schrijven" else _("bekijken")
+	rol = ROLNAMEN.get(deling.rechten, ROLNAMEN["lezen"])
+	onderwerp = _("{0} heeft {1} met je gedeeld ({2})").format(door, wat.format(naam), _(rol[0]))
+	rechten = _(rol[1])
 	pad = f"/opslag?deling={deling.name}"
 	try:
 		frappe.get_doc(
@@ -860,8 +881,8 @@ def gedeeld_met_mij() -> list[dict]:
 		sleutel = (r.doel_doctype, r.doel)
 		if sleutel in per_doel:
 			# Dezelfde map of hetzelfde bestand nog eens gedeeld: het hoogste recht telt.
-			if r.rechten == "schrijven" and per_doel[sleutel]["rechten"] != "schrijven":
-				per_doel[sleutel].update({"deling": r.name, "rechten": "schrijven", "verloopt": r.verloopt})
+			if RANG.get(r.rechten, 0) > RANG.get(per_doel[sleutel]["rechten"], 0):
+				per_doel[sleutel].update({"deling": r.name, "rechten": r.rechten, "verloopt": r.verloopt})
 			continue
 		velden = ["naam", "verwijderd_op"]
 		if r.doel_doctype == "Opslagbestand":
@@ -933,9 +954,13 @@ def mijn_delingen() -> list[dict]:
 @frappe.whitelist()
 def delingen(doel_doctype: str, doel: str) -> list[dict]:
 	"""De niet ingetrokken delingen van een map of bestand (ook verlopen, met `verlopen`), met of er een wachtwoord op
-	zit (`beveiligd`; nooit de hash) en wie de deling maakte."""
-	ruimte = frappe.db.get_value(doel_doctype, doel, "ruimte") if doel_doctype in ("Opslagmap", "Opslagbestand") else None
-	vereis(ruimte, "read")
+	zit (`beveiligd`; nooit de hash) en wie de deling maakte. Voor wie de ruimte kan lezen en wie de plek via een
+	deling mag beheren."""
+	ruimte, map, bestand = _plek_van(doel_doctype, doel)
+	if not (ruimte and mag(ruimte, "read")):
+		vereis_op_plek(ruimte, map, "read", bestand)
+		if eigen_recht(ruimte, map, bestand) != "beheren":
+			weiger(_("Wie toegang heeft, ziet wie het mag beheren"), "geen_beheerrecht", frappe.PermissionError)
 	rijen = frappe.get_all(
 		"Opslagdeling",
 		filters={"doel_doctype": doel_doctype, "doel": doel, "ingetrokken": 0},
@@ -963,7 +988,9 @@ def collegas(tekst: str = "", ruimte: str | None = None) -> list[dict]:
 	if not mag_ruimte_maken():
 		if not ruimte:
 			frappe.throw(_("Geen toegang"), frappe.PermissionError)
-		vereis(ruimte, "write")
+		# Wie in de ruimte iets mag beheren (via een deling), zoekt ook collega's om mee te delen.
+		if not heeft_deling_in(ruimte, frappe.session.user, "beheren"):
+			vereis(ruimte, "write")
 	tekst = (tekst or "").strip()
 	# Jokertekens in de zoektekst letterlijk nemen.
 	zoek = "%" + tekst.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"
@@ -987,12 +1014,49 @@ def collegas(tekst: str = "", ruimte: str | None = None) -> list[dict]:
 
 @frappe.whitelist()
 def trek_in(deling: str) -> None:
+	"""Een deling intrekken: een schrijver of beheerder van de ruimte, of wie de plek via een deling mag beheren."""
 	rij = frappe.db.get_value("Opslagdeling", deling, ["ruimte", "doel_doctype", "doel"], as_dict=True)
 	if not rij:
 		frappe.throw(_("Deling bestaat niet"), frappe.DoesNotExistError)
-	vereis(rij.ruimte, "write")
+	if not mag(rij.ruimte, "write"):
+		ruimte, map, bestand = _plek_van(rij.doel_doctype, rij.doel)
+		vereis_delen(ruimte or rij.ruimte, map, bestand, None)
 	frappe.db.set_value("Opslagdeling", deling, "ingetrokken", 1)
 	_log(rij.ruimte, "ingetrokken", rij.doel_doctype, rij.doel)
+
+
+@frappe.whitelist(methods=["POST"])
+def wijzig_deling(deling: str, rechten: str) -> dict:
+	"""De rechten van een deling met een gebruiker wijzigen (`lezen`, `schrijven` of `beheren`): mag wie er ook mee
+	mag delen, en nooit naar meer, of van meer, dan je zelf hebt (`meer_dan_eigen_recht`). Komt in de wijzigingenlijst
+	(`deling_gewijzigd`); de ontvanger krijgt geen mail."""
+	rij = frappe.db.get_value(
+		"Opslagdeling", deling, ["name", "ruimte", "doel_doctype", "doel", "soort", "rechten", "ingetrokken"], as_dict=True
+	)
+	if not rij or cint(rij.ingetrokken):
+		frappe.throw(_("Deling bestaat niet"), frappe.DoesNotExistError)
+	if rij.soort != "gebruiker":
+		frappe.throw(_("Alleen de rechten van een deling met een collega zijn te wijzigen"))
+	if rechten not in RANG:
+		frappe.throw(_("Onbekende rechten: kies lezen, schrijven of beheren"))
+	ruimte, map, bestand = _plek_van(rij.doel_doctype, rij.doel)
+	vereis_delen(ruimte, map, bestand, rechten, rij.rechten)
+	if rechten != rij.rechten:
+		frappe.db.set_value("Opslagdeling", deling, "rechten", rechten)
+		_log(rij.ruimte, "deling_gewijzigd", rij.doel_doctype, rij.doel, rechten)
+	return {"deling": deling, "rechten": rechten}
+
+
+@frappe.whitelist()
+def toegang(doel_doctype: str, doel: str) -> dict:
+	"""Wat de ingelogde gebruiker met een map of bestand mag, voor het deelvenster: `rechten` (zijn hoogste recht:
+	`lezen`, `schrijven` of `beheren`, uit zijn rol of een deling), `mag_delen` (delen, en de delingen hier wijzigen en
+	intrekken) en `max_rechten` (het hoogste recht dat hij een ander mag geven, of None)."""
+	ruimte, map, bestand = _plek_van(doel_doctype, doel)
+	vereis_op_plek(ruimte, map, "read", bestand)
+	eigen = eigen_recht(ruimte, map, bestand)
+	kan = mag_delen(ruimte, map, bestand) and not frappe.db.get_value("Ruimte", ruimte, "gearchiveerd")
+	return {"rechten": eigen, "mag_delen": bool(kan), "max_rechten": eigen if kan else None}
 
 
 @frappe.whitelist()

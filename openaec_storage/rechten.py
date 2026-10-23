@@ -7,8 +7,10 @@ Een nieuwe ruimte aanmaken mag alleen een beheerder van de omgeving (`mag_ruimte
 er beheerder van (Ruimte.before_insert). Beheerder van een ruimte zijn maakt iemand nog geen beheerder van de omgeving.
 
 Daarnaast kan een map of bestand gedeeld zijn met een gebruiker (Opslagdeling, soort `gebruiker`): die heeft dan
-lees- of schrijfrecht op de map en alles eronder, ook zonder lid te zijn (`mag_op_plek`). Wie geen lid is, komt
-nooit buiten wat gedeeld is (`buiten_deling`), en na intrekken of verlopen meteen nergens meer.
+op de map en alles eronder `lezen`, `schrijven` of `beheren` (schrijven, plus verder delen en de delingen daar
+bekijken, wijzigen en intrekken), ook zonder lid te zijn (`mag_op_plek`, `eigen_recht`). Wie geen lid is, komt
+nooit buiten wat gedeeld is (`buiten_deling`), en na intrekken of verlopen meteen nergens meer. Beheren geeft geen
+rechten op de ruimte zelf, en niemand geeft meer rechten dan hij zelf heeft.
 
 Een gearchiveerde ruimte is voor iedereen alleen te lezen, ook voor het beheer: `mag` en `mag_op_plek` geven geen
 schrijfrecht en `vereis`/`vereis_op_plek` weigeren met de foutcode `ruimte_gearchiveerd`. Alleen de instellingen van
@@ -22,6 +24,9 @@ from frappe.utils import cint
 LEZEN = frozenset({"beheerder", "schrijver", "lezer", "gast"})
 SCHRIJVEN = frozenset({"beheerder", "schrijver"})
 LEESACTIES = frozenset({"read", "select", "print", "report", "export", "email", "share"})
+# Rechten van een deling met een gebruiker, van laag naar hoog; en wat een rol in de ruimte daarin betekent.
+RANG = {"lezen": 1, "schrijven": 2, "beheren": 3}
+ROL_ALS_RECHT = {"beheerder": "beheren", "schrijver": "schrijven", "lezer": "lezen", "gast": "lezen"}
 
 # Rollen die een nieuwe ruimte mogen aanmaken; site_config `openaec_storage_ruimte_makers` vervangt de lijst.
 # De OpenAEC-rollen zijn de beheerrollen uit openaec_beheer: zonder die app bestaan ze niet en blijven
@@ -193,9 +198,9 @@ def voorouders(map: str | None) -> list[str]:
 
 
 def deling_toestand(gebruiker: str, map: str | None, bestand: str | None = None) -> tuple[str | None, str | None]:
-	"""Wat een gebruiker via delingen heeft op deze plek (de plek zelf of erboven): het hoogste recht (`schrijven` of
-	`lezen`) en, als er geen actieve deling is, waarom niet: `deling_ingetrokken` of `deling_verlopen` (er was er een),
-	of None (er was er nooit een)."""
+	"""Wat een gebruiker via delingen heeft op deze plek (de plek zelf of erboven): het hoogste recht (`beheren`,
+	`schrijven` of `lezen`) en, als er geen actieve deling is, waarom niet: `deling_ingetrokken` of `deling_verlopen`
+	(er was er een), of None (er was er nooit een)."""
 	doelen = [("Opslagmap", m) for m in voorouders(map)]
 	if bestand:
 		doelen.append(("Opslagbestand", bestand))
@@ -213,27 +218,61 @@ def deling_toestand(gebruiker: str, map: str | None, bestand: str | None = None)
 				reden = reden or "deling_ingetrokken"
 			elif rij.verloopt and rij.verloopt < nu:
 				reden = "deling_verlopen"
-			elif rij.rechten == "schrijven":
-				return "schrijven", None
-			else:
-				beste = "lezen"
+			elif RANG.get(rij.rechten, 1) > RANG.get(beste, 0):
+				beste = rij.rechten if rij.rechten in RANG else "lezen"
 	return beste, None if beste else reden
 
 
 def deling_recht(gebruiker: str, map: str | None, bestand: str | None = None) -> str | None:
-	"""Het hoogste recht ('schrijven' of 'lezen') dat een gebruiker via delingen heeft op deze plek."""
+	"""Het hoogste recht ('beheren', 'schrijven' of 'lezen') dat een gebruiker via delingen heeft op deze plek."""
 	return deling_toestand(gebruiker, map, bestand)[0]
 
 
-def heeft_deling_in(ruimte: str, gebruiker: str) -> bool:
-	"""Heeft de gebruiker een actieve deling (als gebruiker) ergens in deze ruimte?"""
+def heeft_deling_in(ruimte: str, gebruiker: str, rechten: str | None = None) -> bool:
+	"""Heeft de gebruiker een actieve deling (als gebruiker) ergens in deze ruimte (met `rechten` alleen die)?"""
 	return bool(
 		frappe.db.sql(
 			"""select name from `tabOpslagdeling` where ruimte = %s and soort = 'gebruiker' and gebruiker = %s
-			and ifnull(ingetrokken, 0) = 0 and (verloopt is null or verloopt >= %s) limit 1""",
-			(ruimte, gebruiker, frappe.utils.now_datetime()),
+			and ifnull(ingetrokken, 0) = 0 and (verloopt is null or verloopt >= %s) and (%s is null or rechten = %s)
+			limit 1""",
+			(ruimte, gebruiker, frappe.utils.now_datetime(), rechten, rechten),
 		)
 	)
+
+
+def eigen_recht(ruimte: str, map: str | None, bestand: str | None = None, gebruiker: str | None = None) -> str | None:
+	"""Het hoogste recht van de gebruiker op deze plek: uit zijn rol in de ruimte (beheerder = `beheren`, schrijver =
+	`schrijven`, lezer en gast = `lezen`; Administrator en System Manager `beheren`) of uit een deling, wat het hoogst
+	is. In een gearchiveerde ruimte hoogstens `lezen`. None: geen toegang."""
+	gebruiker = gebruiker or frappe.session.user
+	van_rol = "beheren" if is_superbeheer(gebruiker) else ROL_ALS_RECHT.get(rol_in_ruimte(ruimte, gebruiker) or "")
+	van_deling = deling_recht(gebruiker, map, bestand)
+	beste = max((van_rol, van_deling), key=lambda r: RANG.get(r or "", 0))
+	if beste and is_gearchiveerd(ruimte):
+		return "lezen"
+	return beste
+
+
+def mag_delen(ruimte: str, map: str | None, bestand: str | None = None, gebruiker: str | None = None) -> bool:
+	"""Mag de gebruiker hier delen (en de delingen hier wijzigen en intrekken)? Een schrijver of beheerder van de
+	ruimte (zoals altijd), en wie de plek via een deling mag `beheren`."""
+	return mag(ruimte, "write", gebruiker) or eigen_recht(ruimte, map, bestand, gebruiker) == "beheren"
+
+
+def vereis_delen(ruimte: str, map: str | None, bestand: str | None, rechten: str | None, huidig: str | None = None) -> None:
+	"""Weiger delen of een deling wijzigen op deze plek met `rechten` (alleen bij een gebruiker): zonder het recht om
+	hier te delen `geen_beheerrecht`, en met meer rechten dan je zelf hebt `meer_dan_eigen_recht` (ook als de deling
+	nu al meer geeft dan je zelf hebt, `huidig`)."""
+	vereis_op_plek(ruimte, map, "write", bestand)
+	if not mag_delen(ruimte, map, bestand):
+		weiger(
+			_("Delen kan wie deze map of dit bestand mag beheren; vraag het aan wie het met je deelde"),
+			"geen_beheerrecht",
+			frappe.PermissionError,
+		)
+	eigen = RANG.get(eigen_recht(ruimte, map, bestand) or "", 0)
+	if RANG.get(rechten or "", 0) > eigen or RANG.get(huidig or "", 0) > eigen:
+		weiger(_("Je kunt niet meer rechten geven dan je zelf hebt"), "meer_dan_eigen_recht", frappe.PermissionError)
 
 
 DELINGSMELDINGEN = {
@@ -258,7 +297,7 @@ def mag_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = 
 	recht = deling_recht(gebruiker, map, bestand)
 	if not recht:
 		return False
-	return actie in LEESACTIES or recht == "schrijven"
+	return actie in LEESACTIES or RANG.get(recht, 0) >= RANG["schrijven"]
 
 
 def vereis_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = None) -> None:

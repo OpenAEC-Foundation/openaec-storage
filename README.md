@@ -192,6 +192,8 @@ te lezen.
 | `deling_onbekend` | 403 | `deling` bestaat niet, is een link of is met iemand anders gedeeld |
 | `deling_weg` | 404 | De gedeelde map is verwijderd (bij `deling` als wortel) |
 | `deling_geen_map` | 417 | `deling` is een gedeeld bestand; dat kan niet als bovenste map |
+| `geen_beheerrecht` | 403 | Delen, een deling wijzigen of intrekken, of de delingen bekijken zonder dat je hier mag delen (wie via een deling `lezen` of `schrijven` heeft) |
+| `meer_dan_eigen_recht` | 403 | Delen of een deling wijzigen met meer rechten dan je zelf hebt, of een deling wijzigen die nu al meer geeft dan je zelf hebt |
 
 In een batch (`upload_klein`, `download_klein`, `maak_mappen`) staat de foutcode per bestand of pad in het antwoord,
 niet in `foutcode` van het hele antwoord.
@@ -223,23 +225,39 @@ methodes onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de 
 | Methode | Wie | Parameters | Antwoord |
 |---|---|---|---|
 | `collegas` | wie in `ruimte` mag delen (schrijver of beheerder; een gearchiveerde ruimte geeft 403 met `ruimte_gearchiveerd`), of een beheerder van de omgeving (ook zonder `ruimte`); anders 403 | `tekst?` (zoekt in e-mailadres en volledige naam), `ruimte?` | `[{gebruiker, naam, lid_als}]`, hoogstens 20, op naam: actieve systeemgebruikers (geen websitegebruikers, gasten of Administrator); `lid_als` is de rol in `ruimte` (`beheerder`, `schrijver`, `lezer`, `gast`) of `null` |
-| `deel` (POST) | schrijver of beheerder op die plek | `doel_doctype` (`Opslagmap`/`Opslagbestand`), `doel`, `soort` (`link` of `gebruiker`), `gebruiker?`, `rechten` (`lezen`; `schrijven` alleen met een gebruiker; `uploaden` alleen met een link naar een map), `wachtwoord?`, `verloopt?` | `{deling, token, rechten, url}`; een onbekende gebruiker geeft 417 met `gebruiker_onbekend`. Met een gebruiker krijgt die een melding en een e-mail (zie Gedeeld met mij) |
-| `delingen` | wie de ruimte kan lezen | `doel_doctype`, `doel` | `[{name, soort, gebruiker, rechten, verloopt, token, creation, beveiligd, verlopen, gemaakt_door, gemaakt_door_naam}]`: de niet ingetrokken delingen, ook verlopen. `beveiligd` zegt of er een wachtwoord op zit (de hash komt nooit mee); `verlopen` is `true` als `verloopt` voorbij is |
-| `trek_in` (POST) | schrijver of beheerder van de ruimte | `deling` | — |
+| `deel` (POST) | schrijver of beheerder van de ruimte, of wie de plek via een deling mag beheren | `doel_doctype` (`Opslagmap`/`Opslagbestand`), `doel`, `soort` (`link` of `gebruiker`), `gebruiker?`, `rechten` (`lezen`; `schrijven` en `beheren` alleen met een gebruiker, en nooit meer dan je zelf hebt; `uploaden` alleen met een link naar een map), `wachtwoord?`, `verloopt?` | `{deling, token, rechten, url}`; een onbekende gebruiker geeft 417 met `gebruiker_onbekend`. Met een gebruiker krijgt die een melding en een e-mail (zie Gedeeld met mij) |
+| `delingen` | wie de ruimte kan lezen, of de plek via een deling mag beheren | `doel_doctype`, `doel` | `[{name, soort, gebruiker, rechten, verloopt, token, creation, beveiligd, verlopen, gemaakt_door, gemaakt_door_naam}]`: de niet ingetrokken delingen, ook verlopen. `beveiligd` zegt of er een wachtwoord op zit (de hash komt nooit mee); `verlopen` is `true` als `verloopt` voorbij is |
+| `trek_in` (POST) | schrijver of beheerder van de ruimte, of wie de plek via een deling mag beheren | `deling` | — |
+| `wijzig_deling` (POST) | als `deel` | `deling` (met een gebruiker), `rechten` (`lezen`, `schrijven` of `beheren`) | `{deling, rechten}`; naar meer, of van meer, dan je zelf hebt geeft 403 met `meer_dan_eigen_recht`. Komt in de wijzigingenlijst (`deling_gewijzigd`, `naam` de nieuwe rechten); geen mail |
+| `toegang` | wie de plek kan lezen | `doel_doctype`, `doel` | `{rechten, mag_delen, max_rechten}`: je hoogste recht hier (`lezen`, `schrijven` of `beheren`, uit je rol of een deling), of je hier mag delen (en delingen wijzigen en intrekken), en het hoogste recht dat je een ander mag geven (of `null`) |
 
 ## Gedeeld met mij
 
 Een map of bestand dat iemand met een collega deelt (`deel` met `soort: "gebruiker"`), is voor die collega bruikbaar
-zonder lid van de ruimte te zijn: zien, openen, bewerken (bij `schrijven`) en syncen. De rechten komen uit de deling
-(`lezen` of `schrijven`) en gelden voor de map en alles eronder; de ruimte zelf blijft voor hem verborgen. Leden van de
-ruimte houden hun rol; een deling kan hen op een plek meer rechten geven.
+zonder lid van de ruimte te zijn: zien, openen, bewerken (bij `schrijven`) en syncen. De rechten komen uit de deling en
+gelden voor de map en alles eronder; de ruimte zelf blijft voor hem verborgen. Leden van de ruimte houden hun rol; een
+deling kan hen op een plek meer rechten geven.
+
+Rechten van een deling met een gebruiker, van laag naar hoog (`rechten.RANG`): `lezen` < `schrijven` < `beheren`. Een
+rol in de ruimte telt mee als `lezen` (lezer, gast), `schrijven` (schrijver) of `beheren` (beheerder; ook
+Administrator en System Manager), en op een plek geldt het hoogste van rol en delingen (`rechten.eigen_recht`).
+
+- **Beheren** is schrijven, plus: de map verder delen (met een collega of als link), de delingen op de map en de
+  submappen bekijken (`delingen`), wijzigen (`wijzig_deling`) en intrekken (`trek_in`). Alleen binnen de gedeelde map
+  (daarbuiten `buiten_deling`), en nooit beheer over de ruimte zelf (leden, archiveren, quotum, mapsjablonen) of de
+  gedeelde map zelf verwijderen.
+- **Delen** mag een schrijver of beheerder van de ruimte (zoals altijd) en wie de plek via een deling mag beheren; wie
+  via een deling `lezen` of `schrijven` heeft, krijgt 403 met `geen_beheerrecht`.
+- **Nooit meer dan je zelf hebt:** een schrijver van de ruimte deelt tot en met `schrijven`; `beheren` geven kan een
+  beheerder van de ruimte, een beheerder van de omgeving of wie zelf beheert. Anders 403 met `meer_dan_eigen_recht`;
+  dat geldt ook voor `wijzig_deling`, en voor het wijzigen van een deling die nu al meer geeft dan je zelf hebt.
 
 Alle methodes onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de ontvanger; antwoorden in
 `message`.
 
 | Methode | Parameters | Antwoord |
 |---|---|---|
-| `gedeeld_met_mij` | — | `[{deling, doel_doctype, doel, naam, ruimte, ruimte_naam, rechten, gedeeld_door, gedeeld_door_naam, sinds, verloopt, al_lid, rol}]`, nieuwste eerst. Een gedeeld bestand heeft ook `map`, `grootte` en `versie` |
+| `gedeeld_met_mij` | — | `[{deling, doel_doctype, doel, naam, ruimte, ruimte_naam, rechten, gedeeld_door, gedeeld_door_naam, sinds, verloopt, al_lid, rol}]`, nieuwste eerst; `rechten` is `lezen`, `schrijven` of `beheren`. Een gedeeld bestand heeft ook `map`, `grootte` en `versie` |
 | `bladeren` | `deling`, `map?` (leeg = de gedeelde map) | `{mappen, bestanden}` zoals altijd |
 | `boom` | `deling`, `start?`, `aantal?` | als hierboven, met `wortel` (de gedeelde map; zelf niet in `mappen`, de mappen direct eronder hebben hem als `bovenliggende`) |
 | `wijzigingen` | `deling`, `sinds?`, `limiet?` | `{cursor, meer, wijzigingen}`: alleen de wijzigingen over de gedeelde map, een map eronder (ook een verwijderde) of een bestand daarin; de cursor loopt over de hele ruimte |
@@ -262,7 +280,8 @@ Gedrag:
   (`ongeldige_naam`). De gedeelde map zelf hernoemen, verplaatsen of verwijderen gaat niet (`buiten_deling`):
   daarvoor is schrijfrecht op de map erboven nodig. Binnen de map kan alles wat de rechten toestaan.
 - **Lezen tegenover schrijven.** Bij `lezen` geven uploaden, mappen maken, verplaatsen, hernoemen, verwijderen en
-  vergrendelen 403 met `alleen_lezen_deling`; bladeren, downloaden, versies en de wijzigingenlijst werken.
+  vergrendelen 403 met `alleen_lezen_deling`; bladeren, downloaden, versies en de wijzigingenlijst werken. `schrijven`
+  en `beheren` mogen dat allemaal.
 - **Quotum en mapregels** gelden zoals voor een lid: `quotum_pool_vol`, `quotum_ruimte_vol`, `map_alleen_lezen` (de
   ontvanger is geen beheerder van de ruimte) en `extensie_niet_toegestaan`. Een gearchiveerde ruimte is alleen te
   lezen (`ruimte_gearchiveerd`) en staat niet in `gedeeld_met_mij`.
@@ -274,8 +293,9 @@ Gedrag:
   een upload die al liep en de batch (per bestand). Een andere deling die nog geldt (bijv. op een submap) blijft
   werken. Bij intrekken krijgt de ontvanger geen mail.
 - **Melding.** Bij `deel` met een gebruiker krijgt de ontvanger een melding in de desk (Notification Log, soort
-  `Alert`, met `link` naar `/opslag?deling=<deling>`) en een e-mail met de naam, wie het deelde, wat hij ermee kan en
-  dezelfde link. De mail gaat via de mail van de site (in de wachtrij). Lukt de melding of de mail niet, bijvoorbeeld
+  `Alert`, met `link` naar `/opslag?deling=<deling>`) en een e-mail met de naam, wie het deelde, de rol en wat hij
+  ermee kan, en dezelfde link. Onderwerp: "Anna heeft de map Tekeningen met je gedeeld (kan bewerken)"; de rol is
+  "kan bekijken", "kan bewerken" of "kan beheren". Bij `wijzig_deling` volgt geen nieuwe mail. De mail gaat via de mail van de site (in de wachtrij). Lukt de melding of de mail niet, bijvoorbeeld
   omdat er geen uitgaand e-mailaccount is, dan blijft de deling gewoon staan en staat het in het foutlog ("Melding
   over een deling niet gemaakt" of "Mail over een deling niet verstuurd").
 - **`al_lid`.** Wie ook lid is van de ruimte, ziet de deling in `gedeeld_met_mij` met `al_lid: true` en zijn `rol`:

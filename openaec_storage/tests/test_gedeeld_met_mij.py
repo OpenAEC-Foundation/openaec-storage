@@ -358,14 +358,14 @@ class TestMelding(GedeeldBasis):
 			deling = api.deel("Opslagmap", self.tekeningen, soort="gebruiker", gebruiker=self.bea, rechten="schrijven")["deling"]
 		kwargs = sendmail.call_args.kwargs
 		self.assertEqual(kwargs["recipients"], [self.bea])
-		self.assertEqual(kwargs["subject"], "anna heeft de map Tekeningen met je gedeeld")
+		self.assertEqual(kwargs["subject"], "anna heeft de map Tekeningen met je gedeeld (kan bewerken)")
 		self.assertIn(f"/opslag?deling={deling}", kwargs["message"])
-		self.assertIn("bekijken en bewerken", kwargs["message"])
+		self.assertIn("bekijken, bewerken", kwargs["message"])
 		self.assertEqual((kwargs["reference_doctype"], kwargs["reference_name"]), ("Opslagdeling", deling))
 		melding = frappe.db.get_value(
 			"Notification Log", {"for_user": self.bea}, ["subject", "link", "document_type", "document_name", "from_user"], as_dict=True
 		)
-		self.assertEqual(melding.subject, "anna heeft de map Tekeningen met je gedeeld")
+		self.assertEqual(melding.subject, "anna heeft de map Tekeningen met je gedeeld (kan bewerken)")
 		self.assertEqual((melding.link, melding.document_type, melding.document_name), (f"/opslag?deling={deling}", "Opslagmap", self.tekeningen))
 		self.assertEqual(melding.from_user, self.anna)
 
@@ -393,3 +393,126 @@ class TestMelding(GedeeldBasis):
 		frappe.set_user(self.anna)
 		deling = api.deel("Opslagmap", self.tekeningen, soort="gebruiker", gebruiker=self.bea)["deling"]
 		self.assertTrue(frappe.db.exists("Opslagdeling", deling))
+
+
+class TestBeheren(GedeeldBasis):
+	"""Beheren: schrijven, plus verder delen en de delingen op de map (en eronder) bekijken, wijzigen en intrekken.
+	Nooit buiten de gedeelde map, nooit beheer over de ruimte zelf, en nooit meer rechten geven dan je zelf hebt."""
+
+	def setUp(self):
+		super().setUp()
+		self.cees = gebruiker("cees")
+		# Zonder rollen maakt Frappe er een websitegebruiker van; collegas zoekt systeemgebruikers.
+		frappe.db.set_value("User", self.cees, "user_type", "System User")
+		self.schrijver = gebruiker("schrijver")
+		frappe.set_user("Administrator")
+		doc = frappe.get_doc("Ruimte", self.ruimte)
+		doc.append("leden", {"gebruiker": self.schrijver, "rol": "schrijver"})
+		doc.save()
+		frappe.set_user(self.bea)
+
+	def als(self, wie: str, functie, *args, **kwargs):
+		frappe.set_user(wie)
+		with patch("frappe.sendmail"):
+			return functie(*args, **kwargs)
+
+	def test_beheerder_via_deling_deelt_verder_binnen_de_map(self):
+		self.deel("Opslagmap", self.tekeningen, "beheren")
+		self.assertEqual(api.toegang("Opslagmap", self.details), {"rechten": "beheren", "mag_delen": True, "max_rechten": "beheren"})
+		voor_cees = self.als(self.bea, api.deel, "Opslagmap", self.details, soort="gebruiker", gebruiker=self.cees, rechten="beheren")
+		self.als(self.bea, api.deel, "Opslagbestand", self.plan, soort="gebruiker", gebruiker=self.cees, rechten="lezen")
+		link = self.als(self.bea, api.deel, "Opslagmap", self.tekeningen, soort="link")
+		self.assertTrue(link["token"])
+		# Bekijken, wijzigen en intrekken op de map en eronder.
+		self.assertEqual({d.gebruiker for d in api.delingen("Opslagmap", self.details)}, {self.cees})
+		self.assertEqual(api.wijzig_deling(voor_cees["deling"], "lezen"), {"deling": voor_cees["deling"], "rechten": "lezen"})
+		self.assertEqual(frappe.db.get_value("Opslagdeling", voor_cees["deling"], "rechten"), "lezen")
+		api.trek_in(voor_cees["deling"])
+		self.assertTrue(frappe.db.get_value("Opslagdeling", voor_cees["deling"], "ingetrokken"))
+		# Collega's zoeken om mee te delen mag ook.
+		self.assertIn(self.cees, [c["gebruiker"] for c in api.collegas("cees", self.ruimte)])
+
+	def test_beheren_geeft_niets_buiten_de_map_en_niets_over_de_ruimte(self):
+		self.deel("Opslagmap", self.tekeningen, "beheren")
+		self.assertEqual(
+			foutcode(self, frappe.PermissionError, api.deel, "Opslagmap", self.financieel, soort="gebruiker", gebruiker=self.cees),
+			"buiten_deling",
+		)
+		financieel = self.als(self.anna, api.deel, "Opslagmap", self.financieel, soort="gebruiker", gebruiker=self.cees)["deling"]
+		frappe.set_user(self.bea)
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.trek_in, financieel), "buiten_deling")
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.wijzig_deling, financieel, "lezen"), "buiten_deling")
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.delingen, "Opslagmap", self.financieel), "buiten_deling")
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.verwijder_map, map=self.tekeningen), "buiten_deling")
+		self.assertFalse(frappe.has_permission("Ruimte", "write", self.ruimte))
+		self.assertFalse(frappe.has_permission("Ruimte", "read", self.ruimte))
+
+	def test_schrijven_via_deling_deelt_niet_verder(self):
+		self.deel("Opslagmap", self.tekeningen, "schrijven")
+		self.assertEqual(api.toegang("Opslagmap", self.tekeningen), {"rechten": "schrijven", "mag_delen": False, "max_rechten": None})
+		for soort in ("gebruiker", "link"):
+			self.assertEqual(
+				foutcode(self, frappe.PermissionError, api.deel, "Opslagmap", self.details, soort=soort, gebruiker=self.cees),
+				"geen_beheerrecht",
+			)
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.delingen, "Opslagmap", self.tekeningen), "geen_beheerrecht")
+		eigen = api.gedeeld_met_mij()[0]["deling"]
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.wijzig_deling, eigen, "beheren"), "geen_beheerrecht")
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.trek_in, eigen), "geen_beheerrecht")
+
+	def test_nooit_meer_rechten_dan_je_zelf_hebt(self):
+		# Een schrijver van de ruimte deelt tot en met schrijven, niet beheren.
+		frappe.set_user(self.schrijver)
+		self.assertEqual(api.toegang("Opslagmap", self.tekeningen)["max_rechten"], "schrijven")
+		with patch("frappe.sendmail"):
+			self.assertEqual(
+				foutcode(
+					self, frappe.PermissionError, api.deel, "Opslagmap", self.tekeningen, soort="gebruiker", gebruiker=self.bea, rechten="beheren"
+				),
+				"meer_dan_eigen_recht",
+			)
+			deling = api.deel("Opslagmap", self.tekeningen, soort="gebruiker", gebruiker=self.bea, rechten="schrijven")["deling"]
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.wijzig_deling, deling, "beheren"), "meer_dan_eigen_recht")
+		# Een deling die meer geeft dan je zelf hebt, wijzig je ook niet omlaag.
+		hoog = self.als(self.anna, api.deel, "Opslagmap", self.details, soort="gebruiker", gebruiker=self.cees, rechten="beheren")["deling"]
+		frappe.set_user(self.schrijver)
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.wijzig_deling, hoog, "lezen"), "meer_dan_eigen_recht")
+		# De beheerder van de ruimte mag alles.
+		self.assertEqual(self.als(self.anna, api.wijzig_deling, deling, "beheren")["rechten"], "beheren")
+		self.assertIn("deling_gewijzigd", frappe.get_all("Opslagwijziging", filters={"ruimte": self.ruimte}, pluck="soort"))
+		# En wie via een deling beheert, geeft hoogstens beheren aan een ander.
+		self.assertEqual(self.als(self.bea, api.toegang, "Opslagmap", self.tekeningen)["max_rechten"], "beheren")
+
+	def test_wijzig_deling_alleen_voor_een_collega(self):
+		frappe.set_user(self.anna)
+		with patch("frappe.sendmail"):
+			link = api.deel("Opslagmap", self.tekeningen, soort="link")["deling"]
+		self.assertRaises(frappe.ValidationError, api.wijzig_deling, link, "schrijven")
+		with patch("frappe.sendmail"):
+			deling = api.deel("Opslagmap", self.tekeningen, soort="gebruiker", gebruiker=self.bea)["deling"]
+		self.assertRaises(frappe.ValidationError, api.wijzig_deling, deling, "alles")
+		api.trek_in(deling)
+		self.assertRaises(frappe.DoesNotExistError, api.wijzig_deling, deling, "lezen")
+
+	def test_beheren_is_het_hoogste_recht(self):
+		self.deel("Opslagmap", self.tekeningen, "lezen")
+		self.deel("Opslagmap", self.details, "beheren")
+		self.deel("Opslagmap", self.tekeningen, "schrijven")
+		self.assertEqual(api.toegang("Opslagmap", self.details)["rechten"], "beheren")
+		self.assertEqual(api.toegang("Opslagmap", self.tekeningen)["rechten"], "schrijven")
+		self.assertEqual(api.toegang("Opslagbestand", self.plan)["rechten"], "schrijven")
+		self.assertEqual({r["naam"]: r["rechten"] for r in api.gedeeld_met_mij()}, {"Tekeningen": "schrijven", "Details": "beheren"})
+		# Beheren mag ook schrijven.
+		self.assertEqual(upload(self.ruimte, "nieuw.dwg", b"x", map_naam=self.details)["versie"], 1)
+
+	def test_melding_noemt_de_rol(self):
+		frappe.set_user(self.anna)
+		with patch("frappe.sendmail") as sendmail:
+			api.deel("Opslagmap", self.tekeningen, soort="gebruiker", gebruiker=self.bea, rechten="beheren")
+		self.assertEqual(sendmail.call_args.kwargs["subject"], "anna heeft de map Tekeningen met je gedeeld (kan beheren)")
+		self.assertIn("verder delen", sendmail.call_args.kwargs["message"])
+		with patch("frappe.sendmail") as sendmail:
+			api.deel("Opslagbestand", self.plan, soort="gebruiker", gebruiker=self.bea, rechten="lezen")
+		self.assertEqual(sendmail.call_args.kwargs["subject"], "anna heeft het bestand plan.pdf met je gedeeld (kan bekijken)")
+		melding = frappe.db.get_value("Notification Log", {"for_user": self.bea, "document_name": self.plan}, "subject")
+		self.assertEqual(melding, "anna heeft het bestand plan.pdf met je gedeeld (kan bekijken)")

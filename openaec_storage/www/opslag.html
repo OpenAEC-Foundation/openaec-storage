@@ -178,7 +178,7 @@
 	const huidigeMap = () => (spoor.length ? spoor[spoor.length - 1].map : null)
 	// De map op de server waar we nu zijn: in een gedeelde map is het hoofdniveau die map zelf.
 	const plek = () => huidigeMap() || (deling ? deling.doel : null)
-	const magSchrijven = () => !deling || deling.rechten === "schrijven"
+	const magSchrijven = () => !deling || deling.rechten !== "lezen"
 
 	const toonPad = () => {
 		if (deling) {
@@ -432,13 +432,13 @@
 			if (isMap) acties.append(knop("Openen", () => openGedeeld(d)))
 			else {
 				acties.append(knop("Downloaden", () => download({ name: d.doel })))
-				if (d.rechten === "schrijven") acties.append(knop("Nieuwe versie", () => { versieVoor = d; versieKiezer.click() }))
+				if (d.rechten !== "lezen") acties.append(knop("Nieuwe versie", () => { versieVoor = d; versieKiezer.click() }))
 			}
 			const tr = document.createElement("tr")
 			tr.append(
 				cel(naam),
 				cel(d.gedeeld_door_naam),
-				cel(d.rechten === "schrijven" ? "bekijken en bewerken" : "bekijken"),
+				cel({ lezen: "bekijken", schrijven: "bekijken en bewerken", beheren: "bewerken en verder delen" }[d.rechten] || d.rechten),
 				cel(d.verloopt ? datum(d.verloopt) : ""),
 				cel(acties, "oas-acties"),
 			)
