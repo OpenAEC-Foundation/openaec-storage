@@ -120,10 +120,18 @@ def heeft_recht(doc, ptype=None, user=None, debug=False):
 	if not ruimte:
 		return is_superbeheer(user)
 	if doc.doctype == "Opslagbestand":
-		return mag_op_plek(ruimte, doc.get("map"), ptype, doc.name, user)
-	if doc.doctype == "Opslagmap":
-		return mag_op_plek(ruimte, doc.name if not doc.is_new() else doc.get("bovenliggende"), ptype, None, user)
-	return mag(ruimte, ptype, user)
+		plek = doc.get("map")
+	elif doc.doctype == "Opslagmap":
+		plek = doc.name if not doc.is_new() else doc.get("bovenliggende")
+	else:
+		return mag(ruimte, ptype, user)
+	# Een alleen-lezenmap uit een mapsjabloon is ook via het formulier en /api/resource niet te wijzigen.
+	if ptype not in LEESACTIES:
+		from openaec_storage.mapsjablonen import is_alleen_lezen
+
+		if is_alleen_lezen(ruimte, plek, user):
+			return False
+	return mag_op_plek(ruimte, plek, ptype, doc.name if doc.doctype == "Opslagbestand" else None, user)
 
 
 def _conditie(tabel: str, kolom: str, user: str | None) -> str:
@@ -207,6 +215,19 @@ def vereis_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None
 		weiger_als_gearchiveerd(ruimte)
 	if not mag_op_plek(ruimte, map, actie, bestand):
 		frappe.throw(_("Geen toegang tot deze plek"), frappe.PermissionError)
+
+
+# --- mapsjablonen: kiezen mag iedereen die is ingelogd, beheren alleen een beheerder van de omgeving -----
+
+
+def recht_op_sjabloon(doc, ptype=None, user=None, debug=False):
+	"""has_permission-hook voor Mapsjabloon."""
+	user = user or frappe.session.user
+	if user == "Guest":
+		return False
+	if (ptype or "read") in LEESACTIES:
+		return True
+	return mag_ruimte_maken(user)
 
 
 # --- overdrachten: losse bestanden versturen, los van de ruimtes --------------------------------------

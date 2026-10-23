@@ -43,7 +43,7 @@ def ruimte(naam: str, leden: dict[str, str]) -> str:
 
 def ruim_op():
 	frappe.set_user("Administrator")
-	for doctype in ("Opslagwijziging", "Bestandsversie", "Opslagbestand", "Opslagmap", "Ruimte"):
+	for doctype in ("Opslagwijziging", "Bestandsversie", "Opslagbestand", "Opslagmap", "Ruimtemapregel", "Ruimte"):
 		frappe.db.delete(doctype)
 	# Ook de rollen: anders krijgt een testgebruiker met dezelfde naam ze in een volgende test terug.
 	frappe.db.delete("Has Role", {"parenttype": "User", "parent": ("like", "%" + DOMEIN)})

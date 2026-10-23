@@ -1,7 +1,7 @@
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from openaec_storage.installatie import DESKTOP_CLIENT, DESKTOP_REDIRECT, zorg_voor_desktop_client
+from openaec_storage.installatie import DESKTOP_CLIENT, DESKTOP_REDIRECT, na_migratie, zorg_voor_desktop_client
 
 
 class TestDesktopClient(IntegrationTestCase):
@@ -14,3 +14,10 @@ class TestDesktopClient(IntegrationTestCase):
 		self.assertEqual(client.default_redirect_uri, DESKTOP_REDIRECT)
 		self.assertEqual([r.role for r in client.allowed_roles], ["All"])
 		self.assertEqual(frappe.db.count("OAuth Client", {"app_name": "OpenAEC Cloud (desktop)"}), 1)
+
+	def test_migreren_maakt_de_standaardsjablonen(self):
+		na_migratie()
+		na_migratie()
+		self.assertTrue(frappe.db.exists("Mapsjabloon", "Bedrijf"))
+		self.assertTrue(frappe.db.exists("Mapsjabloon", "Project (BIM)"))
+		self.assertEqual(frappe.db.count("Mapsjabloon", {"name": "Bedrijf"}), 1)

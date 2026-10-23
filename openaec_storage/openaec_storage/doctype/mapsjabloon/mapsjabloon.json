@@ -1,0 +1,81 @@
+{
+ "actions": [],
+ "creation": "2026-10-23 00:00:00.000000",
+ "description": "Vaste mappenindeling met regels per map voor een nieuwe ruimte.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naam",
+  "soort",
+  "standaard",
+  "omschrijving",
+  "mappen"
+ ],
+ "fields": [
+  {
+   "fieldname": "naam",
+   "fieldtype": "Data",
+   "label": "Naam",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "soort",
+   "fieldtype": "Select",
+   "label": "Soort",
+   "options": "team\nproject\nbedrijf",
+   "default": "project",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "standaard",
+   "fieldtype": "Check",
+   "label": "Standaard",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "Voorgeselecteerd bij een nieuwe ruimte van deze soort; één per soort"
+  },
+  {
+   "fieldname": "omschrijving",
+   "fieldtype": "Small Text",
+   "label": "Omschrijving"
+  },
+  {
+   "fieldname": "mappen",
+   "fieldtype": "Table",
+   "label": "Mappen",
+   "options": "Mapsjabloonmap"
+  }
+ ],
+ "modified": "2026-10-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Mapsjabloon",
+ "owner": "Administrator",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "field:naam",
+ "title_field": "naam",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "All",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  }
+ ]
+}

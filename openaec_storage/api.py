@@ -13,7 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_url, add_to_date, cint, flt, now_datetime
 
-from openaec_storage import s3
+from openaec_storage import mapsjablonen, s3
 from openaec_storage.rechten import mag, mag_ruimte_maken, vereis, vereis_op_plek, weiger, weiger_als_gearchiveerd
 
 UPLOAD_SLEUTEL = "openaec_storage:upload:"
@@ -180,6 +180,7 @@ def upload_start(
 	map = _controleer_map(ruimte, map)
 	vereis_op_plek(ruimte, map, "write")
 	naam = _controleer_naam(naam)
+	mapsjablonen.controleer_upload(ruimte, map, naam)
 	grootte = cint(grootte)
 	if grootte < 0:
 		frappe.throw(_("Ongeldige grootte"))
@@ -259,6 +260,7 @@ def upload_klaar(upload: str, delen) -> dict:
 	if not info or info["gebruiker"] != frappe.session.user:
 		frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
 	vereis_op_plek(info["ruimte"], info["map"], "write")
+	mapsjablonen.controleer_upload(info["ruimte"], info["map"], info["naam"])
 	if isinstance(delen, str):
 		delen = json.loads(delen)
 
@@ -340,6 +342,7 @@ def verwijder(bestand: str) -> None:
 	doc = _bestand(bestand, "write")
 	if doc.verwijderd_op:
 		return
+	mapsjablonen.controleer_schrijven(doc.ruimte, doc.map)
 	frappe.db.set_value("Opslagbestand", bestand, "verwijderd_op", now_datetime())
 	_log(doc.ruimte, "verwijderd", "Opslagbestand", bestand, doc.naam)
 
@@ -349,6 +352,7 @@ def herstel(bestand: str) -> dict:
 	doc = _bestand(bestand, "write")
 	if not doc.verwijderd_op:
 		return {"naam": doc.naam}
+	mapsjablonen.controleer_schrijven(doc.ruimte, doc.map)
 	naam = doc.naam
 	if _actief_bestand(doc.ruimte, doc.map, naam):
 		stam, ext = os.path.splitext(naam)
@@ -383,6 +387,8 @@ def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int 
 	naam = _controleer_naam(naam)
 	map = _controleer_map(bron.ruimte, map or None)
 	vereis_op_plek(bron.ruimte, map, "write")
+	mapsjablonen.controleer_schrijven(bron.ruimte, bron.map)
+	mapsjablonen.controleer_upload(bron.ruimte, map, naam)
 	slot = _actief_slot(bron.name)
 	if slot and slot.gebruiker != frappe.session.user:
 		frappe.throw(_("Dit bestand is vergrendeld door {0}").format(slot.gebruiker), frappe.PermissionError)
@@ -449,6 +455,9 @@ def verplaats_map(map: str, naam: str, bovenliggende: str | None = None) -> dict
 	naam = _controleer_naam(naam)
 	bovenliggende = _controleer_map(doc.ruimte, bovenliggende or None)
 	vereis_op_plek(doc.ruimte, bovenliggende, "write")
+	mapsjablonen.controleer_schrijven(doc.ruimte, doc.bovenliggende)
+	mapsjablonen.controleer_schrijven(doc.ruimte, doc.name)
+	mapsjablonen.controleer_schrijven(doc.ruimte, bovenliggende)
 	if bovenliggende and bovenliggende in _submappen(doc.name):
 		frappe.throw(_("Een map kan niet in zichzelf worden geplaatst"))
 	bestaand = _actieve_map(doc.ruimte, bovenliggende, naam)
@@ -464,12 +473,18 @@ def verplaats_map(map: str, naam: str, bovenliggende: str | None = None) -> dict
 @frappe.whitelist()
 def verwijder_map(map: str) -> None:
 	"""Map met alles erin naar de prullenbak (zelfde tijdstip, zodat herstellen per map kan)."""
-	doc = frappe.db.get_value("Opslagmap", map, ["name", "ruimte", "naam", "verwijderd_op"], as_dict=True)
+	doc = frappe.db.get_value(
+		"Opslagmap", map, ["name", "ruimte", "naam", "bovenliggende", "verwijderd_op"], as_dict=True
+	)
 	if not doc or doc.verwijderd_op:
 		return
 	vereis_op_plek(doc.ruimte, doc.name, "write")
 	moment = now_datetime()
 	mappen = _submappen(doc.name)
+	# Ook een alleen-lezenmap diep in de map gaat niet zomaar mee naar de prullenbak.
+	mapsjablonen.controleer_schrijven(doc.ruimte, doc.bovenliggende)
+	mapsjablonen.controleer_schrijven(doc.ruimte, doc.name)
+	mapsjablonen.controleer_boom(doc.ruimte, mappen)
 	for m in mappen:
 		frappe.db.set_value("Opslagmap", m, "verwijderd_op", moment)
 	for b in frappe.get_all(
@@ -551,6 +566,7 @@ def info(bestand: str) -> dict:
 def vergrendel(bestand: str, apparaat: str | None = None, reden: str = "handmatig") -> dict:
 	"""Uitchecken: alleen jij kunt nu een nieuwe versie maken. Opnieuw aanroepen verlengt het slot."""
 	doc = _bestand(bestand, "write")
+	mapsjablonen.controleer_schrijven(doc.ruimte, doc.map)
 	verloopt = add_to_date(now_datetime(), hours=SLOT_UREN)
 	slot = _actief_slot(bestand)
 	if slot and slot.gebruiker != frappe.session.user:
@@ -771,6 +787,7 @@ def maak_map(ruimte: str, naam: str, bovenliggende: str | None = None) -> dict:
 	)
 	if bestaand:
 		return {"map": bestaand[0][0], "nieuw": False}
+	mapsjablonen.controleer_schrijven(ruimte, bovenliggende)
 	doc = frappe.get_doc(
 		{"doctype": "Opslagmap", "ruimte": ruimte, "naam": naam, "bovenliggende": bovenliggende}
 	).insert(ignore_permissions=True)

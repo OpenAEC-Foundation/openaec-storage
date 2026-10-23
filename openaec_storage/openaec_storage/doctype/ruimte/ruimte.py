@@ -21,12 +21,21 @@ class Ruimte(Document):
 		for veld in ARCHIEFVELDEN:
 			self.set(veld, None)
 		self.gearchiveerd = 0
+		# De regels per map van een nieuwe ruimte komen uit het mapsjabloon (after_insert), als er een is.
+		self.set("mapregels", [])
+
+	def after_insert(self):
+		if self.mapsjabloon:
+			from openaec_storage.mapsjablonen import leg_mappen_aan
+
+			leg_mappen_aan(self)
 
 	def validate(self):
 		from openaec_storage.rechten import mag_ruimte_maken
 
 		if flt(self.quotum_gb) < 0:
 			frappe.throw(_("Het quotum van een ruimte kan niet negatief zijn"))
+		self.controleer_mapregels()
 		vorige = None if self.is_new() else self.get_doc_before_save()
 		if not vorige:
 			return
@@ -41,6 +50,14 @@ class Ruimte(Document):
 			frappe.throw(
 				_("Alleen een beheerder van de omgeving kan het quotum van een ruimte wijzigen"), frappe.PermissionError
 			)
+
+	def controleer_mapregels(self):
+		from openaec_storage.mapsjablonen import extensies
+
+		for regel in self.get("mapregels") or []:
+			if regel.map and frappe.db.get_value("Opslagmap", regel.map, "ruimte") != self.name:
+				frappe.throw(_("Een regel verwijst naar een map uit een andere ruimte"))
+			regel.extensies = ", ".join(extensies(regel.extensies))
 
 	def raise_no_permission_to(self, perm_type):
 		# Wie een nieuwe ruimte mag aanmaken, bepaalt rechten.heeft_recht; hier alleen een begrijpelijke melding.

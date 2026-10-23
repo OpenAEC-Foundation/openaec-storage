@@ -9,6 +9,9 @@
   "soort",
   "leden",
   "quotum_gb",
+  "mappen_sectie",
+  "mapsjabloon",
+  "mapregels",
   "archief_sectie",
   "gearchiveerd",
   "gearchiveerd_op",
@@ -44,6 +47,25 @@
    "default": "0",
    "non_negative": 1,
    "description": "Eigen limiet van deze ruimte binnen het quotum van de omgeving; 0 of leeg = geen eigen limiet. Alleen een beheerder van de omgeving wijzigt dit."
+  },
+  {
+   "fieldname": "mappen_sectie",
+   "fieldtype": "Section Break",
+   "label": "Mappen"
+  },
+  {
+   "fieldname": "mapsjabloon",
+   "fieldtype": "Link",
+   "label": "Mapsjabloon",
+   "options": "Mapsjabloon",
+   "set_only_once": 1,
+   "description": "Bij het aanmaken worden de mappen uit het sjabloon aangelegd en de regels hieronder gekopieerd; daarna verandert de ruimte niet mee met het sjabloon."
+  },
+  {
+   "fieldname": "mapregels",
+   "fieldtype": "Table",
+   "label": "Regels per map",
+   "options": "Ruimtemapregel"
   },
   {
    "fieldname": "archief_sectie",

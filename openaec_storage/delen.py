@@ -19,7 +19,7 @@ from frappe import _
 from frappe.rate_limiter import rate_limit
 from frappe.utils import cint, flt, now_datetime
 
-from openaec_storage import s3
+from openaec_storage import mapsjablonen, s3
 from openaec_storage.rechten import is_gearchiveerd, voorouders, weiger_als_gearchiveerd
 
 # Bestanden die de deelpagina in de browser kan tonen (geen SVG: dat is een document met scripts).
@@ -206,6 +206,7 @@ def upload_start(token: str, naam: str, grootte: int, wachtwoord: str | None = N
 
 	deling = _uploaddeling(token, wachtwoord)
 	naam = _controleer_naam(naam)
+	mapsjablonen.controleer_upload(deling.ruimte, deling.doel, naam)
 	grootte = cint(grootte)
 	if grootte < 0:
 		frappe.throw(_("Ongeldige grootte"))
@@ -247,6 +248,7 @@ def upload_klaar(token: str, upload: str, delen, wachtwoord: str | None = None, 
 	info = frappe.cache.get_value(UPLOAD_SLEUTEL + (upload or ""))
 	if not info or info["deling"] != deling.name:
 		frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
+	mapsjablonen.controleer_upload(deling.ruimte, deling.doel, info["naam"])
 	if isinstance(delen, str):
 		delen = json.loads(delen)
 	s3.voltooi(info["sleutel"], info["upload_id"], delen)

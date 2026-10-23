@@ -1,5 +1,7 @@
 """Vaste OAuth-client voor de desktop-app (ontwerp §8): publiek (PKCE, geen geheim), loopback-redirect,
-zonder toestemmingsscherm omdat het onze eigen app is. Wordt bij installeren en migreren bijgewerkt."""
+zonder toestemmingsscherm omdat het onze eigen app is. Wordt bij installeren en migreren bijgewerkt.
+
+Ook de standaardmapsjablonen ("Bedrijf" en "Project (BIM)") worden dan aangemaakt als ze er nog niet zijn."""
 
 import frappe
 
@@ -31,8 +33,14 @@ def zorg_voor_desktop_client():
 
 
 def na_installatie():
+	from openaec_storage.mapsjablonen import zorg_voor_standaardsjablonen
+
 	zorg_voor_desktop_client()
+	zorg_voor_standaardsjablonen()
 
 
 def na_migratie():
+	from openaec_storage.mapsjablonen import zorg_voor_standaardsjablonen
+
 	zorg_voor_desktop_client()
+	zorg_voor_standaardsjablonen()

@@ -1,0 +1,69 @@
+{
+ "actions": [],
+ "creation": "2026-10-23 00:00:00.000000",
+ "description": "Map in een mapsjabloon, met de regels voor die map.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "pad",
+  "weergavenaam",
+  "volgorde",
+  "pictogram",
+  "extensies",
+  "alleen_lezen"
+ ],
+ "fields": [
+  {
+   "fieldname": "pad",
+   "fieldtype": "Data",
+   "label": "Pad",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Mapnamen met / ertussen, bijv. Projecten/Lopend"
+  },
+  {
+   "fieldname": "weergavenaam",
+   "fieldtype": "Data",
+   "label": "Weergavenaam",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "volgorde",
+   "fieldtype": "Int",
+   "label": "Volgorde",
+   "default": "0",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "pictogram",
+   "fieldtype": "Data",
+   "label": "Pictogram",
+   "description": "Naam uit @openaec/icons, bijv. ui/document"
+  },
+  {
+   "fieldname": "extensies",
+   "fieldtype": "Small Text",
+   "label": "Extensies",
+   "in_list_view": 1,
+   "description": "Toegestane extensies, bijv. pdf, dwg; leeg = alles"
+  },
+  {
+   "fieldname": "alleen_lezen",
+   "fieldtype": "Check",
+   "label": "Alleen lezen",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "Alleen een beheerder van de ruimte kan hier iets wijzigen"
+  }
+ ],
+ "modified": "2026-10-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Mapsjabloonmap",
+ "owner": "Administrator",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1,
+ "permissions": []
+}

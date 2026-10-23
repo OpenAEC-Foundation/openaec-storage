@@ -16,6 +16,8 @@ has_permission = {
 	"Opslagwijziging": "openaec_storage.rechten.heeft_recht",
 	"Opslagvergrendeling": "openaec_storage.rechten.heeft_recht",
 	"Opslagdeling": "openaec_storage.rechten.heeft_recht",
+	# Mapsjablonen: kiezen mag iedereen die is ingelogd, beheren alleen een beheerder van de omgeving.
+	"Mapsjabloon": "openaec_storage.rechten.recht_op_sjabloon",
 	# Overdrachten staan los van de ruimtes: alleen de maker (en het beheer).
 	"Overdracht": "openaec_storage.rechten.recht_op_overdracht",
 	"Overdrachtbestand": "openaec_storage.rechten.recht_op_overdracht",
