@@ -1,4 +1,5 @@
-"""Beheer van ruimtes: archiveren en terugzetten, en de lijst voor de beheeromgeving (ook de gearchiveerde).
+"""Beheer van ruimtes: archiveren en terugzetten, en de lijst voor de beheeromgeving (ook de gearchiveerde, met
+gebruik en eigen quotum per ruimte).
 
 Archiveren mag een beheerder van de ruimte of een beheerder van de omgeving (`rechten.mag_ruimte_maken`). Een
 gearchiveerde ruimte is voor iedereen alleen te lezen (zie rechten.py), staat niet in `api.ruimtes` (dus niet op
@@ -8,7 +9,7 @@ Beide handelingen komen in de wijzigingenlijst (Opslagwijziging, soort `gearchiv
 
 import frappe
 from frappe import _
-from frappe.utils import cint, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 from openaec_storage.rechten import mag_ruimte_beheren, mag_ruimte_maken
 
@@ -65,6 +66,22 @@ def herstel(ruimte: str) -> dict:
 	return _stand(doc)
 
 
+@frappe.whitelist(methods=["POST"])
+def zet_quotum(ruimte: str, quotum_gb: float | str | None = None) -> dict:
+	"""Eigen quotum van de ruimte in GB (0 of leeg = geen eigen limiet). Alleen een beheerder van de omgeving: het
+	quotum is een afspraak met de omgeving, niet iets wat de ruimte zelf verhoogt. De quota van alle ruimtes samen
+	mogen groter zijn dan dat van de omgeving (overboeking)."""
+	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
+		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
+	if not mag_ruimte_maken():
+		frappe.throw(_("Alleen een beheerder van de omgeving kan het quotum van een ruimte wijzigen"), frappe.PermissionError)
+	doc = frappe.get_doc("Ruimte", ruimte)
+	doc.quotum_gb = flt(quotum_gb)
+	doc.save(ignore_permissions=True)
+	limiet = int(flt(doc.quotum_gb) * 1_000_000_000)
+	return {"ruimte": doc.name, "quotum_gb": flt(doc.quotum_gb), "limiet_bytes": limiet or None}
+
+
 @frappe.whitelist()
 def lijst(gearchiveerd: str | int | None = None) -> list[dict]:
 	"""Ruimtes voor het beheer, ook de gearchiveerde. Een beheerder van de omgeving ziet ze allemaal, een ander de
@@ -88,7 +105,7 @@ def lijst(gearchiveerd: str | int | None = None) -> list[dict]:
 	ruimtes = frappe.get_all(
 		"Ruimte",
 		filters=filters,
-		fields=["name", "naam", "soort", "gearchiveerd", "gearchiveerd_op", "gearchiveerd_door"],
+		fields=["name", "naam", "soort", "gearchiveerd", "gearchiveerd_op", "gearchiveerd_door", "quotum_gb"],
 		order_by="naam asc",
 		ignore_permissions=True,
 	)
@@ -99,7 +116,15 @@ def lijst(gearchiveerd: str | int | None = None) -> list[dict]:
 			as_dict=True,
 		)
 	}
+	gebruikt = {
+		r.ruimte: r.bytes
+		for r in frappe.db.sql(
+			"""select ruimte, coalesce(sum(grootte), 0) as bytes from `tabBestandsversie` group by ruimte""", as_dict=True
+		)
+	}
 	for r in ruimtes:
 		r["gearchiveerd"] = bool(cint(r.gearchiveerd))
 		r["aantal_leden"] = cint(leden.get(r.name))
+		r["gebruikt_bytes"] = cint(gebruikt.get(r.name))
+		r["limiet_bytes"] = int(flt(r.quotum_gb) * 1_000_000_000) or None
 	return ruimtes

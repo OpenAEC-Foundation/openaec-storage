@@ -1,6 +1,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import flt
 
 ARCHIEFVELDEN = ("gearchiveerd", "gearchiveerd_op", "gearchiveerd_door")
 
@@ -22,12 +23,24 @@ class Ruimte(Document):
 		self.gearchiveerd = 0
 
 	def validate(self):
+		from openaec_storage.rechten import mag_ruimte_maken
+
+		if flt(self.quotum_gb) < 0:
+			frappe.throw(_("Het quotum van een ruimte kan niet negatief zijn"))
+		vorige = None if self.is_new() else self.get_doc_before_save()
+		if not vorige:
+			return
 		# Archiveren en terugzetten alleen via ruimtebeheer.archiveer/herstel: die controleren het recht en leggen het
 		# vast in de wijzigingenlijst. Een formulier of /api/resource verandert het archief niet.
-		if not self.is_new() and not self.flags.via_archief:
-			vorige = self.get_doc_before_save()
-			if vorige and any(_vergelijkbaar(self.get(veld)) != _vergelijkbaar(vorige.get(veld)) for veld in ARCHIEFVELDEN):
-				frappe.throw(_("Archiveren of terugzetten gaat via het beheer"), frappe.PermissionError)
+		if not self.flags.via_archief and any(
+			_vergelijkbaar(self.get(veld)) != _vergelijkbaar(vorige.get(veld)) for veld in ARCHIEFVELDEN
+		):
+			frappe.throw(_("Archiveren of terugzetten gaat via het beheer"), frappe.PermissionError)
+		# Het eigen quotum is een afspraak met de omgeving: een beheerder van de ruimte verhoogt het niet zelf.
+		if flt(self.quotum_gb) != flt(vorige.quotum_gb) and not mag_ruimte_maken():
+			frappe.throw(
+				_("Alleen een beheerder van de omgeving kan het quotum van een ruimte wijzigen"), frappe.PermissionError
+			)
 
 	def raise_no_permission_to(self, perm_type):
 		# Wie een nieuwe ruimte mag aanmaken, bepaalt rechten.heeft_recht; hier alleen een begrijpelijke melding.

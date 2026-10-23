@@ -14,7 +14,7 @@ from frappe import _
 from frappe.utils import get_url, add_to_date, cint, flt, now_datetime
 
 from openaec_storage import s3
-from openaec_storage.rechten import mag, vereis, vereis_op_plek, weiger_als_gearchiveerd
+from openaec_storage.rechten import mag, mag_ruimte_maken, vereis, vereis_op_plek, weiger, weiger_als_gearchiveerd
 
 UPLOAD_SLEUTEL = "openaec_storage:upload:"
 UPLOAD_GELDIG_SECONDEN = 7 * 24 * 3600
@@ -77,10 +77,30 @@ def _limiet_bytes() -> int:
 	return int(flt(frappe.conf.get("openaec_storage_quotum_gb")) * 1_000_000_000)
 
 
-def _controleer_quotum(extra: int) -> None:
+def _gebruikt_bytes_ruimte(ruimte: str) -> int:
+	"""Alle versies in de ruimte (ook oudere versies en de prullenbak), net als bij de omgeving."""
+	return cint(
+		frappe.db.sql("select coalesce(sum(grootte), 0) from `tabBestandsversie` where ruimte = %s", ruimte)[0][0]
+	)
+
+
+def _limiet_bytes_ruimte(ruimte: str) -> int:
+	"""Het eigen quotum van de ruimte (`quotum_gb`); 0 = geen eigen limiet, alleen die van de omgeving."""
+	return int(flt(frappe.db.get_value("Ruimte", ruimte, "quotum_gb")) * 1_000_000_000)
+
+
+def _controleer_quotum(extra: int, ruimte: str | None = None) -> None:
+	"""Past er `extra` bij? Eerst de pool van de omgeving, dan (met `ruimte`) het eigen quotum van die ruimte. De
+	quota van de ruimtes samen mogen groter zijn dan de pool (overboeking): wat het eerst vol is, weigert."""
 	limiet = _limiet_bytes()
 	if limiet and _gebruikt_bytes() + extra > limiet:
-		frappe.throw(_("Het opslagquotum van deze omgeving is vol"))
+		weiger(_("Het opslagquotum van deze omgeving is vol"), "quotum_pool_vol")
+	limiet = _limiet_bytes_ruimte(ruimte) if ruimte else 0
+	if limiet and _gebruikt_bytes_ruimte(ruimte) + extra > limiet:
+		weiger(
+			_("Het quotum van deze ruimte ({0} GB) is vol").format("{:g}".format(limiet / 1_000_000_000)),
+			"quotum_ruimte_vol",
+		)
 
 
 def _bestand(bestand: str, actie: str):
@@ -163,7 +183,7 @@ def upload_start(
 	grootte = cint(grootte)
 	if grootte < 0:
 		frappe.throw(_("Ongeldige grootte"))
-	_controleer_quotum(grootte)
+	_controleer_quotum(grootte, ruimte)
 
 	if isinstance(blokhashes, str):
 		blokhashes = json.loads(blokhashes)
@@ -485,6 +505,16 @@ def wijzigingen(ruimte: str, sinds: int = 0, limiet: int = 1000) -> dict:
 		"meer": len(regels) == limiet,
 		"wijzigingen": [{**r, "volgnummer": cint(r.pop("name"))} for r in regels],
 	}
+
+
+@frappe.whitelist()
+def quotum_ruimte(ruimte: str) -> dict:
+	"""Gebruik en eigen quotum van één ruimte (`limiet_bytes` leeg = geen eigen limiet; de pool geldt altijd). Voor
+	de leden van de ruimte en voor een beheerder van de omgeving."""
+	if not mag_ruimte_maken() or not frappe.db.exists("Ruimte", ruimte or ""):
+		vereis(ruimte, "read")
+	limiet = _limiet_bytes_ruimte(ruimte)
+	return {"gebruikt_bytes": _gebruikt_bytes_ruimte(ruimte), "limiet_bytes": limiet or None}
 
 
 @frappe.whitelist()

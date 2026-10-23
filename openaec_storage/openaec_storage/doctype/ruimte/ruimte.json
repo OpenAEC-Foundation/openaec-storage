@@ -8,6 +8,7 @@
   "naam",
   "soort",
   "leden",
+  "quotum_gb",
   "archief_sectie",
   "gearchiveerd",
   "gearchiveerd_op",
@@ -35,6 +36,14 @@
    "fieldtype": "Table",
    "label": "Leden",
    "options": "Ruimtelid"
+  },
+  {
+   "fieldname": "quotum_gb",
+   "fieldtype": "Float",
+   "label": "Quotum (GB)",
+   "default": "0",
+   "non_negative": 1,
+   "description": "Eigen limiet van deze ruimte binnen het quotum van de omgeving; 0 of leeg = geen eigen limiet. Alleen een beheerder van de omgeving wijzigt dit."
   },
   {
    "fieldname": "archief_sectie",

@@ -211,7 +211,7 @@ def upload_start(token: str, naam: str, grootte: int, wachtwoord: str | None = N
 		frappe.throw(_("Ongeldige grootte"))
 	if grootte > _max_grootte():
 		frappe.throw(_("Dit bestand is groter dan via deze link is toegestaan"))
-	_controleer_quotum(grootte)
+	_controleer_quotum(grootte, deling.ruimte)
 
 	blok = s3.blokgrootte(grootte)
 	aantal = max(1, math.ceil(grootte / blok))
