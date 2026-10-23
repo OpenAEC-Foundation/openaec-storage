@@ -14,7 +14,7 @@ from frappe import _
 from frappe.utils import get_url, add_to_date, cint, flt, now_datetime
 
 from openaec_storage import s3
-from openaec_storage.rechten import mag, vereis, vereis_op_plek
+from openaec_storage.rechten import mag, vereis, vereis_op_plek, weiger_als_gearchiveerd
 
 UPLOAD_SLEUTEL = "openaec_storage:upload:"
 UPLOAD_GELDIG_SECONDEN = 7 * 24 * 3600
@@ -561,6 +561,7 @@ def forceer_ontgrendel(bestand: str) -> None:
 	doc = _bestand(bestand, "read")
 	if not mag(doc.ruimte, "write", ruimte_zelf=True):
 		frappe.throw(_("Alleen een beheerder van de ruimte kan een slot openbreken"), frappe.PermissionError)
+	weiger_als_gearchiveerd(doc.ruimte)
 	frappe.db.delete("Opslagvergrendeling", {"bestand": bestand})
 	_log(doc.ruimte, "ontgrendeld", "Opslagbestand", bestand, doc.naam)
 
@@ -712,11 +713,12 @@ def blokken(bestand: str, versie: int | None = None) -> dict:
 
 @frappe.whitelist()
 def ruimtes() -> list[dict]:
-	"""De ruimtes waar de ingelogde gebruiker lid van is, met zijn rol."""
+	"""De ruimtes waar de ingelogde gebruiker lid van is, met zijn rol. Gearchiveerde ruimtes staan er niet in (de
+	desktop-app synct ze dan niet meer); het beheer ziet ze via `ruimtebeheer.lijst`."""
 	return frappe.db.sql(
 		"""select r.name, r.naam, r.soort, l.rol from `tabRuimte` r
 		join `tabRuimtelid` l on l.parent = r.name and l.parenttype = 'Ruimte'
-		where l.gebruiker = %s order by r.naam""",
+		where l.gebruiker = %s and ifnull(r.gearchiveerd, 0) = 0 order by r.naam""",
 		frappe.session.user,
 		as_dict=True,
 	)

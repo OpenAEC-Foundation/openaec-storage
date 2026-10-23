@@ -5,10 +5,15 @@ Administrator en System Manager hebben overal toegang.
 
 Een nieuwe ruimte aanmaken mag alleen een beheerder van de omgeving (`mag_ruimte_maken`); wie hem aanmaakt, wordt
 er beheerder van (Ruimte.before_insert). Beheerder van een ruimte zijn maakt iemand nog geen beheerder van de omgeving.
+
+Een gearchiveerde ruimte is voor iedereen alleen te lezen, ook voor het beheer: `mag` en `mag_op_plek` geven geen
+schrijfrecht en `vereis`/`vereis_op_plek` weigeren met de foutcode `ruimte_gearchiveerd`. Alleen de instellingen van
+de ruimte (leden) blijven te wijzigen door een beheerder.
 """
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 
 LEZEN = frozenset({"beheerder", "schrijver", "lezer", "gast"})
 SCHRIJVEN = frozenset({"beheerder", "schrijver"})
@@ -45,6 +50,31 @@ def mag_ruimte_maken(gebruiker: str | None = None) -> bool:
 	return not set(ruimte_makers()).isdisjoint(frappe.get_roles(gebruiker))
 
 
+def weiger(melding: str, foutcode: str, uitzondering=frappe.ValidationError) -> None:
+	"""Weiger met een vaste foutcode naast de melding (`foutcode` in het antwoord): de desktop-app, de gateway en de
+	browser kennen zo de reden zonder de tekst te lezen."""
+	frappe.local.response["foutcode"] = foutcode
+	frappe.throw(melding, uitzondering)
+
+
+def is_gearchiveerd(ruimte: str | None) -> bool:
+	return bool(ruimte) and bool(cint(frappe.db.get_value("Ruimte", ruimte, "gearchiveerd")))
+
+
+def weiger_als_gearchiveerd(ruimte: str | None) -> None:
+	if is_gearchiveerd(ruimte):
+		weiger(
+			_("Deze ruimte is gearchiveerd en alleen te lezen. Vraag een beheerder om hem terug te zetten."),
+			"ruimte_gearchiveerd",
+			frappe.PermissionError,
+		)
+
+
+def mag_ruimte_beheren(ruimte: str, gebruiker: str | None = None) -> bool:
+	"""Beheerder van de ruimte (of Administrator/System Manager)."""
+	return mag(ruimte, "write", gebruiker, ruimte_zelf=True)
+
+
 def rol_in_ruimte(ruimte: str, gebruiker: str | None = None) -> str | None:
 	gebruiker = gebruiker or frappe.session.user
 	return frappe.db.get_value(
@@ -55,6 +85,8 @@ def rol_in_ruimte(ruimte: str, gebruiker: str | None = None) -> str | None:
 def mag(ruimte: str, actie: str, gebruiker: str | None = None, ruimte_zelf: bool = False) -> bool:
 	"""Mag `gebruiker` deze actie in de ruimte? `ruimte_zelf`: het gaat om de ruimte-instellingen (leden)."""
 	gebruiker = gebruiker or frappe.session.user
+	if actie not in LEESACTIES and not ruimte_zelf and is_gearchiveerd(ruimte):
+		return False
 	if is_superbeheer(gebruiker):
 		return True
 	rol = rol_in_ruimte(ruimte, gebruiker)
@@ -70,6 +102,9 @@ def mag(ruimte: str, actie: str, gebruiker: str | None = None, ruimte_zelf: bool
 def vereis(ruimte: str, actie: str) -> None:
 	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
 		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
+	# Wie de ruimte kan lezen, hoort waarom schrijven niet gaat; een ander alleen dat hij geen toegang heeft.
+	if actie not in LEESACTIES and mag(ruimte, "read"):
+		weiger_als_gearchiveerd(ruimte)
 	if not mag(ruimte, actie):
 		frappe.throw(_("Geen toegang tot deze ruimte"), frappe.PermissionError)
 
@@ -155,6 +190,8 @@ def deling_recht(gebruiker: str, map: str | None, bestand: str | None = None) ->
 def mag_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = None, gebruiker: str | None = None) -> bool:
 	"""Rechten op een plek in de ruimte: via het lidmaatschap, of via een deling op de plek of erboven."""
 	gebruiker = gebruiker or frappe.session.user
+	if actie not in LEESACTIES and is_gearchiveerd(ruimte):
+		return False
 	if mag(ruimte, actie, gebruiker):
 		return True
 	recht = deling_recht(gebruiker, map, bestand)
@@ -166,6 +203,8 @@ def mag_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = 
 def vereis_op_plek(ruimte: str, map: str | None, actie: str, bestand: str | None = None) -> None:
 	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
 		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
+	if actie not in LEESACTIES and mag_op_plek(ruimte, map, "read", bestand):
+		weiger_als_gearchiveerd(ruimte)
 	if not mag_op_plek(ruimte, map, actie, bestand):
 		frappe.throw(_("Geen toegang tot deze plek"), frappe.PermissionError)
 

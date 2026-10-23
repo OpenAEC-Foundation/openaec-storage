@@ -102,3 +102,11 @@ def upload(ruimte_naam: str, naam: str, inhoud: bytes, map_naam=None, basis_vers
 		antwoord.raise_for_status()
 		delen.append({"nummer": deel["nummer"], "etag": antwoord.headers["ETag"]})
 	return api.upload_klaar(upload=start["upload"], delen=delen)
+
+
+def foutcode(test, uitzondering, functie, *args, **kwargs) -> str | None:
+	"""Roep `functie` aan, verwacht `uitzondering` en geef de foutcode die in het antwoord zou staan."""
+	frappe.local.response.pop("foutcode", None)
+	with test.assertRaises(uitzondering):
+		functie(*args, **kwargs)
+	return frappe.local.response.pop("foutcode", None)

@@ -1,6 +1,10 @@
 """Deellinks zonder account (ontwerp §3): openen en downloaden met alleen het token (en eventueel een
 wachtwoord). Meewerken vraagt een (gratis) account met een deling als gebruiker.
 
+Links naar een gearchiveerde ruimte werken niet, ook niet om te lezen of te downloaden: archiveren betekent dat de
+ruimte af is, en wie dan nog bestanden nodig heeft, vraagt het de beheerder. De links blijven bestaan en werken weer
+als de ruimte wordt teruggezet.
+
 Een uploadlink (`rechten="uploaden"`, alleen voor een map) is het omgekeerde: bestanden opvragen. De ontvanger
 ziet de inhoud van de map niet en kan niets downloaden, alleen bestanden aanleveren. Een aangeleverd bestand
 overschrijft nooit iets: bij een gelijke naam komt er een volgnummer bij. De maker van de link krijgt een melding.
@@ -16,7 +20,7 @@ from frappe.rate_limiter import rate_limit
 from frappe.utils import cint, flt, now_datetime
 
 from openaec_storage import s3
-from openaec_storage.rechten import voorouders
+from openaec_storage.rechten import is_gearchiveerd, voorouders, weiger_als_gearchiveerd
 
 # Bestanden die de deelpagina in de browser kan tonen (geen SVG: dat is een document met scripts).
 VOORBEELD = {
@@ -44,6 +48,8 @@ def _deling(token: str, wachtwoord: str | None):
 	)
 	if not rij or rij.ingetrokken or (rij.verloopt and rij.verloopt < now_datetime()):
 		frappe.throw(_("Deze link is niet (meer) geldig"), frappe.PermissionError)
+	# Zolang de ruimte gearchiveerd is, werkt geen enkele link erheen (ook niet om te lezen); na terugzetten weer wel.
+	weiger_als_gearchiveerd(rij.ruimte)
 	if rij.wachtwoord_hash and not (wachtwoord and passlibctx.verify(wachtwoord, rij.wachtwoord_hash)):
 		frappe.throw(_("Wachtwoord vereist of onjuist"), frappe.PermissionError)
 	return rij
@@ -51,7 +57,8 @@ def _deling(token: str, wachtwoord: str | None):
 
 def stand(token: str | None) -> tuple[str, dict | None]:
 	"""Wat de deelpagina moet tonen, zonder iets prijs te geven: `geldig`, `wachtwoord` (eerst een wachtwoord),
-	`onbekend` (bestaat niet of ingetrokken), `verlopen` of `weg` (doel verwijderd), plus de deling."""
+	`onbekend` (bestaat niet of ingetrokken), `verlopen`, `gearchiveerd` (de ruimte staat in het archief) of `weg`
+	(doel verwijderd), plus de deling."""
 	rij = (
 		frappe.db.get_value(
 			"Opslagdeling",
@@ -66,6 +73,8 @@ def stand(token: str | None) -> tuple[str, dict | None]:
 		return "onbekend", None
 	if rij.verloopt and rij.verloopt < now_datetime():
 		return "verlopen", rij
+	if is_gearchiveerd(rij.ruimte):
+		return "gearchiveerd", rij
 	if frappe.db.get_value(rij.doel_doctype, rij.doel, "verwijderd_op") or not frappe.db.exists(rij.doel_doctype, rij.doel):
 		return "weg", rij
 	return ("wachtwoord" if rij.wachtwoord_hash else "geldig"), rij

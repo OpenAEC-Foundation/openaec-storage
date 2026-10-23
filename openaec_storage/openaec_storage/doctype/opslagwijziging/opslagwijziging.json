@@ -24,7 +24,7 @@
    "fieldname": "soort",
    "fieldtype": "Select",
    "label": "Soort",
-   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld\nvergrendeld\nontgrendeld\ngedeeld\ningetrokken",
+   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld\nvergrendeld\nontgrendeld\ngedeeld\ningetrokken\ngearchiveerd\nteruggezet",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -46,7 +46,7 @@
    "label": "Naam"
   }
  ],
- "modified": "2026-10-20 00:00:00.000000",
+ "modified": "2026-10-23 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Opslagwijziging",

@@ -109,7 +109,7 @@
 <script>
 (() => {
 	const root = document.querySelector(".oas-delen")
-	if (!root || ["onbekend", "verlopen", "weg"].includes(root.dataset.stand)) return
+	if (!root || ["onbekend", "verlopen", "gearchiveerd", "weg"].includes(root.dataset.stand)) return
 	const token = root.dataset.token
 	const $ = (sel, binnen = root) => binnen.querySelector(sel)
 	const melding = $(".oas-melding")

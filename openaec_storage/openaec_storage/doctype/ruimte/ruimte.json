@@ -7,7 +7,11 @@
  "field_order": [
   "naam",
   "soort",
-  "leden"
+  "leden",
+  "archief_sectie",
+  "gearchiveerd",
+  "gearchiveerd_op",
+  "gearchiveerd_door"
  ],
  "fields": [
   {
@@ -31,9 +35,40 @@
    "fieldtype": "Table",
    "label": "Leden",
    "options": "Ruimtelid"
+  },
+  {
+   "fieldname": "archief_sectie",
+   "fieldtype": "Section Break",
+   "label": "Archief",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "gearchiveerd",
+   "fieldtype": "Check",
+   "label": "Gearchiveerd",
+   "default": "0",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Alleen te lezen voor iedereen; niet zichtbaar in /opslag en de desktop-app. Archiveren en terugzetten gaat via het beheer (openaec_storage.ruimtebeheer.archiveer en herstel)."
+  },
+  {
+   "fieldname": "gearchiveerd_op",
+   "fieldtype": "Datetime",
+   "label": "Gearchiveerd op",
+   "read_only": 1,
+   "depends_on": "gearchiveerd"
+  },
+  {
+   "fieldname": "gearchiveerd_door",
+   "fieldtype": "Link",
+   "label": "Gearchiveerd door",
+   "options": "User",
+   "read_only": 1,
+   "depends_on": "gearchiveerd"
   }
  ],
- "modified": "2026-10-20 00:00:00.000000",
+ "modified": "2026-10-23 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Ruimte",

@@ -1,6 +1,6 @@
 """Deelpagina `/delen/<token>`: wat achter een deellink zit, in de huisstijl van de klant.
 
-De stand van de link (geldig, wachtwoord nodig, onbekend, verlopen, verwijderd) wordt hier al bepaald: een ongeldige
+De stand van de link (geldig, wachtwoord nodig, onbekend, verlopen, gearchiveerd, verwijderd) wordt hier al bepaald: een ongeldige
 link geeft meteen een duidelijke melding met 404/410, zonder dat de pagina eerst iets probeert te laden. De inhoud
 zelf (bestand, map, aanleveren) haalt de pagina daarna op via `openaec_storage.delen`.
 
@@ -23,6 +23,11 @@ FOUTEN = {
 		"De link bestaat niet of is ingetrokken. Vraag de afzender om een nieuwe link.",
 	),
 	"verlopen": (410, "Deze link is verlopen", "De link was geldig tot {0}. Vraag de afzender om een nieuwe link."),
+	"gearchiveerd": (
+		410,
+		"Niet meer beschikbaar",
+		"De ruimte waaruit gedeeld is, staat in het archief. Vraag de afzender om de bestanden als je ze nog nodig hebt.",
+	),
 	"weg": (
 		410,
 		"Niet meer beschikbaar",
