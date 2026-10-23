@@ -5,6 +5,7 @@ Conflictregel (ontwerp §6): bij `upload_klaar` wint een upload alleen als `basi
 huidige versie; anders wordt het een conflictkopie naast het origineel. Er gaat nooit iets verloren.
 """
 
+import hashlib
 import json
 import math
 import os
@@ -945,6 +946,8 @@ def _upload_een(ruimte: str, item: dict, inhoud: bytes | None, bron: str, mappen
 	grootte = cint(item.get("grootte"))
 	if grootte != len(inhoud):
 		frappe.throw(_("Ontvangen grootte wijkt af van de aangekondigde grootte"))
+	if item.get("sha256") and hashlib.sha256(inhoud).hexdigest() != item["sha256"].lower():
+		frappe.throw(_("Ontvangen inhoud klopt niet met de SHA-256"))
 	if grootte > KLEIN_MAX_BESTAND:
 		weiger(_("Dit bestand is te groot om samen met andere te uploaden"), "te_groot_voor_batch")
 	if item.get("map"):
@@ -1007,17 +1010,28 @@ def upload_klein_bytes(ruimte: str, bestanden, inhoud: dict[str, bytes], bron: s
 def upload_klein(ruimte: str, bestanden, bron: str = "sync") -> dict:
 	"""Veel kleine bestanden in één verzoek (multipart/form-data): `ruimte`, `bestanden` (JSON-lijst met per bestand
 	`naam`, `map` (id) of `pad` (mappad met '/'; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash`
-	(BLAKE3 van de inhoud), `basis_versie?`, `sha256?` en `veld`) en per bestand de inhoud als bestandsveld met de
-	naam uit `veld` (standaard `f<index>`). Hoogstens 1 MiB per bestand en 64 bestanden of 16 MiB per verzoek.
-	Antwoord: `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} | {index, ok: false, fout,
-	foutcode}]}`, in de volgorde van `bestanden`."""
+	(BLAKE3 van de inhoud), `basis_versie?`, `sha256?` en `veld`) en de inhoud: alle bestanden achter elkaar in één
+	bestandsveld `inhoud` (in de volgorde van `bestanden`, gesneden op `grootte`), of per bestand een bestandsveld
+	met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd. Hoogstens
+	1 MiB per bestand en 64 bestanden of 16 MiB per verzoek. Antwoord: `{resultaten: [{index, ok: true, bestand, naam,
+	versie, conflict, map} | {index, ok: false, fout, foutcode}]}`, in de volgorde van `bestanden`."""
 	bestanden = _als_lijst(bestanden)
 	velden = frappe.request.files if getattr(frappe, "request", None) else {}
 	inhoud = {}
-	for index, item in enumerate(bestanden):
-		veld = item.get("veld") or f"f{index}"
-		if veld in velden:
-			inhoud[veld] = velden[veld].stream.read(KLEIN_MAX_BYTES + 1)
+	if "inhoud" in velden:
+		# Eén deel met alles achter elkaar: het einde van een deel is in multipart het lastigste stuk (een
+		# regeleinde kan aan de inhoud blijven hangen), dus zo telt alleen `grootte`.
+		alles, positie = velden["inhoud"].stream.read(KLEIN_MAX_BYTES + 1024), 0
+		for index, item in enumerate(bestanden):
+			lengte = max(cint(item.get("grootte")), 0)
+			if positie + lengte <= len(alles):
+				inhoud[item.get("veld") or f"f{index}"] = alles[positie : positie + lengte]
+			positie += lengte
+	else:
+		for index, item in enumerate(bestanden):
+			veld = item.get("veld") or f"f{index}"
+			if veld in velden:
+				inhoud[veld] = velden[veld].stream.read(KLEIN_MAX_BYTES + 1)
 	return upload_klein_bytes(ruimte, bestanden, inhoud, bron)
 
 

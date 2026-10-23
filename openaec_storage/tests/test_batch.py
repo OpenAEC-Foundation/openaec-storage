@@ -225,3 +225,12 @@ class TestBatch(IntegrationTestCase):
 		self.assertEqual(frappe.db.count("Opslagmap", {"ruimte": self.ruimte}), aantal)
 		frappe.set_user(self.lezer)
 		self.assertIn("Lezer", api.maak_mappen(ruimte=self.ruimte, paden=["Lezer"])["fouten"])
+
+	def test_sha256_wordt_gecontroleerd(self):
+		import hashlib
+
+		goed = hashlib.sha256(b"abc").hexdigest()
+		r = self.upload((item("a.txt", b"abc", sha256=goed), b"abc"), (item("b.txt", b"abd", sha256=goed), b"abd"))
+		self.assertEqual([x["ok"] for x in r], [True, False])
+		self.assertIn("SHA-256", r[1]["fout"])
+		self.assertEqual(frappe.db.get_value("Bestandsversie", {"bestand": r[0]["bestand"]}, "sha256"), goed)
