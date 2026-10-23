@@ -665,7 +665,7 @@ def deel(
 	if soort not in ("link", "gebruiker"):
 		frappe.throw(_("Onbekende soort deling"))
 	if soort == "gebruiker" and not (gebruiker and frappe.db.exists("User", gebruiker)):
-		frappe.throw(_("Kies een bestaande gebruiker om mee te delen"))
+		weiger(_("Kies een bestaande gebruiker om mee te delen"), "gebruiker_onbekend")
 	if rechten == "uploaden" and not (soort == "link" and doel_doctype == "Opslagmap"):
 		frappe.throw(_("Bestanden opvragen kan alleen met een link naar een map"))
 	deling = frappe.get_doc(
@@ -741,14 +741,57 @@ def mijn_delingen() -> list[dict]:
 
 @frappe.whitelist()
 def delingen(doel_doctype: str, doel: str) -> list[dict]:
+	"""De niet ingetrokken delingen van een map of bestand (ook verlopen, met `verlopen`), met of er een wachtwoord op
+	zit (`beveiligd`; nooit de hash) en wie de deling maakte."""
 	ruimte = frappe.db.get_value(doel_doctype, doel, "ruimte") if doel_doctype in ("Opslagmap", "Opslagbestand") else None
 	vereis(ruimte, "read")
-	return frappe.get_all(
+	rijen = frappe.get_all(
 		"Opslagdeling",
 		filters={"doel_doctype": doel_doctype, "doel": doel, "ingetrokken": 0},
-		fields=["name", "soort", "gebruiker", "rechten", "verloopt", "token", "creation"],
+		fields=["name", "soort", "gebruiker", "rechten", "verloopt", "token", "creation", "owner", "wachtwoord_hash"],
 		ignore_permissions=True,
 	)
+	nu = now_datetime()
+	namen: dict[str, str] = {}
+	for r in rijen:
+		r["beveiligd"] = bool(r.pop("wachtwoord_hash"))
+		r["verlopen"] = bool(r.verloopt and r.verloopt < nu)
+		r["gemaakt_door"] = r.pop("owner")
+		if r["gemaakt_door"] not in namen:
+			namen[r["gemaakt_door"]] = frappe.db.get_value("User", r["gemaakt_door"], "full_name") or r["gemaakt_door"]
+		r["gemaakt_door_naam"] = namen[r["gemaakt_door"]]
+	return rijen
+
+
+@frappe.whitelist()
+def collegas(tekst: str = "", ruimte: str | None = None) -> list[dict]:
+	"""Collega's om mee te delen: actieve gebruikers van de omgeving (geen websitegebruikers, gasten of
+	Administrator), gezocht op e-mailadres en volledige naam, hoogstens 20. `lid_als` is de rol in `ruimte`, of None
+	voor wie geen lid is. Alleen voor wie in die ruimte mag delen (schrijver of beheerder) en voor een beheerder van
+	de omgeving."""
+	if not mag_ruimte_maken():
+		if not ruimte:
+			frappe.throw(_("Geen toegang"), frappe.PermissionError)
+		vereis(ruimte, "write")
+	tekst = (tekst or "").strip()
+	# Jokertekens in de zoektekst letterlijk nemen.
+	zoek = "%" + tekst.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"
+	gebruikers = frappe.db.sql(
+		"""select name, full_name from `tabUser`
+		where enabled = 1 and user_type = 'System User' and name not in ('Administrator', 'Guest')
+		and (name like %(zoek)s or full_name like %(zoek)s)
+		order by full_name, name limit 20""",
+		{"zoek": zoek},
+		as_dict=True,
+	)
+	rollen = {}
+	if ruimte:
+		rollen = dict(
+			frappe.db.sql(
+				"select gebruiker, rol from `tabRuimtelid` where parent = %s and parenttype = 'Ruimte'", ruimte
+			)
+		)
+	return [{"gebruiker": g.name, "naam": g.full_name or g.name, "lid_als": rollen.get(g.name)} for g in gebruikers]
 
 
 @frappe.whitelist()

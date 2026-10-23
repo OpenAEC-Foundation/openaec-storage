@@ -182,6 +182,7 @@ te lezen.
 | `map_alleen_lezen` | 403 | Wijzigen in een alleen-lezenmap zonder beheerder van de ruimte te zijn |
 | `extensie_niet_toegestaan` | 417 | Bestandssoort niet toegestaan in deze map |
 | `ongeldige_naam` | 417 | Naam die niet kan (zie Geldige namen): nieuw bestand, nieuwe map, hernoemen of verplaatsen |
+| `gebruiker_onbekend` | 417 | `deel` met `soort: "gebruiker"` voor een gebruiker die niet bestaat (melding "Kies een bestaande gebruiker om mee te delen") |
 | `te_groot_voor_batch` | 417 | Eén bestand in `upload_klein`/`download_klein` is groter dan 1 MiB (gebruik de gewone weg) |
 | `batch_te_groot` | 417 | Te veel in één verzoek (meer dan 64 bestanden, 16 MiB of 1000 mappen); bij `download_klein` per bestand voor wat er niet meer bij past |
 
@@ -206,6 +207,18 @@ foutcode `ongeldige_naam` en de reden in de melding, langs elke weg: browser, de
 gateway geeft dan 403 Forbidden), uploadlinks en overdrachten. Bestaande bestanden en mappen met zo'n naam blijven
 staan: een bestand kan nog een nieuwe versie krijgen onder dezelfde naam, en kan alleen hernoemd worden naar een
 geldige naam; een bestaande map blijft op te vragen met `maak_map`.
+
+## Delen vanuit de desktop-app
+
+Voor de deel-dialoog (een bestand of map delen met een collega of een link, en zien wie er toegang heeft). Alle
+methodes onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de gebruiker; antwoorden in `message`.
+
+| Methode | Wie | Parameters | Antwoord |
+|---|---|---|---|
+| `collegas` | wie in `ruimte` mag delen (schrijver of beheerder; een gearchiveerde ruimte geeft 403 met `ruimte_gearchiveerd`), of een beheerder van de omgeving (ook zonder `ruimte`); anders 403 | `tekst?` (zoekt in e-mailadres en volledige naam), `ruimte?` | `[{gebruiker, naam, lid_als}]`, hoogstens 20, op naam: actieve systeemgebruikers (geen websitegebruikers, gasten of Administrator); `lid_als` is de rol in `ruimte` (`beheerder`, `schrijver`, `lezer`, `gast`) of `null` |
+| `deel` (POST) | schrijver of beheerder op die plek | `doel_doctype` (`Opslagmap`/`Opslagbestand`), `doel`, `soort` (`link` of `gebruiker`), `gebruiker?`, `rechten` (`lezen`; `schrijven` alleen met een gebruiker; `uploaden` alleen met een link naar een map), `wachtwoord?`, `verloopt?` | `{deling, token, rechten, url}`; een onbekende gebruiker geeft 417 met `gebruiker_onbekend` |
+| `delingen` | wie de ruimte kan lezen | `doel_doctype`, `doel` | `[{name, soort, gebruiker, rechten, verloopt, token, creation, beveiligd, verlopen, gemaakt_door, gemaakt_door_naam}]`: de niet ingetrokken delingen, ook verlopen. `beveiligd` zegt of er een wachtwoord op zit (de hash komt nooit mee); `verlopen` is `true` als `verloopt` voorbij is |
+| `trek_in` (POST) | schrijver of beheerder van de ruimte | `deling` | — |
 
 ## Desktop-sync: veel kleine bestanden
 
