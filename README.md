@@ -180,6 +180,7 @@ te lezen.
 | `quotum_pool_vol` | 417 | Het quotum van de omgeving is vol |
 | `quotum_ruimte_vol` | 417 | Het eigen quotum van de ruimte is vol |
 | `map_alleen_lezen` | 403 | Wijzigen in een alleen-lezenmap zonder beheerder van de ruimte te zijn |
+| `bestand_vergrendeld` | 403 | Verwijderen, verplaatsen of hernoemen van een bestand dat een ander heeft vergrendeld, of een map verwijderen waarin zo'n bestand staat |
 | `extensie_niet_toegestaan` | 417 | Bestandssoort niet toegestaan in deze map |
 | `ongeldige_naam` | 417 | Naam die niet kan (zie Geldige namen): nieuw bestand, nieuwe map, hernoemen of verplaatsen |
 | `gebruiker_onbekend` | 417 | `deel` met `soort: "gebruiker"` voor een gebruiker die niet bestaat (melding "Kies een bestaande gebruiker om mee te delen") |

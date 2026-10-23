@@ -4,7 +4,7 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from openaec_storage import api, delen
-from openaec_storage.tests.hulp import NagebootsteS3, gebruiker, ruim_op, ruimte, upload
+from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, ruim_op, ruimte, upload
 
 
 class TestVergrendelen(IntegrationTestCase):
@@ -35,6 +35,32 @@ class TestVergrendelen(IntegrationTestCase):
 		frappe.set_user(self.bob)
 		with self.assertRaises(frappe.ValidationError):
 			api.vergrendel(bestand=self.bestand)
+
+	def test_ander_kan_vergrendeld_bestand_niet_verwijderen(self):
+		api.vergrendel(bestand=self.bestand)
+		frappe.set_user(self.bob)
+		code = foutcode(self, frappe.PermissionError, api.verwijder, bestand=self.bestand)
+		self.assertEqual(code, "bestand_vergrendeld")
+		self.assertFalse(frappe.db.get_value("Opslagbestand", self.bestand, "verwijderd_op"))
+		frappe.set_user(self.anna)
+		api.verwijder(bestand=self.bestand)
+		self.assertTrue(frappe.db.get_value("Opslagbestand", self.bestand, "verwijderd_op"))
+
+	def test_ander_kan_map_met_vergrendeld_bestand_niet_verwijderen(self):
+		map = api.maak_map(ruimte=self.ruimte, naam="Modellen")["map"]
+		bestand = upload(self.ruimte, "gevel.ifc", b"v1", map_naam=map)["bestand"]
+		api.vergrendel(bestand=bestand)
+		frappe.set_user(self.bob)
+		code = foutcode(self, frappe.PermissionError, api.verwijder_map, map=map)
+		self.assertEqual(code, "bestand_vergrendeld")
+		self.assertFalse(frappe.db.get_value("Opslagmap", map, "verwijderd_op"))
+		self.assertFalse(frappe.db.get_value("Opslagbestand", bestand, "verwijderd_op"))
+
+	def test_ander_kan_vergrendeld_bestand_niet_verplaatsen(self):
+		api.vergrendel(bestand=self.bestand)
+		frappe.set_user(self.bob)
+		code = foutcode(self, frappe.PermissionError, api.verplaats, bestand=self.bestand, naam="ander.ifc")
+		self.assertEqual(code, "bestand_vergrendeld")
 
 	def test_upload_door_ander_tijdens_slot_wordt_conflictkopie(self):
 		api.vergrendel(bestand=self.bestand)

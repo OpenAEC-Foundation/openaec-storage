@@ -176,6 +176,13 @@ def _actief_slot(bestand: str):
 	)
 
 
+def _weiger_als_vergrendeld(bestand: str, melding: str = "Dit bestand is vergrendeld door {0}") -> None:
+	"""Een bestand dat een ander heeft vergrendeld, kan niet verplaatst, hernoemd of verwijderd worden."""
+	slot = _actief_slot(bestand)
+	if slot and slot.gebruiker != frappe.session.user:
+		weiger(_(melding).format(slot.gebruiker), "bestand_vergrendeld", frappe.PermissionError)
+
+
 # --- bladeren en versies -----------------------------------------------------------------------------
 
 
@@ -420,6 +427,7 @@ def verwijder(bestand: str) -> None:
 	# Verwijderen vraagt schrijfrecht op de map: wie alleen dit bestand gedeeld kreeg, kan het bewerken, niet weghalen.
 	vereis_op_plek(doc.ruimte, doc.map, "write")
 	mapsjablonen.controleer_schrijven(doc.ruimte, doc.map)
+	_weiger_als_vergrendeld(bestand)
 	frappe.db.set_value("Opslagbestand", bestand, "verwijderd_op", now_datetime())
 	_log(doc.ruimte, "verwijderd", "Opslagbestand", bestand, doc.naam)
 
@@ -466,9 +474,7 @@ def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int 
 	vereis_op_plek(bron.ruimte, map, "write")
 	mapsjablonen.controleer_schrijven(bron.ruimte, bron.map)
 	mapsjablonen.controleer_upload(bron.ruimte, map, naam)
-	slot = _actief_slot(bron.name)
-	if slot and slot.gebruiker != frappe.session.user:
-		frappe.throw(_("Dit bestand is vergrendeld door {0}").format(slot.gebruiker), frappe.PermissionError)
+	_weiger_als_vergrendeld(bron.name)
 
 	doel = _actief_bestand(bron.ruimte, map, naam)
 	if doel and doel.name == bron.name:
@@ -483,9 +489,7 @@ def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int 
 		_log(bron.ruimte, "verplaatst", "Opslagbestand", bron.name, naam)
 		return {"bestand": bron.name, "naam": naam, "versie": cint(bron.huidige_versie)}
 
-	slot = _actief_slot(doel.name)
-	if slot and slot.gebruiker != frappe.session.user:
-		frappe.throw(_("Het doel is vergrendeld door {0}").format(slot.gebruiker), frappe.PermissionError)
+	_weiger_als_vergrendeld(doel.name, "Het doel is vergrendeld door {0}")
 	# De huidige versie van de bron wordt de volgende versie van het doel. Heeft de bron oudere versies, dan gaat
 	# hij daarmee naar de prullenbak (niets gaat verloren); anders verdwijnt hij.
 	volgnummer = cint(doel.huidige_versie) + 1
@@ -564,11 +568,15 @@ def verwijder_map(map: str) -> None:
 	mapsjablonen.controleer_schrijven(doc.ruimte, doc.bovenliggende)
 	mapsjablonen.controleer_schrijven(doc.ruimte, doc.name)
 	mapsjablonen.controleer_boom(doc.ruimte, mappen)
+	bestanden = frappe.get_all(
+		"Opslagbestand", filters={"map": ("in", mappen), "verwijderd_op": ("is", "not set")}, pluck="name"
+	)
+	# Een bestand dat een ander heeft vergrendeld, gaat ook niet via zijn map naar de prullenbak.
+	for b in bestanden:
+		_weiger_als_vergrendeld(b, "In deze map staat een bestand dat vergrendeld is door {0}")
 	for m in mappen:
 		frappe.db.set_value("Opslagmap", m, "verwijderd_op", moment)
-	for b in frappe.get_all(
-		"Opslagbestand", filters={"map": ("in", mappen), "verwijderd_op": ("is", "not set")}, pluck="name"
-	):
+	for b in bestanden:
 		frappe.db.set_value("Opslagbestand", b, "verwijderd_op", moment)
 	_log(doc.ruimte, "verwijderd", "Opslagmap", doc.name, doc.naam)
 
