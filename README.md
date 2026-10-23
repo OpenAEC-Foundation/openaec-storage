@@ -181,6 +181,53 @@ te lezen.
 | `quotum_ruimte_vol` | 417 | Het eigen quotum van de ruimte is vol |
 | `map_alleen_lezen` | 403 | Wijzigen in een alleen-lezenmap zonder beheerder van de ruimte te zijn |
 | `extensie_niet_toegestaan` | 417 | Bestandssoort niet toegestaan in deze map |
+| `ongeldige_naam` | 417 | Naam die niet kan (zie Geldige namen): nieuw bestand, nieuwe map, hernoemen of verplaatsen |
+| `te_groot_voor_batch` | 417 | Eén bestand in `upload_klein`/`download_klein` is groter dan 1 MiB (gebruik de gewone weg) |
+| `batch_te_groot` | 417 | Te veel in één verzoek (meer dan 64 bestanden, 16 MiB of 1000 mappen); bij `download_klein` per bestand voor wat er niet meer bij past |
+
+In een batch (`upload_klein`, `download_klein`, `maak_mappen`) staat de foutcode per bestand of pad in het antwoord,
+niet in `foutcode` van het hele antwoord.
+
+## Geldige namen
+
+Een naam die op Windows niet kan, komt er niet in: daar is zo'n bestand met normale paden niet te openen, te
+verplaatsen of te verwijderen, en een sync-programma blijft er dan op vastlopen. Ongeldig zijn (`namen.py`, dezelfde
+regels als de desktop-app):
+
+- de apparaatnamen `CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9` en `LPT0`–`LPT9` (ook met de
+  superscriptcijfers ¹²³), zonder onderscheid tussen hoofd- en kleine letters en ook met een extensie (`nul.txt`,
+  `con.log`);
+- namen die op een punt of spatie eindigen;
+- de tekens `<>:"/\|?*` en controletekens;
+- namen langer dan 255 tekens, en een lege naam, `.` of `..`.
+
+Een nieuwe upload, een nieuwe map en een nieuwe naam bij hernoemen of verplaatsen met zo'n naam geven 417 met de
+foutcode `ongeldige_naam` en de reden in de melding, langs elke weg: browser, desktop-app (ook de batch), WebDAV (de
+gateway geeft dan 403 Forbidden), uploadlinks en overdrachten. Bestaande bestanden en mappen met zo'n naam blijven
+staan: een bestand kan nog een nieuwe versie krijgen onder dezelfde naam, en kan alleen hernoemd worden naar een
+geldige naam; een bestaande map blijft op te vragen met `maak_map`.
+
+## Desktop-sync: veel kleine bestanden
+
+Voor mappen met duizenden kleine bestanden zijn er methodes die veel in één verzoek doen. Ze volgen per bestand
+dezelfde regels als de gewone weg (`upload_start`/`upload_klaar`, `download`, `maak_map`): rechten, quotum van pool en
+ruimte, mapregels (extensies, alleen lezen), gearchiveerde ruimtes, versies en conflicten, geldige namen en de
+wijzigingenlijst. Een fout bij één bestand draait alleen dat bestand terug en houdt de andere niet op. Alle methodes
+onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de gebruiker; antwoorden in `message`.
+
+| Methode | Parameters | Antwoord |
+|---|---|---|
+| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg |
+| `boom` | `ruimte`, `start?` (0), `aantal?` (10 000, hoogstens 50 000) | `{mappen: [{name, naam, bovenliggende, modified}], bestanden: [{name, naam, map, grootte, huidige_versie, modified}], meer}`: alle mappen en een pagina bestanden (op `name`), zonder de prullenbak. Alleen voor leden van de ruimte |
+| `maak_mappen` (POST) | `ruimte`, `paden` (lijst mappaden met `/`, hoogstens 1000) | `{mappen: {pad: map}, fouten: {pad: {fout, foutcode}}}`; ontbrekende mappen (ook tussenliggende) worden aangemaakt zoals bij `maak_map`, bestaande hergebruikt (hoofdletters maken niet uit) |
+| `upload_klein` (POST, multipart/form-data) | `ruimte`, `bron?` (`sync`), `bestanden` (JSON-lijst: per bestand `naam`, `map` (id) of `pad` (mappad; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash` (BLAKE3 van de inhoud), `basis_versie?`, `sha256?`, `veld`), en de inhoud: alles achter elkaar in één bestandsveld `inhoud` (gesneden op `grootte`; zo doet de desktop-app het) of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd | `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} \| {index, ok: false, fout, foutcode}]}`, in de volgorde van `bestanden` |
+| `download_klein` | `bestanden` (lijst bestand-id's of `{bestand, versie}`) | `{bestanden: [{index, ok: true, bestand, naam, versie, grootte, blokhash, inhoud (base64)} \| {index, ok: false, fout, foutcode}]}`; de inhoud komt tegelijk uit S3 |
+
+Grenzen: hoogstens 1 MiB per bestand, en 64 bestanden of 16 MiB per verzoek (`KLEIN_MAX_*` in `api.py`). Een groter
+bestand gaat langs de gewone weg in delen van 8 MiB. Bij `upload_klein` schrijft de server de inhoud zelf naar S3
+(`s3.zet`); bij een conflict (een verouderde `basis_versie`, of een bestand dat iemand anders vergrendelde) komt er
+een conflictkopie naast het origineel, net als bij `upload_klaar`.
+
 
 ## Overdrachten
 
@@ -244,6 +291,25 @@ zip, bestanden: [{bestand, naam, grootte}]}`, `download(token, bestand, wachtwoo
 
 De tests gebruiken een nagebootste S3 (moto, `pip install -e apps/openaec_storage[test]`); er is geen echte bucket
 nodig. Een eigen opslagadres in de site_config (bijv. een S3-compatibele testopslag) staat tijdens die tests uit.
+
+### Meetbench
+
+`scripts/meetbench/meet.sh <meting oud> <meting nieuw> [werkmap]` zet een lokale bench op met Docker
+(`frappe/erpnext:v16.51.1`, mariadb 11.8, valkey, moto als S3 en gunicorn met 4 werkers van 4 draden, met deze
+werkkopie van de app), meet twee builds van het meetprogramma van de desktop-sync (`cargo build --release --example
+meting` in `crates/openaec-sync`) en ruimt containers en volumes daarna op (`MEETBENCH_LATEN=1` laat ze staan).
+Gemeten wordt één sync-ronde: upload naar een lege ruimte en download naar een lege map, voor 2000 bestanden van
+1–20 KB en voor 5 bestanden van 50 MB.
+
+Meetresultaten (Windows 11, Docker Desktop, gunicorn met 4 werkers van 4 draden, moto als S3; één ronde, standaard 8
+overdrachten tegelijk). "Oud" is versie 0.5.0 (elk bestand na elkaar), "nieuw" deze versie:
+
+| Set | Richting | Oud | Nieuw | Sneller |
+|---|---|---|---|---|
+| 2000 bestanden van 1–20 KB in 40 mappen | upload | 144,8 s | 19,6 s | 7,4× |
+| 2000 bestanden van 1–20 KB in 40 mappen | download | 97,0 s | 6,9 s | 14× |
+| 5 bestanden van 50 MB | upload | 5,4 s | 3,5 s | 1,5× |
+| 5 bestanden van 50 MB | download | 4,2 s | 2,0 s | 2,1× |
 
 ## WebDAV-gateway (`gateway/`)
 

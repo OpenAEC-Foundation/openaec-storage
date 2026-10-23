@@ -1,0 +1,28 @@
+name: openaec-meetbench
+services:
+  mariadb:
+    image: docker.io/mariadb:11.8
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --skip-character-set-client-handshake]
+    environment:
+      MARIADB_ROOT_PASSWORD: bench
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+    volumes:
+      - db:/var/lib/mysql
+  valkey:
+    image: docker.io/valkey/valkey:8.1.10-alpine
+  bench:
+    image: frappe/erpnext:v16.51.1
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - ../..:/workspace/openaec_storage
+    ports:
+      - "127.0.0.1:18000:8000"
+      - "127.0.0.1:19300:9300"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+volumes:
+  db:
