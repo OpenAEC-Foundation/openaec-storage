@@ -1123,6 +1123,52 @@ def blokken(bestand: str, versie: int | None = None) -> dict:
 # --- ruimtes en mappen -------------------------------------------------------------------------------
 
 
+@frappe.whitelist(methods=["POST"])
+def maak_ruimte(naam: str, soort: str, mapsjabloon: str | None = None) -> dict:
+	"""Een nieuwe ruimte, voor de desktop-app en andere clients met een token: alleen een beheerder van de omgeving
+	(`mag_ruimte_maken`); wie hem aanmaakt, wordt er beheerder van. Met een mapsjabloon legt de ruimte meteen de mappen
+	aan. Geeft `{name, naam, soort, rol}` zoals `ruimtes`."""
+	if not mag_ruimte_maken():
+		frappe.throw(_("Alleen een beheerder van de omgeving kan een ruimte aanmaken"), frappe.PermissionError)
+	naam = (naam or "").strip()
+	if not naam:
+		frappe.throw(_("Geef de ruimte een naam"))
+	if soort not in ("team", "project", "persoonlijk"):
+		frappe.throw(_("Kies team, project of persoonlijk"))
+	mapsjabloon = (mapsjabloon or "").strip() or None
+	if mapsjabloon and not frappe.db.exists("Mapsjabloon", mapsjabloon):
+		frappe.throw(_("Onbekend mapsjabloon"), frappe.DoesNotExistError)
+	doc = frappe.get_doc({"doctype": "Ruimte", "naam": naam, "soort": soort, "mapsjabloon": mapsjabloon}).insert(
+		ignore_permissions=True
+	)
+	rol = next((lid.rol for lid in doc.leden if lid.gebruiker == frappe.session.user), None)
+	return {"name": doc.name, "naam": doc.naam, "soort": doc.soort, "rol": rol}
+
+
+@frappe.whitelist()
+def ruimte(ruimte: str) -> dict:
+	"""Detail van een ruimte met de leden, voor wie lid is en voor een beheerder van de omgeving (wie alleen via een
+	deling bij de ruimte kan, ziet de leden niet): `{name, naam, soort, mapsjabloon, gearchiveerd, rol, leden: [{gebruiker, naam, rol}]}`."""
+	if not mag_ruimte_maken():
+		vereis(ruimte, "read")
+	elif not frappe.db.exists("Ruimte", ruimte or ""):
+		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
+	doc = frappe.get_doc("Ruimte", ruimte)
+	leden = [
+		{"gebruiker": lid.gebruiker, "naam": frappe.db.get_value("User", lid.gebruiker, "full_name") or lid.gebruiker, "rol": lid.rol}
+		for lid in doc.leden
+	]
+	return {
+		"name": doc.name,
+		"naam": doc.naam,
+		"soort": doc.soort,
+		"mapsjabloon": doc.mapsjabloon,
+		"gearchiveerd": bool(cint(doc.gearchiveerd)),
+		"rol": next((lid["rol"] for lid in leden if lid["gebruiker"] == frappe.session.user), None),
+		"leden": leden,
+	}
+
+
 @frappe.whitelist()
 def ruimtes() -> list[dict]:
 	"""De ruimtes waar de ingelogde gebruiker lid van is, met zijn rol. Gearchiveerde ruimtes staan er niet in (de
