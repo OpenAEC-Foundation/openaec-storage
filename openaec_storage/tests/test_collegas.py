@@ -84,16 +84,50 @@ class TestCollegasEnDelingen(IntegrationTestCase):
 		frappe.set_user(self.schrijver)
 		self.assertEqual(foutcode(self, frappe.PermissionError, self.zoek), "ruimte_gearchiveerd")
 
+	def test_onbekend_adres_wordt_als_gast_uitgenodigd(self):
+		"""Met Beheer op de site: een onbekend adres gaat als gast (OpenAEC-account) naar Beheer, dat de gebruiker hier
+		aanmaakt; daarna volgt de deling op die gebruiker."""
+		from unittest import mock
+
+		nieuw = "extern@elders.example.com"
+		aanroepen = []
+
+		def nodig_uit(email, doel_doctype, doel):
+			aanroepen.append((email, doel_doctype, doel))
+			hulp.gebruiker("extern")  # Beheer maakt de gebruiker vooraf aan (gebruikers.maak_vooraf)
+			frappe.db.set_value("User", hulp.gebruiker("extern"), "user_type", "Website User")
+			return {"status": "uitgenodigd", "gebruiker": hulp.gebruiker("extern")}
+
+		echt = frappe.get_attr
+		with mock.patch.object(
+			frappe, "get_attr", side_effect=lambda pad: nodig_uit if pad == api.GAST_UITNODIGEN else echt(pad)
+		):
+			uit = api.deel(doel_doctype="Opslagbestand", doel=self.bestand, soort="gebruiker", gebruiker=nieuw.upper())
+		self.assertEqual(aanroepen, [(nieuw, "Opslagbestand", self.bestand)])
+		self.assertEqual((uit["uitnodiging"], uit["gebruiker"]), ("uitgenodigd", hulp.gebruiker("extern")))
+		self.assertEqual(frappe.db.get_value("Opslagdeling", uit["deling"], "gebruiker"), hulp.gebruiker("extern"))
+
 	def test_onbekende_gebruiker_geeft_een_foutcode(self):
-		code = foutcode(
-			self,
-			frappe.ValidationError,
-			api.deel,
-			doel_doctype="Opslagbestand",
-			doel=self.bestand,
-			soort="gebruiker",
-			gebruiker="niemand@elders.localhost",
-		)
+		"""Zonder Beheer op de site (geen gastuitnodiging) blijft een onbekend adres een fout met een vaste code."""
+		from unittest import mock
+
+		echt = frappe.get_attr
+
+		def zonder_beheer(pad):
+			if pad == api.GAST_UITNODIGEN:
+				raise AttributeError(pad)
+			return echt(pad)
+
+		with mock.patch.object(frappe, "get_attr", side_effect=zonder_beheer):
+			code = foutcode(
+				self,
+				frappe.ValidationError,
+				api.deel,
+				doel_doctype="Opslagbestand",
+				doel=self.bestand,
+				soort="gebruiker",
+				gebruiker="niemand@elders.example.com",
+			)
 		self.assertEqual(code, "gebruiker_onbekend")
 		with self.assertRaises(frappe.ValidationError) as fout:
 			api.deel(doel_doctype="Opslagbestand", doel=self.bestand, soort="gebruiker", gebruiker="")

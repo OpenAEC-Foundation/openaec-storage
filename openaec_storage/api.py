@@ -748,6 +748,9 @@ def deel(
 	if soort not in ("link", "gebruiker"):
 		frappe.throw(_("Onbekende soort deling"))
 	vereis_delen(ruimte, map, bestand, _deelrechten(soort, rechten) if soort == "gebruiker" else None)
+	uitnodiging = None
+	if soort == "gebruiker" and gebruiker and not frappe.db.exists("User", gebruiker):
+		gebruiker, uitnodiging = _nodig_gast_uit(gebruiker, doel_doctype, doel)
 	if soort == "gebruiker" and not (gebruiker and frappe.db.exists("User", gebruiker)):
 		weiger(_("Kies een bestaande gebruiker om mee te delen"), "gebruiker_onbekend")
 	if rechten == "uploaden" and not (soort == "link" and doel_doctype == "Opslagmap"):
@@ -768,14 +771,36 @@ def deel(
 	).insert(ignore_permissions=True)
 	_log(ruimte, "gedeeld", doel_doctype, doel)
 	if soort == "gebruiker":
-		_meld_ontvanger(deling)
+		_meld_ontvanger(deling, uitgenodigd=uitnodiging == "uitgenodigd")
 	return {
 		"deling": deling.name,
 		"token": deling.token,
 		"rechten": deling.rechten,
+		# Bij een nieuw adres: hoe de uitnodiging als gast ging (al_lid, lid of uitgenodigd); anders null.
+		"uitnodiging": uitnodiging,
+		"gebruiker": gebruiker if soort == "gebruiker" else None,
 		# Volledig publiek adres (host_name van de site): klaar om in een mail of chat te plakken.
 		"url": get_url(f"/delen/{deling.token}"),
 	}
+
+
+GAST_UITNODIGEN = "openaec_beheer.gasten.nodig_uit_voor_deling"
+
+
+def _nodig_gast_uit(email: str, doel_doctype: str, doel: str) -> tuple[str | None, str | None]:
+	"""Een adres zonder gebruiker op deze site: als gast uitnodigen met een OpenAEC-account (het account geldt voor
+	alle omgevingen; Beheer maakt de gebruiker hier meteen aan). Geeft (gebruiker, status) met status `al_lid`, `lid`
+	of `uitgenodigd`; (None, None) als het geen geldig adres is of de site geen Beheer heeft."""
+	email = (email or "").strip().lower()
+	if not frappe.utils.validate_email_address(email):
+		return None, None
+	try:
+		uitnodigen = frappe.get_attr(GAST_UITNODIGEN)
+	except (AttributeError, ImportError):
+		return None, None
+	# Fouten van Beheer (geen recht, te veel uitnodigingen) gaan met hun eigen foutcode door naar de aanroeper.
+	uit = uitnodigen(email=email, doel_doctype=doel_doctype, doel=doel) or {}
+	return uit.get("gebruiker") or email, uit.get("status")
 
 
 def _plek_van(doel_doctype: str, doel: str) -> tuple[str | None, str | None, str | None]:
@@ -805,10 +830,11 @@ ROLNAMEN = {
 }
 
 
-def _meld_ontvanger(deling) -> None:
+def _meld_ontvanger(deling, uitgenodigd: bool = False) -> None:
 	"""Melding (bel in de desk) en e-mail aan wie er net een map of bestand mee gedeeld kreeg, met de naam, wie het
 	deelde en een link naar /opslag. Via de mail van de site (in de wachtrij); is er geen uitgaande mail, dan staat
-	dat in het foutlog en blijft de deling gewoon staan. Bij intrekken volgt geen mail."""
+	dat in het foutlog en blijft de deling gewoon staan. Bij intrekken volgt geen mail. `uitgenodigd`: de ontvanger
+	kreeg net een uitnodiging voor een OpenAEC-account; de mail zegt dan dat hij die eerst aanvaardt."""
 	from frappe.utils import escape_html, get_fullname
 
 	if not deling.gebruiker or deling.gebruiker == frappe.session.user:
@@ -851,6 +877,14 @@ def _meld_ontvanger(deling) -> None:
 		f"border-radius:6px;text-decoration:none'>{escape_html(_('Openen'))}</a></p>"
 		f"<p>{escape_html(url)}</p>{verloopt}"
 	)
+	if uitgenodigd:
+		html += (
+			"<p style='color:#6b6b76'>"
+			+ escape_html(
+				_("Je hebt nog geen OpenAEC-account: maak het eerst aan via de uitnodiging die je apart per e-mail kreeg.")
+			)
+			+ "</p>"
+		)
 	try:
 		frappe.sendmail(
 			recipients=[deling.gebruiker],
