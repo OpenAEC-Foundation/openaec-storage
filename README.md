@@ -23,6 +23,7 @@ Ontwerp: `openaec-supercloud/docs/superpowers/specs/2026-10-20-openaec-storage-d
 | `openaec_storage_overdracht_max_ontvangers` | Hoogste aantal e-mailontvangers per overdracht (standaard 20) |
 | `openaec_storage_overdracht_concept_uren` | Hoe lang een niet-voltooide overdracht blijft staan voor hij wordt opgeruimd (standaard 24) |
 | `openaec_storage_overdracht_zip_max_gb` | Tot deze grootte is "Alles downloaden" één zip; daarboven per bestand (standaard 2) |
+| `openaec_storage_overdracht_max_bestanden` | Hoogste aantal bestanden per overdracht (standaard 10 000) |
 | `openaec_storage_overdracht_rollen` | Extra rollen die overdrachten mogen maken (lijst; optioneel, zie Overdrachten) |
 
 ## Rollen per ruimte
@@ -195,6 +196,8 @@ te lezen.
 | `deling_geen_map` | 417 | `deling` is een gedeeld bestand; dat kan niet als bovenste map |
 | `geen_beheerrecht` | 403 | Delen, een deling wijzigen of intrekken, of de delingen bekijken zonder dat je hier mag delen (wie via een deling `lezen` of `schrijven` heeft) |
 | `meer_dan_eigen_recht` | 403 | Delen of een deling wijzigen met meer rechten dan je zelf hebt, of een deling wijzigen die nu al meer geeft dan je zelf hebt |
+| `verwijderd` | 404 | `overdracht.maak_van_opslag`/`voeg_toe_van_opslag` met een bestand of map uit de prullenbak |
+| `nog_bezig` | 417 | `overdracht.voltooi` terwijl de server de bestanden uit de opslag nog kopieert |
 
 In een batch (`upload_klein`, `download_klein`, `maak_mappen`) staat de foutcode per bestand of pad in het antwoord,
 niet in `foutcode` van het hele antwoord.
@@ -230,6 +233,7 @@ methodes onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de 
 | `delingen` | wie de ruimte kan lezen, of de plek via een deling mag beheren | `doel_doctype`, `doel` | `[{name, soort, gebruiker, rechten, verloopt, token, creation, beveiligd, verlopen, gemaakt_door, gemaakt_door_naam}]`: de niet ingetrokken delingen, ook verlopen. `beveiligd` zegt of er een wachtwoord op zit (de hash komt nooit mee); `verlopen` is `true` als `verloopt` voorbij is |
 | `trek_in` (POST) | schrijver of beheerder van de ruimte, of wie de plek via een deling mag beheren | `deling` | — |
 | `wijzig_deling` (POST) | als `deel` | `deling` (met een gebruiker), `rechten` (`lezen`, `schrijven` of `beheren`) | `{deling, rechten}`; naar meer, of van meer, dan je zelf hebt geeft 403 met `meer_dan_eigen_recht`. Komt in de wijzigingenlijst (`deling_gewijzigd`, `naam` de nieuwe rechten); geen mail |
+| `zoek_pad` | wie de plek kan lezen (ook via een deling) | `ruimte`, `pad` (met `/`; leeg = het hoofdniveau), `soort?` (`map` of `bestand`), `deling?` (dan binnen de gedeelde map) | `{map}` of `{bestand}` met het id, en `gevonden`. Namen zonder hoofdletters en spaties eromheen, in Unicode-NFC; een precieze schrijfwijze gaat voor. Bij dubbele mappen met dezelfde naam (van vóór de controle daarop) zoekt hij in allebei, en wint aan het eind de map met inhoud. Een pad dat niet bestaat geeft `gevonden: false` (geen fout) |
 | `toegang` | wie de plek kan lezen | `doel_doctype`, `doel` | `{rechten, mag_delen, max_rechten}`: je hoogste recht hier (`lezen`, `schrijven` of `beheren`, uit je rol of een deling), of je hier mag delen (en delingen wijzigen en intrekken), en het hoogste recht dat je een ander mag geven (of `null`) |
 
 ## Gedeeld met mij
@@ -318,7 +322,7 @@ onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de gebruiker
 
 | Methode | Parameters | Antwoord |
 |---|---|---|
-| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true, deling: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg. `deling`: de parameter `deling` (zie Gedeeld met mij) bestaat |
+| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true, deling: true, zoek_pad: true, overdracht_van_opslag: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg. `deling`: de parameter `deling` (zie Gedeeld met mij) bestaat; `zoek_pad` en `overdracht_van_opslag`: zie Delen vanuit de desktop-app en Overdrachten |
 | `boom` | `ruimte`, `start?` (0), `aantal?` (10 000, hoogstens 50 000), `deling?` | `{mappen: [{name, naam, bovenliggende, modified}], bestanden: [{name, naam, map, grootte, huidige_versie, modified}], meer}`: alle mappen en een pagina bestanden (op `name`), zonder de prullenbak. Zonder `deling` alleen voor leden van de ruimte; met `deling` alles onder de gedeelde map, plus `wortel` |
 | `maak_mappen` (POST) | `ruimte`, `paden` (lijst mappaden met `/`, hoogstens 1000), `deling?` (dan zijn de paden binnen de gedeelde map) | `{mappen: {pad: map}, fouten: {pad: {fout, foutcode}}}`; ontbrekende mappen (ook tussenliggende) worden aangemaakt zoals bij `maak_map`, bestaande hergebruikt (hoofdletters maken niet uit) |
 | `upload_klein` (POST, multipart/form-data) | `ruimte`, `bron?` (`sync`), `deling?` (dan zijn `pad` en `map` binnen de gedeelde map), `bestanden` (JSON-lijst: per bestand `naam`, `map` (id) of `pad` (mappad; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash` (BLAKE3 van de inhoud), `basis_versie?`, `sha256?`, `veld`), en de inhoud: alles achter elkaar in één bestandsveld `inhoud` (gesneden op `grootte`; zo doet de desktop-app het) of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd | `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} \| {index, ok: false, fout, foutcode}]}`, in de volgorde van `bestanden` |
@@ -353,14 +357,16 @@ Methodes die iets veranderen alleen met POST. Antwoorden staan zoals altijd bij 
 
 | Methode | Parameters | Antwoord |
 |---|---|---|
-| `grenzen` (GET) | — | `{max_bytes, standaard_dagen, max_dagen, max_ontvangers, concept_uren, zip_max_bytes, quotum: {gebruikt_bytes, limiet_bytes, overdrachten_bytes}}` |
+| `grenzen` (GET) | — | `{max_bytes, standaard_dagen, max_dagen, max_ontvangers, concept_uren, zip_max_bytes, max_bestanden, quotum: {gebruikt_bytes, limiet_bytes, overdrachten_bytes}}` |
 | `maak` | `naam`, `bericht?`, `verloopt_op?` (datum `JJJJ-MM-DD` = tot het eind van die dag, of datum-tijd; leeg = 7 dagen), `wachtwoord?`, `ontvangers?` (lijst of tekst met komma's/regels) | `{overdracht, naam, status: "Concept", verloopt_op, max_bytes, concept_geldig_tot}` |
 | `bestand_start` | `overdracht`, `naam`, `grootte`, `sha256?` | `{bestand, naam, grootte, deelgrootte, delen: [{nummer, url}]}` — `naam` krijgt ` (2)` als hij al in de overdracht staat |
 | `bestand_stand` (GET) | `overdracht`, `bestand` | `{bestand, naam, grootte, klaar, deelgrootte, aanwezig: [{nummer, grootte, etag}], ontbrekend: [nummer], delen: [{nummer, url}]}` — `delen` zijn nieuwe links voor de ontbrekende delen |
 | `bestand_klaar` | `overdracht`, `bestand`, `delen?` (`[{nummer, etag}]`; mag weg) | `{bestand, naam, grootte, klaar: true}` |
 | `bestand_weg` | `overdracht`, `bestand` | — (alleen in een concept) |
 | `voltooi` | `overdracht` | `{overdracht, status: "Actief", token, url, verloopt_op, aantal_bestanden, totale_grootte, mail: [adressen waarnaar de mail in de wachtrij staat]}` |
-| `info` (GET) | `overdracht` | `{overdracht, naam, status, bericht, ontvangers, verloopt_op, beveiligd, url, totale_grootte, aantal_downloads, concept_geldig_tot, bestanden: [{bestand, naam, grootte, klaar, aantal_downloads}]}` |
+| `maak_van_opslag` | `bestanden?` (lijst id's van Opslagbestanden, of `{bestand, versie}`), `mappen?` (lijst id's van Opslagmappen), `naam?` (leeg = de naam van het eerste item), `ontvangers?`, `bericht?`, `verloopt?` (of `verloopt_op`), `wachtwoord?` | Zoals `voltooi`, plus `bezig: false`; bij een grote overdracht `{overdracht, status: "Concept", bezig: true, aantal_bestanden, totale_grootte}` (zie Uit de opslag) |
+| `voeg_toe_van_opslag` | `overdracht` (een concept), `bestanden?`, `mappen?` (als bij `maak_van_opslag`) | `{overdracht, bezig, bestanden: [{bestand, naam, map?, grootte, klaar}]}`; daarna `voltooi` (met `nog_bezig` zolang de server nog kopieert) |
+| `info` (GET) | `overdracht` | `{overdracht, naam, status, bericht, ontvangers, verloopt_op, beveiligd, url, totale_grootte, aantal_downloads, concept_geldig_tot, bestanden: [{bestand, naam, map?, grootte, klaar, aantal_downloads}]}` |
 | `mijn` (GET) | — | `[{overdracht, naam, status, verloopt_op, totale_grootte, aantal_bestanden, aantal_downloads, laatst_gedownload, ontvangers, beveiligd, url, gemaakt, voltooid_op}]`, nieuwste eerst; `url` alleen bij Actief |
 | `trek_in` | `overdracht` | `{overdracht, status: "Ingetrokken"}` |
 
@@ -371,6 +377,26 @@ onderbreking (of na het opnieuw starten van de app): `info` voor de bestanden di
 dan geeft `bestand_stand` nieuwe. Een concept blijft `concept_uren` staan (zie `concept_geldig_tot`); daarna is het
 opgeruimd en moet de app opnieuw beginnen. Fouten komen als gewone Frappe-fouten: 403 (geen recht, niet jouw
 overdracht), 404 (bestaat niet) of 417 met een leesbare melding (grens overschreden, nog niet alles geüpload).
+
+### Uit de opslag
+
+Wat al in een ruimte staat, hoeft niet opnieuw van de app naar de server: `maak_van_opslag` (of `voeg_toe_van_opslag`
+bij een concept, naast wat de app zelf uploadt) kopieert van elk bestand de gevraagde versie (standaard de huidige)
+server-side in S3 naar de overdracht (CopyObject; groot in delen met UploadPartCopy). De kopie hoort bij de
+overdracht: intrekken of verlopen raakt het origineel niet, en een nieuwe versie in de ruimte verandert de overdracht
+niet. Een map gaat mee met alles eronder: elk bestand met zijn map in de overdracht (`map`, bijv.
+`Tekeningen/2026`), zodat de zip op de ontvangstpagina de mappen weer heeft (de pagina toont het pad); lege mappen
+gaan niet mee.
+
+Dezelfde regels als bij delen en overdrachten: het recht om te versturen, leesrecht op elk bestand en elke map (ook via
+een deling), geen gearchiveerde ruimte (403 met `ruimte_gearchiveerd`, zoals bij `deel`), niets uit de prullenbak (404
+met `verwijderd`; in een map gaat wat in de prullenbak staat niet mee), de grootste overdracht, het hoogste aantal
+bestanden en het quotum van de omgeving. Elk gekozen bestand en elke gekozen map komt als `verstuurd` in de
+wijzigingenlijst van zijn ruimte.
+
+Tot 200 bestanden en 2 GB kopieert de server meteen; een grotere overdracht op de achtergrond (wachtrij `long`). Het
+antwoord heeft dan `bezig: true`; `info` laat per bestand zien of het `klaar` is, en de status wordt `Actief` (met
+`url`) zodra alles gekopieerd is en de mail verstuurd. Mislukt het kopiëren, dan wordt de overdracht ingetrokken.
 
 ### Ontvangstpagina
 
@@ -383,7 +409,7 @@ S3 wel. Elke download (en elke zip) telt in `aantal_downloads`. Een wachtwoord v
 link geeft 404, een verlopen of ingetrokken overdracht 410 met een nette melding.
 
 Voor de pagina (gast, POST): `openen(token, wachtwoord?)` → `{naam, bericht, afzender, verloopt_op, totale_grootte,
-zip, bestanden: [{bestand, naam, grootte}]}`, `download(token, bestand, wachtwoord?)` → `{url, geldig_seconden}` en
+zip, bestanden: [{bestand, naam, pad, grootte}]}` (`pad`: met de map in de overdracht ervoor), `download(token, bestand, wachtwoord?)` → `{url, geldig_seconden}` en
 `zip(token, wachtwoord?)` → de zip zelf.
 
 ## Tests

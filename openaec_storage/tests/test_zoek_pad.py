@@ -27,6 +27,13 @@ class TestZoekPad(IntegrationTestCase):
 	def map(self, naam: str, ouder: str | None = None) -> str:
 		return api.maak_map(ruimte=self.ruimte, naam=naam, bovenliggende=ouder)["map"]
 
+	def dubbel(self, naam: str, ouder: str | None = None) -> str:
+		"""Een tweede map met dezelfde naam op dezelfde plek, zoals ze van vóór de controle op dubbele mappen bestaan
+		(de controle bij het opslaan gaat er buitenom)."""
+		map = self.map(naam + " tijdelijk", ouder)
+		frappe.db.set_value("Opslagmap", map, "naam", naam)
+		return map
+
 	def zoek(self, pad: str, **extra) -> str | None:
 		return api.zoek_pad(ruimte=self.ruimte, pad=pad, **extra).get(extra.get("soort", "map"))
 
@@ -59,9 +66,7 @@ class TestZoekPad(IntegrationTestCase):
 	def test_dubbele_mappen_van_vroeger_zoekt_in_allebei(self):
 		# Van vóór de controle op dubbele mappen: twee keer "Projecten" op het hoofdniveau.
 		eerste = self.map("Projecten")
-		tweede = frappe.get_doc({"doctype": "Opslagmap", "ruimte": self.ruimte, "naam": "Projecten"}).insert(
-			ignore_permissions=True
-		).name
+		tweede = self.dubbel("Projecten")
 		diep = self.map("Havenkwartier", tweede)
 		self.assertEqual(self.zoek("Projecten/Havenkwartier"), diep)
 		# Allebei passend aan het eind: de map met inhoud.
@@ -71,9 +76,7 @@ class TestZoekPad(IntegrationTestCase):
 
 	def test_precieze_schrijfwijze_gaat_voor(self):
 		klein = self.map("tekeningen")
-		groot = frappe.get_doc({"doctype": "Opslagmap", "ruimte": self.ruimte, "naam": "Tekeningen"}).insert(
-			ignore_permissions=True
-		).name
+		groot = self.dubbel("Tekeningen")
 		self.assertEqual(self.zoek("Tekeningen"), groot)
 		self.assertEqual(self.zoek("tekeningen"), klein)
 
@@ -111,3 +114,4 @@ class TestZoekPad(IntegrationTestCase):
 	def test_mogelijkheden_noemen_het(self):
 		m = api.mogelijkheden()
 		self.assertTrue(m["zoek_pad"])
+		self.assertTrue(m["overdracht_van_opslag"])

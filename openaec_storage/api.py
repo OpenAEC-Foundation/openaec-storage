@@ -1154,7 +1154,8 @@ KLEIN_MAX_MAPPEN = 1000  # mappen per verzoek (maak_mappen)
 def mogelijkheden() -> dict:
 	"""Wat deze server kent, zodat de desktop-app nieuwe wegen alleen gebruikt waar ze bestaan (een oudere server
 	kent deze methode niet; dan blijft de app bij `bladeren` en uploads per bestand). `deling`: de parameter `deling`
-	(een gedeelde map als bovenste map) bestaat. `zoek_pad`: een pad in één verzoek naar een id."""
+	(een gedeelde map als bovenste map) bestaat. `zoek_pad`: een pad in één verzoek naar een id; `overdracht_van_opslag`:
+	een overdracht van bestanden die al in de opslag staan (`overdracht.maak_van_opslag`), zonder ze opnieuw te uploaden."""
 	grenzen = {"max_bestand": KLEIN_MAX_BESTAND, "max_aantal": KLEIN_MAX_AANTAL, "max_bytes": KLEIN_MAX_BYTES}
 	return {
 		"upload_klein": grenzen,
@@ -1163,6 +1164,7 @@ def mogelijkheden() -> dict:
 		"maak_mappen": True,
 		"deling": True,
 		"zoek_pad": True,
+		"overdracht_van_opslag": True,
 	}
 
 

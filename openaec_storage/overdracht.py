@@ -13,6 +13,12 @@ worden overal ge-escaped getoond. Zolang een overdracht bestaat (concept of acti
 opslaggebruik van de omgeving. `opruimen` (elk uur) haalt verlopen overdrachten en concepten die langer dan
 `openaec_storage_overdracht_concept_uren` (standaard 24) blijven liggen weg: objecten uit S3, record naar Verlopen.
 
+Bestanden en mappen die al in de opslag staan, hoeven niet opnieuw van de app naar de server: `maak_van_opslag` (of
+`voeg_toe_van_opslag` bij een concept) kopieert hun versie server-side in S3 naar de overdracht (CopyObject, groot
+in delen), met leesrecht op de bestanden en mappen. Een map gaat mee met alles eronder: elk bestand met zijn map in
+de overdracht (`map`, een pad met '/'), zodat de zip op de ontvangstpagina de mappen weer heeft. Zie
+"Uit de opslag" hieronder.
+
 "Alles downloaden" is een zip die de server streamt (zonder compressie, zonder hem eerst op te slaan), tot
 `openaec_storage_overdracht_zip_max_gb` (standaard 2 GB). Daarboven haalt de pagina de bestanden een voor een op
 met ondertekende links rechtstreeks uit S3: een grote zip houdt een werker van de server lang bezig en breekt af als
@@ -44,7 +50,7 @@ from frappe.utils import (
 )
 
 from openaec_storage import s3
-from openaec_storage.rechten import is_superbeheer, mag_overdragen
+from openaec_storage.rechten import is_superbeheer, mag_overdragen, weiger
 
 STANDAARD_MAX_GB = 100
 STANDAARD_DAGEN = 7
@@ -52,6 +58,11 @@ STANDAARD_MAX_DAGEN = 30
 STANDAARD_MAX_ONTVANGERS = 20
 STANDAARD_CONCEPT_UREN = 24
 STANDAARD_ZIP_MAX_GB = 2
+STANDAARD_MAX_BESTANDEN = 10000
+# Uit de opslag: tot zoveel bestanden en bytes kopieert de server meteen (in het verzoek), daarboven op de achtergrond.
+DIRECT_KOPIEREN_BESTANDEN = 200
+DIRECT_KOPIEREN_BYTES = 2 * 1000**3
+MAIL_MAX_BESTANDEN = 50
 
 # Statussen waarin de bestanden nog in S3 staan (en dus meetellen in het opslaggebruik).
 BESTAAND = ("Concept", "Actief")
@@ -81,6 +92,10 @@ def _zip_max_bytes() -> int:
 	return int(flt(frappe.conf.get("openaec_storage_overdracht_zip_max_gb") or STANDAARD_ZIP_MAX_GB) * 1000**3)
 
 
+def _max_bestanden() -> int:
+	return cint(frappe.conf.get("openaec_storage_overdracht_max_bestanden")) or STANDAARD_MAX_BESTANDEN
+
+
 def gebruikt_bytes() -> int:
 	"""Bytes in overdrachten die nog bestaan (concept of actief); telt mee in het opslaggebruik van de omgeving."""
 	return cint(
@@ -105,6 +120,7 @@ def grenzen() -> dict:
 		"max_ontvangers": _max_ontvangers(),
 		"concept_uren": _concept_uren(),
 		"zip_max_bytes": _zip_max_bytes(),
+		"max_bestanden": _max_bestanden(),
 		"quotum": quotum(),
 	}
 
@@ -139,7 +155,7 @@ def _bestand(overdracht: str, bestand: str):
 	rij = frappe.db.get_value(
 		"Overdrachtbestand",
 		{"name": bestand or "", "overdracht": overdracht},
-		["name", "naam", "grootte", "s3_sleutel", "upload_id", "deelgrootte", "klaar", "sha256"],
+		["name", "naam", "grootte", "s3_sleutel", "upload_id", "deelgrootte", "klaar", "sha256", "bron_bestand"],
 		as_dict=True,
 	)
 	if not rij:
@@ -188,10 +204,12 @@ def _ontvangers(waarde) -> list[str]:
 	return uit
 
 
-def _vrije_naam(overdracht: str, naam: str) -> str:
+def _vrije_naam(overdracht: str, naam: str, map: str | None = None) -> str:
+	"""Een naam die in deze map van de overdracht nog niet bestaat (anders met " (2)")."""
 	stam, ext = os.path.splitext(naam)
 	kandidaat, teller = naam, 2
-	while frappe.db.exists("Overdrachtbestand", {"overdracht": overdracht, "naam": kandidaat}):
+	plek = {"map": map} if map else {"map": ("is", "not set")}
+	while frappe.db.exists("Overdrachtbestand", {"overdracht": overdracht, "naam": kandidaat, **plek}):
 		kandidaat = f"{stam} ({teller}){ext}"
 		teller += 1
 	return kandidaat
@@ -212,7 +230,15 @@ def _tel_bij(overdracht: str) -> None:
 
 
 def _bestand_uit(rij) -> dict:
-	return {"bestand": rij.name, "naam": rij.naam, "grootte": cint(rij.grootte), "klaar": bool(cint(rij.klaar))}
+	uit = {"bestand": rij.name, "naam": rij.naam, "grootte": cint(rij.grootte), "klaar": bool(cint(rij.klaar))}
+	if rij.get("map"):
+		uit["map"] = rij.map
+	return uit
+
+
+def _pad(rij) -> str:
+	"""Naam met de map in de overdracht ervoor (zoals in de zip)."""
+	return f"{rij.map}/{rij.naam}" if rij.get("map") else rij.naam
 
 
 # --- maken en uploaden (de app van de afzender) ------------------------------------------------------
@@ -273,6 +299,8 @@ def bestand_start(overdracht: str, naam: str, grootte: int, sha256: str | None =
 	)
 	if al + grootte > _max_bytes():
 		frappe.throw(_("Een overdracht kan hoogstens {0} groot zijn").format(_leesbaar(_max_bytes())))
+	if frappe.db.count("Overdrachtbestand", {"overdracht": doc.name}) >= _max_bestanden():
+		frappe.throw(_("Een overdracht kan hoogstens {0} bestanden hebben").format(_max_bestanden()))
 	_controleer_quotum(grootte)
 
 	blok = s3.blokgrootte(grootte)
@@ -323,6 +351,8 @@ def bestand_stand(overdracht: str, bestand: str) -> dict:
 	uit = {**_bestand_uit(rij), "deelgrootte": cint(rij.deelgrootte)}
 	if cint(rij.klaar):
 		return {**uit, "aanwezig": [], "ontbrekend": [], "delen": []}
+	if rij.bron_bestand:
+		frappe.throw(_("Dit bestand komt uit de opslag en wordt op de server gekopieerd; er valt niets te uploaden"))
 	if doc.status != "Concept":
 		frappe.throw(_("Deze overdracht is al {0}").format(_(doc.status).lower()))
 	aantal, blok = _verwacht(rij), cint(rij.deelgrootte)
@@ -390,21 +420,336 @@ def bestand_weg(overdracht: str, bestand: str) -> None:
 	_tel_bij(doc.name)
 
 
+# --- uit de opslag: bestanden die al in een ruimte staan, zonder ze opnieuw te uploaden ---------------
+#
+# De app (of de browser) noemt Opslagbestanden en Opslagmappen; de server kopieert van elk bestand de gevraagde versie
+# (standaard de huidige) in S3 naar de overdracht, zonder dat er bytes van de app naar de server gaan. Dezelfde regels
+# als bij delen en overdrachten: het recht om te versturen (`mag_overdragen`), leesrecht op elk bestand en elke map
+# (ook via een deling), geen gearchiveerde ruimte (zoals `deel`: foutcode `ruimte_gearchiveerd`), niets uit de
+# prullenbak, en de grenzen van een overdracht (grootte, aantal bestanden) en het quotum van de omgeving. Elk gekozen
+# bestand en elke gekozen map komt als `verstuurd` in de wijzigingenlijst van zijn ruimte.
+#
+# Een kleine overdracht kopieert de server meteen; een grote (meer dan DIRECT_KOPIEREN_BESTANDEN bestanden of
+# DIRECT_KOPIEREN_BYTES) op de achtergrond (`kopieer_uit_opslag`): het antwoord heeft dan `bezig`, en `info` laat zien
+# wanneer elk bestand klaar is. Mislukt het kopiëren, dan wordt de overdracht ingetrokken.
+
+
+def _als_lijst(waarde) -> list:
+	if not waarde:
+		return []
+	if isinstance(waarde, str):
+		try:
+			waarde = json.loads(waarde) if waarde.strip().startswith("[") else [waarde]
+		except ValueError:
+			frappe.throw(_("Ongeldige lijst"))
+	return list(waarde)
+
+
+def _leesbare_bron(ruimte: str, map: str | None, bestand: str | None = None) -> None:
+	"""Leesrecht op de plek, en geen gearchiveerde ruimte (zoals bij delen)."""
+	from openaec_storage.rechten import vereis_op_plek, weiger_als_gearchiveerd
+
+	vereis_op_plek(ruimte, map, "read", bestand)
+	weiger_als_gearchiveerd(ruimte)
+
+
+def _bron_bestand(item) -> dict:
+	"""Eén gekozen bestand: een id, of `{bestand, versie}` (de versie die de app lokaal heeft)."""
+	if isinstance(item, dict):
+		naam, versie = item.get("bestand"), cint(item.get("versie"))
+	else:
+		naam, versie = item, 0
+	doc = frappe.db.get_value(
+		"Opslagbestand", naam or "", ["name", "ruimte", "map", "naam", "huidige_versie", "verwijderd_op"], as_dict=True
+	)
+	if not doc:
+		frappe.throw(_("Bestand bestaat niet"), frappe.DoesNotExistError)
+	_leesbare_bron(doc.ruimte, doc.map, doc.name)
+	if doc.verwijderd_op:
+		weiger(_("{0} staat in de prullenbak").format(escape_html(doc.naam)), "verwijderd", frappe.DoesNotExistError)
+	volgnummer = versie or cint(doc.huidige_versie)
+	v = frappe.db.get_value(
+		"Bestandsversie", {"bestand": doc.name, "volgnummer": volgnummer}, ["s3_sleutel", "grootte", "sha256"], as_dict=True
+	)
+	if not v or not v.s3_sleutel:
+		frappe.throw(_("Versie {0} van {1} bestaat niet").format(volgnummer, escape_html(doc.naam)), frappe.DoesNotExistError)
+	return {
+		"ruimte": doc.ruimte,
+		"bestand": doc.name,
+		"versie": volgnummer,
+		"naam": doc.naam,
+		"map": None,
+		"grootte": cint(v.grootte),
+		"sha256": v.sha256,
+	}
+
+
+def _bron_map(map: str) -> list[dict]:
+	"""Alle bestanden onder een gekozen map (de huidige versie), elk met zijn map in de overdracht: de naam van de
+	gekozen map, en daaronder de submappen. Wat in de prullenbak staat (ook een map erboven), gaat niet mee."""
+	from openaec_storage.api import _submappen
+
+	doc = frappe.db.get_value("Opslagmap", map or "", ["name", "ruimte", "naam", "verwijderd_op"], as_dict=True)
+	if not doc:
+		frappe.throw(_("Map bestaat niet"), frappe.DoesNotExistError)
+	_leesbare_bron(doc.ruimte, doc.name)
+	if doc.verwijderd_op:
+		weiger(_("{0} staat in de prullenbak").format(escape_html(doc.naam)), "verwijderd", frappe.DoesNotExistError)
+	ids = _submappen(doc.name)
+	ouders = {
+		m.name: m
+		for m in frappe.get_all(
+			"Opslagmap", filters={"name": ("in", ids)}, fields=["name", "naam", "bovenliggende"], ignore_permissions=True
+		)
+	}
+	paden: dict[str, str] = {doc.name: doc.naam.strip()}
+
+	def pad_van(id: str) -> str:
+		if id not in paden:
+			m = ouders[id]
+			paden[id] = f"{pad_van(m.bovenliggende)}/{m.naam.strip()}"
+		return paden[id]
+
+	rijen = frappe.db.sql(
+		"""select b.name, b.naam, b.map, b.huidige_versie, v.grootte, v.sha256 from `tabOpslagbestand` b
+		join `tabBestandsversie` v on v.bestand = b.name and v.volgnummer = b.huidige_versie
+		where b.map in %s and b.verwijderd_op is null and ifnull(v.s3_sleutel, '') != ''
+		order by b.map, b.naam""",
+		(tuple(ids),),
+		as_dict=True,
+	)
+	return [
+		{
+			"ruimte": doc.ruimte,
+			"bestand": r.name,
+			"versie": cint(r.huidige_versie),
+			"naam": r.naam,
+			"map": pad_van(r.map),
+			"grootte": cint(r.grootte),
+			"sha256": r.sha256,
+		}
+		for r in rijen
+	]
+
+
+def _bronnen(bestanden, mappen) -> tuple[list[dict], list[tuple]]:
+	"""De gekozen bestanden en mappen nagekeken (rechten, prullenbak, archief): de bestanden om te kopiëren, en per
+	gekozen item de regel voor de wijzigingenlijst."""
+	bestanden, mappen = _als_lijst(bestanden), _als_lijst(mappen)
+	if not bestanden and not mappen:
+		frappe.throw(_("Kies een of meer bestanden of mappen uit de opslag"))
+	bronnen, gelogd = [], []
+	for item in bestanden:
+		bron = _bron_bestand(item)
+		bronnen.append(bron)
+		gelogd.append((bron["ruimte"], "Opslagbestand", bron["bestand"], bron["naam"]))
+	for map in mappen:
+		bronnen += _bron_map(map)
+		ruimte, naam = frappe.db.get_value("Opslagmap", map, ["ruimte", "naam"])
+		gelogd.append((ruimte, "Opslagmap", map, naam))
+	if not bronnen:
+		frappe.throw(_("Er staan geen bestanden in de gekozen mappen"))
+	return bronnen, gelogd
+
+
+def _voeg_bronnen_toe(doc, bronnen: list[dict], gelogd: list[tuple]) -> list:
+	"""Zet de nagekeken bestanden (nog niet gekopieerd) in de concept-overdracht, binnen de grenzen en het quotum."""
+	from openaec_storage.api import _controleer_quotum, _log
+
+	# Gelijktijdige aanvragen voor dezelfde overdracht na elkaar (zoals bij bestand_start).
+	frappe.db.sql("select name from `tabOverdracht` where name = %s for update", doc.name)
+	al, aantal = frappe.db.sql(
+		"select coalesce(sum(grootte), 0), count(*) from `tabOverdrachtbestand` where overdracht = %s", doc.name
+	)[0]
+	erbij = sum(b["grootte"] for b in bronnen)
+	if cint(al) + erbij > _max_bytes():
+		frappe.throw(_("Een overdracht kan hoogstens {0} groot zijn").format(_leesbaar(_max_bytes())))
+	if cint(aantal) + len(bronnen) > _max_bestanden():
+		frappe.throw(_("Een overdracht kan hoogstens {0} bestanden hebben").format(_max_bestanden()))
+	_controleer_quotum(erbij)
+	uit = []
+	for b in bronnen:
+		rij = frappe.get_doc(
+			{
+				"doctype": "Overdrachtbestand",
+				"overdracht": doc.name,
+				"naam": _vrije_naam(doc.name, b["naam"], b["map"]),
+				"map": b["map"],
+				"grootte": b["grootte"],
+				"sha256": b["sha256"],
+				"s3_sleutel": s3.overdracht_sleutel(doc.name),
+				"deelgrootte": s3.blokgrootte(b["grootte"]),
+				"bron_bestand": b["bestand"],
+				"bron_versie": b["versie"],
+			}
+		).insert(ignore_permissions=True)
+		uit.append(rij)
+	_tel_bij(doc.name)
+	for ruimte, doctype, doel, naam in gelogd:
+		_log(ruimte, "verstuurd", doctype, doel, naam)
+	return uit
+
+
+def _kopieer_open(overdracht: str) -> int:
+	"""Kopieer de bestanden uit de opslag die nog niet klaar zijn, tegelijk; geeft het aantal."""
+	from concurrent.futures import ThreadPoolExecutor
+
+	rijen = frappe.get_all(
+		"Overdrachtbestand",
+		filters={"overdracht": overdracht, "klaar": 0, "bron_bestand": ("is", "set")},
+		fields=["name", "s3_sleutel", "bron_bestand", "bron_versie"],
+		ignore_permissions=True,
+	)
+	if not rijen:
+		return 0
+	bronnen = {
+		(v.bestand, cint(v.volgnummer)): v.s3_sleutel
+		for v in frappe.get_all(
+			"Bestandsversie",
+			filters={"bestand": ("in", list({r.bron_bestand for r in rijen}))},
+			fields=["bestand", "volgnummer", "s3_sleutel"],
+			ignore_permissions=True,
+		)
+	}
+	paren = []
+	for r in rijen:
+		bron = bronnen.get((r.bron_bestand, cint(r.bron_versie)))
+		if not bron:
+			frappe.throw(_("Een bestand uit de opslag bestaat niet meer"), frappe.DoesNotExistError)
+		paren.append((bron, r.s3_sleutel))
+	kopieer = s3.kopieerder()
+	with ThreadPoolExecutor(max_workers=min(8, len(paren))) as werkers:
+		list(werkers.map(lambda p: kopieer(*p), paren))
+	for r in rijen:
+		frappe.db.set_value("Overdrachtbestand", r.name, "klaar", 1, update_modified=False)
+	return len(rijen)
+
+
+def _direct(rijen: list) -> bool:
+	return len(rijen) <= DIRECT_KOPIEREN_BESTANDEN and sum(cint(r.grootte) for r in rijen) <= DIRECT_KOPIEREN_BYTES
+
+
+def _kopieer(doc, rijen: list, voltooien: bool) -> dict | None:
+	"""Klein: meteen kopiëren (en met `voltooien` de link maken; geeft het antwoord van voltooi). Groot: op de
+	achtergrond; geeft None."""
+	if _direct(rijen):
+		_kopieer_open(doc.name)
+		return _voltooi(doc) if voltooien else {}
+	frappe.enqueue(
+		"openaec_storage.overdracht.kopieer_uit_opslag",
+		queue="long",
+		timeout=6 * 3600,
+		enqueue_after_commit=True,
+		overdracht=doc.name,
+		voltooien=voltooien,
+	)
+	return None
+
+
+def kopieer_uit_opslag(overdracht: str, voltooien: bool = False) -> None:
+	"""Achtergrondtaak (als de maker): de bestanden uit de opslag kopiëren, en met `voltooien` de link maken en de
+	ontvangers mailen. Lukt het niet, dan gaat de overdracht weg (ingetrokken); de app ziet dat in `info`. De
+	wachtrij legt het resultaat vast als de taak klaar is."""
+	frappe.db.savepoint("kopieer_uit_opslag")
+	try:
+		_kopieer_open(overdracht)
+		if voltooien:
+			_voltooi(_overdracht(overdracht, "Concept"))
+	except Exception:
+		frappe.db.rollback(save_point="kopieer_uit_opslag")
+		frappe.log_error(title=f"Overdracht {overdracht}: kopiëren uit de opslag mislukt")
+		try:
+			_weg_uit_s3(overdracht)
+		except Exception:
+			frappe.log_error(title=f"Overdracht {overdracht} niet opgeruimd")
+		frappe.db.set_value("Overdracht", overdracht, "status", "Ingetrokken")
+
+
+def _bezig_antwoord(doc, rijen: list) -> dict:
+	return {
+		"overdracht": doc.name,
+		"status": "Concept",
+		"bezig": True,
+		"aantal_bestanden": len(rijen),
+		"totale_grootte": sum(cint(r.grootte) for r in rijen),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def voeg_toe_van_opslag(overdracht: str, bestanden=None, mappen=None) -> dict:
+	"""Bestanden (ids, of `{bestand, versie}`) en mappen (ids, met alles eronder) uit de opslag toevoegen aan een
+	concept-overdracht, naast wat de app zelf uploadt. Antwoord: de nieuwe bestanden (met `map` bij een map) en
+	`bezig` als de server ze nog op de achtergrond kopieert; `voltooi` kan pas als alles klaar is (anders foutcode
+	`nog_bezig`)."""
+	_vereis_recht()
+	doc = _overdracht(overdracht, "Concept")
+	rijen = _voeg_bronnen_toe(doc, *_bronnen(bestanden, mappen))
+	bezig = _kopieer(doc, rijen, voltooien=False) is None
+	if not bezig:
+		for rij in rijen:
+			rij.klaar = 1
+	return {"overdracht": doc.name, "bezig": bezig, "bestanden": [_bestand_uit(r) for r in rijen]}
+
+
+@frappe.whitelist(methods=["POST"])
+def maak_van_opslag(
+	bestanden=None,
+	mappen=None,
+	naam: str | None = None,
+	ontvangers=None,
+	bericht: str | None = None,
+	verloopt: str | None = None,
+	wachtwoord: str | None = None,
+	verloopt_op: str | None = None,
+) -> dict:
+	"""Een overdracht van bestanden en mappen die al in de opslag staan, in één verzoek: maken, server-side kopiëren
+	en de link maken (met de mail aan de ontvangers), zonder dat er iets opnieuw geüpload wordt. Zonder `naam` de
+	naam van het eerste bestand of de eerste map. Antwoord zoals `voltooi`; bij een grote overdracht kopieert de
+	server op de achtergrond: dan `bezig` met status Concept, en `info` geeft de link zodra hij klaar is."""
+	_vereis_recht()
+	bestanden, mappen = _als_lijst(bestanden), _als_lijst(mappen)
+	# Eerst alles nakijken, dan pas de overdracht maken.
+	bronnen, gelogd = _bronnen(bestanden, mappen)
+	if not (naam or "").strip():
+		eerste = bestanden[0] if bestanden else None
+		if isinstance(eerste, dict):
+			eerste = eerste.get("bestand")
+		naam = (
+			frappe.db.get_value("Opslagbestand", eerste, "naam")
+			if eerste
+			else frappe.db.get_value("Opslagmap", mappen[0], "naam") if mappen else None
+		) or _("Bestanden")
+	concept = maak(
+		naam=naam, bericht=bericht, verloopt_op=verloopt or verloopt_op, wachtwoord=wachtwoord, ontvangers=ontvangers
+	)
+	doc = _overdracht(concept["overdracht"], "Concept")
+	rijen = _voeg_bronnen_toe(doc, bronnen, gelogd)
+	klaar = _kopieer(doc, rijen, voltooien=True)
+	if klaar is None:
+		return _bezig_antwoord(doc, rijen)
+	return {**klaar, "bezig": False}
+
+
 @frappe.whitelist(methods=["POST"])
 def voltooi(overdracht: str) -> dict:
 	"""Maak de link (en mail de ontvangers). Kan pas als elk bestand afgerond is (`bestand_klaar`)."""
 	_vereis_recht()
-	doc = _overdracht(overdracht, "Concept")
+	return _voltooi(_overdracht(overdracht, "Concept"))
+
+
+def _voltooi(doc) -> dict:
 	frappe.db.sql("select name from `tabOverdracht` where name = %s for update", doc.name)
 	rijen = frappe.get_all(
 		"Overdrachtbestand",
 		filters={"overdracht": doc.name},
-		fields=["name", "naam", "grootte", "klaar"],
-		order_by="naam asc",
+		fields=["name", "naam", "map", "grootte", "klaar", "bron_bestand"],
+		order_by="map asc, naam asc",
 	)
 	if not rijen:
 		frappe.throw(_("Voeg eerst een of meer bestanden toe"))
-	open_ = [r.naam for r in rijen if not cint(r.klaar)]
+	if any(r.bron_bestand and not cint(r.klaar) for r in rijen):
+		weiger(_("De bestanden uit de opslag worden nog gekopieerd; probeer het zo opnieuw"), "nog_bezig")
+	open_ = [_pad(r) for r in rijen if not cint(r.klaar)]
 	if open_:
 		frappe.throw(_("Nog niet alle bestanden zijn geüpload: {0}").format(escape_html(", ".join(open_))))
 	if get_datetime(doc.verloopt_op) <= now_datetime():
@@ -433,8 +778,11 @@ def _mail(doc, token: str, rijen, ontvangers: list[str]) -> list[str]:
 	afzender = get_fullname(doc.owner) or doc.owner
 	url = _url(token)
 	bestanden = "".join(
-		f"<li>{escape_html(r.naam)} <span style='color:#6b6b76'>({_leesbaar(cint(r.grootte))})</span></li>" for r in rijen
+		f"<li>{escape_html(_pad(r))} <span style='color:#6b6b76'>({_leesbaar(cint(r.grootte))})</span></li>"
+		for r in rijen[:MAIL_MAX_BESTANDEN]
 	)
+	if len(rijen) > MAIL_MAX_BESTANDEN:
+		bestanden += f"<li>{escape_html(_('en nog {0} bestanden').format(len(rijen) - MAIL_MAX_BESTANDEN))}</li>"
 	bericht = (
 		f"<p style='white-space:pre-line;border-left:3px solid #d97706;padding-left:12px'>{escape_html(doc.bericht)}</p>"
 		if doc.bericht
@@ -510,7 +858,7 @@ def info(overdracht: str) -> dict:
 	rijen = frappe.get_all(
 		"Overdrachtbestand",
 		filters={"overdracht": doc.name},
-		fields=["name", "naam", "grootte", "klaar", "aantal_downloads"],
+		fields=["name", "naam", "map", "grootte", "klaar", "aantal_downloads"],
 		order_by="creation asc",
 	)
 	return {
@@ -610,8 +958,8 @@ def _bestanden(overdracht: str):
 	return frappe.get_all(
 		"Overdrachtbestand",
 		filters={"overdracht": overdracht, "klaar": 1},
-		fields=["name", "naam", "grootte", "s3_sleutel"],
-		order_by="naam asc",
+		fields=["name", "naam", "map", "grootte", "s3_sleutel"],
+		order_by="map asc, naam asc",
 		ignore_permissions=True,
 	)
 
@@ -642,7 +990,9 @@ def openen(token: str, wachtwoord: str | None = None) -> dict:
 		"verloopt_op": rij.verloopt_op,
 		"totale_grootte": totaal,
 		"zip": len(bestanden) > 0 and totaal <= _zip_max_bytes(),
-		"bestanden": [{"bestand": b.name, "naam": b.naam, "grootte": cint(b.grootte)} for b in bestanden],
+		"bestanden": [
+			{"bestand": b.name, "naam": b.naam, "pad": _pad(b), "grootte": cint(b.grootte)} for b in bestanden
+		],
 	}
 
 
@@ -714,7 +1064,7 @@ def zip(token: str, wachtwoord: str | None = None):
 	_tel_download(rij.name)
 	naam = (re.sub(r'[\\/:*?"<>|\r\n]+', "_", rij.naam).strip() or "overdracht") + ".zip"
 	return Response(
-		_zipstroom([(b.naam, b.s3_sleutel, cint(b.grootte)) for b in bestanden], s3.lezer()),
+		_zipstroom([(_pad(b), b.s3_sleutel, cint(b.grootte)) for b in bestanden], s3.lezer()),
 		mimetype="application/zip",
 		headers={
 			"Content-Disposition": "attachment; filename=\"{}\"; filename*=UTF-8''{}".format(
