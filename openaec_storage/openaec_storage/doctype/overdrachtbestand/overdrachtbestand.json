@@ -8,13 +8,16 @@
  "field_order": [
   "overdracht",
   "naam",
+  "map",
   "grootte",
   "sha256",
   "s3_sleutel",
   "upload_id",
   "deelgrootte",
   "klaar",
-  "aantal_downloads"
+  "aantal_downloads",
+  "bron_bestand",
+  "bron_versie"
  ],
  "fields": [
   {
@@ -33,6 +36,14 @@
    "label": "Naam",
    "reqd": 1,
    "in_list_view": 1
+  },
+  {
+   "fieldname": "map",
+   "fieldtype": "Data",
+   "ignore_xss_filter": 1,
+   "label": "Map in de overdracht",
+   "length": 1000,
+   "description": "Pad van de map met '/' (bij een map die mee is gestuurd); leeg = bovenaan."
   },
   {
    "fieldname": "grootte",
@@ -77,9 +88,22 @@
    "label": "Aantal downloads",
    "default": "0",
    "read_only": 1
+  },
+  {
+   "fieldname": "bron_bestand",
+   "fieldtype": "Data",
+   "label": "Uit de opslag",
+   "read_only": 1,
+   "description": "Server-side gekopieerd uit dit Opslagbestand (een overdracht van bestanden die al in de opslag staan); geen koppeling, zodat het bestand later gewoon weg kan."
+  },
+  {
+   "fieldname": "bron_versie",
+   "fieldtype": "Int",
+   "label": "Versie uit de opslag",
+   "read_only": 1
   }
  ],
- "modified": "2026-10-22 00:00:00.000000",
+ "modified": "2026-10-26 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Overdrachtbestand",

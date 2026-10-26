@@ -161,7 +161,7 @@
 	// Te groot voor een zip: de bestanden een voor een, elk via een verborgen frame.
 	const perBestand = async () => {
 		for (const b of inhoud.bestanden) {
-			zeg(`${b.naam} wordt gedownload…`)
+			zeg(`${b.pad || b.naam} wordt gedownload…`)
 			const frame = document.createElement("iframe")
 			frame.hidden = true
 			frame.src = await download(b.bestand)
@@ -190,7 +190,8 @@
 			const li = document.createElement("li")
 			const naam = document.createElement("span")
 			naam.className = "oas-item"
-			naam.textContent = b.naam
+			// Uit een meegestuurde map: met de map ervoor (zoals in de zip).
+			naam.textContent = b.pad || b.naam
 			const maat = document.createElement("span")
 			maat.className = "oas-grootte"
 			maat.textContent = grootte(b.grootte)

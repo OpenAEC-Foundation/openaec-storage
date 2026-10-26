@@ -160,6 +160,28 @@ def kopieer_deel(sleutel: str, upload_id: str, nummer: int, bron_sleutel: str, b
 	return antwoord["CopyPartResult"]["ETag"]
 
 
+# Server-side kopiëren: tot deze grootte in één CopyObject, daarboven in delen (UploadPartCopy, tegelijk). S3 kopieert
+# hoogstens 5 GB in één keer.
+KOPIE_GRENS = 1024 * MIB
+KOPIE_DEELGROOTTE = 256 * MIB
+
+
+def kopieerder():
+	"""Functie (bron, doel) die een object binnen de bucket kopieert, zonder dat de bytes langs de server gaan
+	(overdracht van bestanden die al in de opslag staan). Groot gaat in delen; een eigen KMS-sleutel geldt ook voor de
+	kopie. Client, bucket en instellingen liggen hier al vast, zodat de functie ook in andere draden werkt (daar is
+	`frappe.conf` er niet)."""
+	from boto3.s3.transfer import TransferConfig
+
+	client, naam, extra = _client(), bucket(), _versleuteling() or None
+	config = TransferConfig(multipart_threshold=KOPIE_GRENS, multipart_chunksize=KOPIE_DEELGROOTTE, max_concurrency=4)
+
+	def kopieer(bron: str, doel: str) -> None:
+		client.copy({"Bucket": naam, "Key": bron}, naam, doel, ExtraArgs=extra, Config=config)
+
+	return kopieer
+
+
 # --- overdrachten: hervatten, opruimen en als zip lezen ----------------------------------------------
 
 

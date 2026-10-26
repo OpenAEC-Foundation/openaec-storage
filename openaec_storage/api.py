@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import os
+import unicodedata
 
 import frappe
 from frappe import _
@@ -1187,9 +1188,18 @@ KLEIN_MAX_MAPPEN = 1000  # mappen per verzoek (maak_mappen)
 def mogelijkheden() -> dict:
 	"""Wat deze server kent, zodat de desktop-app nieuwe wegen alleen gebruikt waar ze bestaan (een oudere server
 	kent deze methode niet; dan blijft de app bij `bladeren` en uploads per bestand). `deling`: de parameter `deling`
-	(een gedeelde map als bovenste map) bestaat."""
+	(een gedeelde map als bovenste map) bestaat. `zoek_pad`: een pad in één verzoek naar een id; `overdracht_van_opslag`:
+	een overdracht van bestanden die al in de opslag staan (`overdracht.maak_van_opslag`), zonder ze opnieuw te uploaden."""
 	grenzen = {"max_bestand": KLEIN_MAX_BESTAND, "max_aantal": KLEIN_MAX_AANTAL, "max_bytes": KLEIN_MAX_BYTES}
-	return {"upload_klein": grenzen, "download_klein": grenzen, "boom": True, "maak_mappen": True, "deling": True}
+	return {
+		"upload_klein": grenzen,
+		"download_klein": grenzen,
+		"boom": True,
+		"maak_mappen": True,
+		"deling": True,
+		"zoek_pad": True,
+		"overdracht_van_opslag": True,
+	}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1250,6 +1260,90 @@ def boom(ruimte: str | None = None, start: int = 0, aantal: int = 10000, deling:
 	)
 	uit = {"mappen": mappen, "bestanden": bestanden[:aantal], "meer": len(bestanden) > aantal}
 	return {**uit, "wortel": wortel} if wortel else uit
+
+
+def _vergelijkbaar(naam: str | None) -> str:
+	"""Een naam zoals `zoek_pad` hem vergelijkt: Unicode-NFC, zonder spaties eromheen, zonder hoofdletters."""
+	return _nfc(naam).casefold()
+
+
+def _nfc(naam: str | None) -> str:
+	return unicodedata.normalize("NFC", (naam or "").strip())
+
+
+def _inhoud_onder(map: str) -> int:
+	"""Hoeveel er direct in een map staat (mappen en bestanden), om bij dubbele mappen de goede te kiezen."""
+	return frappe.db.count("Opslagmap", {"bovenliggende": map, "verwijderd_op": ("is", "not set")}) + frappe.db.count(
+		"Opslagbestand", {"map": map, "verwijderd_op": ("is", "not set")}
+	)
+
+
+def _passend(rijen: list, deel: str) -> list:
+	"""De rijen waarvan de naam bij `deel` past; als er een is met precies deze schrijfwijze, alleen die."""
+	gezocht = _vergelijkbaar(deel)
+	passend = [r for r in rijen if _vergelijkbaar(r.naam) == gezocht]
+	exact = [r for r in passend if _nfc(r.naam) == _nfc(deel)]
+	return sorted(exact or passend, key=lambda r: r.creation)
+
+
+@frappe.whitelist()
+def zoek_pad(ruimte: str | None = None, pad: str = "", soort: str = "map", deling: str | None = None) -> dict:
+	"""Het id van een map (of met `soort="bestand"` een bestand) bij een pad met '/' in de ruimte (met `deling`: in
+	de gedeelde map), in één verzoek in plaats van map voor map bladeren. Voor de desktop-app, die bij een lokaal pad
+	het id op de server nodig heeft (delen, versturen).
+
+	Namen worden vergeleken zoals de opslag ze aanmaakt: zonder hoofdletters en spaties eromheen, en in Unicode-NFC;
+	een naam met precies deze schrijfwijze gaat voor. Staan er op één plek twee mappen met dezelfde naam (van vóór de
+	controle op dubbele mappen), dan zoekt hij in allebei verder; passen er aan het eind meer, dan wint de map met
+	inhoud, dan de oudste. Antwoord: `{map}` of `{bestand}` met het id en `gevonden`; een pad dat niet bestaat is geen
+	fout (`gevonden` false). Een leeg pad is het hoofdniveau (`map` None, of de gedeelde map)."""
+	ruimte, wortel = _wortel(ruimte, deling)
+	if not ruimte or not frappe.db.exists("Ruimte", ruimte):
+		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
+	if soort not in ("map", "bestand"):
+		frappe.throw(_("Onbekende soort: {0}").format(soort))
+	vereis_op_plek(ruimte, wortel, "read")
+	delen = [d for d in (pad or "").replace("\\", "/").split("/") if d.strip()]
+	niets = {soort: None, "gevonden": False}
+	if soort == "bestand" and not delen:
+		return niets
+	kandidaten: list[str | None] = [wortel]
+	for deel in delen[:-1] if soort == "bestand" else delen:
+		mappen = frappe.get_all(
+			"Opslagmap",
+			filters={
+				"ruimte": ruimte,
+				"bovenliggende": ("in", kandidaten) if kandidaten != [None] else ("is", "not set"),
+				"verwijderd_op": ("is", "not set"),
+			},
+			fields=["name", "naam", "creation"],
+			ignore_permissions=True,
+		)
+		# Op elk niveau blijven alle passende mappen over: bij dubbele mappen kan het pad in elk ervan verder gaan.
+		kandidaten = [m.name for m in _passend(mappen, deel)]
+		if not kandidaten:
+			return niets
+	if soort == "bestand":
+		bestanden = frappe.get_all(
+			"Opslagbestand",
+			filters={
+				"ruimte": ruimte,
+				"map": ("in", kandidaten) if kandidaten != [None] else ("is", "not set"),
+				"verwijderd_op": ("is", "not set"),
+			},
+			fields=["name", "naam", "map", "creation"],
+			ignore_permissions=True,
+		)
+		passend = _passend(bestanden, delen[-1])
+		if not passend:
+			return niets
+		vereis_op_plek(ruimte, passend[0].map, "read", passend[0].name)
+		return {"bestand": passend[0].name, "gevonden": True}
+	if len(kandidaten) > 1:
+		kandidaten.sort(key=lambda m: _inhoud_onder(m) == 0)
+	if kandidaten[0]:
+		vereis_op_plek(ruimte, kandidaten[0], "read")
+	return {"map": kandidaten[0], "gevonden": True}
 
 
 def _als_lijst(waarde) -> list:
