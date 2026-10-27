@@ -63,6 +63,17 @@ class TestCollegasEnDelingen(IntegrationTestCase):
 			gebruiker(f"veel{i:02}")
 		self.assertEqual(len(self.zoek("veel")), 20)
 
+	def test_een_gast_nooit(self):
+		"""Een gast (websitegebruiker) ziet de medewerkers niet, ook niet als schrijver van de ruimte."""
+		frappe.set_user("Administrator")
+		doc = frappe.get_doc("Ruimte", self.ruimte)
+		doc.append("leden", {"gebruiker": self.web, "rol": "schrijver"})
+		doc.save()
+		frappe.set_user(self.web)
+		self.assertEqual(foutcode(self, frappe.PermissionError, self.zoek, "anna"), "alleen_leden")
+		frappe.set_user("Guest")
+		self.assertEqual(foutcode(self, frappe.PermissionError, self.zoek, "anna"), "alleen_leden")
+
 	def test_alleen_wie_mag_delen(self):
 		frappe.set_user(self.lezer)
 		with self.assertRaises(frappe.PermissionError):

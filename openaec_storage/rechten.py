@@ -59,6 +59,20 @@ def mag_ruimte_maken(gebruiker: str | None = None) -> bool:
 	return not set(ruimte_makers()).isdisjoint(frappe.get_roles(gebruiker))
 
 
+def is_lid(gebruiker: str | None = None) -> bool:
+	"""Is `gebruiker` lid van de omgeving (een systeemgebruiker)? Een gast (websitegebruiker) niet, ook niet met een
+	rol in een ruimte of een deling met beheren; Administrator en System Manager wel."""
+	gebruiker = gebruiker or frappe.session.user
+	if not gebruiker or gebruiker == "Guest":
+		return False
+	return is_superbeheer(gebruiker) or frappe.db.get_value("User", gebruiker, "user_type") == "System User"
+
+
+def vereis_lid() -> None:
+	if not is_lid():
+		weiger(_("Alleen leden van deze omgeving kunnen dit opvragen"), "alleen_leden", frappe.PermissionError)
+
+
 def weiger(melding: str, foutcode: str, uitzondering=frappe.ValidationError) -> None:
 	"""Weiger met een vaste foutcode naast de melding (`foutcode` in het antwoord): de desktop-app, de gateway en de
 	browser kennen zo de reden zonder de tekst te lezen."""

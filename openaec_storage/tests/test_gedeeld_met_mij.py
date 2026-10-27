@@ -429,7 +429,11 @@ class TestBeheren(GedeeldBasis):
 		self.assertEqual(frappe.db.get_value("Opslagdeling", voor_cees["deling"], "rechten"), "lezen")
 		api.trek_in(voor_cees["deling"])
 		self.assertTrue(frappe.db.get_value("Opslagdeling", voor_cees["deling"], "ingetrokken"))
-		# Collega's zoeken om mee te delen mag ook.
+		# Collega's zoeken om mee te delen mag alleen een lid van de omgeving; een gast met beheren krijgt de namen
+		# en adressen van de medewerkers niet.
+		frappe.set_user(self.bea)
+		self.assertEqual(foutcode(self, frappe.PermissionError, api.collegas, "cees", self.ruimte), "alleen_leden")
+		frappe.db.set_value("User", self.bea, "user_type", "System User")
 		self.assertIn(self.cees, [c["gebruiker"] for c in api.collegas("cees", self.ruimte)])
 
 	def test_beheren_geeft_niets_buiten_de_map_en_niets_over_de_ruimte(self):

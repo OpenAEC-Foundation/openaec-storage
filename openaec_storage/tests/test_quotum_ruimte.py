@@ -99,6 +99,24 @@ class TestQuotumRuimte(IntegrationTestCase):
 		self.assertEqual(set(api.quotum()), {"gebruikt_bytes", "limiet_bytes", "overdrachten_bytes"})
 		self.assertEqual(api.quotum()["gebruikt_bytes"], KB)
 
+	def test_een_gast_ziet_alleen_zijn_eigen_ruimtes(self):
+		upload(self.a, "a.bin", b"x" * KB)
+		upload(self.b, "b.bin", b"x" * 2 * KB)
+		frappe.set_user("Administrator")
+		gast = gebruiker("gast")
+		frappe.db.set_value("User", gast, "user_type", "Website User")
+		doc = frappe.get_doc("Ruimte", self.b)
+		doc.append("leden", {"gebruiker": gast, "rol": "gast"})
+		doc.save()
+		frappe.local.conf["openaec_storage_quotum_gb"] = 1
+		frappe.set_user(gast)
+		self.assertEqual(api.quotum(), {"gebruikt_bytes": 2 * KB, "limiet_bytes": None, "overdrachten_bytes": 0})
+		# Een lid ziet de hele omgeving.
+		frappe.db.set_value("User", self.schrijver, "user_type", "System User")
+		frappe.set_user(self.schrijver)
+		self.assertEqual(api.quotum()["gebruikt_bytes"], 3 * KB)
+		self.assertEqual(api.quotum()["limiet_bytes"], 1_000_000_000)
+
 	def test_uploadlink_volgt_het_quotum_van_de_ruimte(self):
 		zet_quotum(self.a, 1)
 		map_naam = api.maak_map(ruimte=self.a, naam="Aanleveren")["map"]

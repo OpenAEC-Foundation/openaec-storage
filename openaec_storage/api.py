@@ -26,11 +26,13 @@ from openaec_storage.rechten import (
 	actieve_deling,
 	eigen_recht,
 	heeft_deling_in,
+	is_lid,
 	mag,
 	mag_delen,
 	mag_ruimte_maken,
 	vereis,
 	vereis_delen,
+	vereis_lid,
 	vereis_op_plek,
 	voorouders,
 	weiger,
@@ -647,8 +649,19 @@ def quotum_ruimte(ruimte: str) -> dict:
 
 @frappe.whitelist()
 def quotum() -> dict:
+	"""Gebruik en quotum van de hele omgeving, voor een lid. Een gast ziet alleen het gebruik van de ruimtes waarvan
+	hij lid is, zonder de pool en de overdrachten van de omgeving."""
 	from openaec_storage import overdracht
 
+	if not is_lid():
+		ruimtes = frappe.get_all(
+			"Ruimtelid", filters={"parenttype": "Ruimte", "gebruiker": frappe.session.user}, pluck="parent"
+		)
+		return {
+			"gebruikt_bytes": sum(_gebruikt_bytes_ruimte(r) for r in set(ruimtes)),
+			"limiet_bytes": None,
+			"overdrachten_bytes": 0,
+		}
 	limiet = _limiet_bytes()
 	return {
 		"gebruikt_bytes": _gebruikt_bytes(),
@@ -1026,8 +1039,10 @@ def delingen(doel_doctype: str, doel: str) -> list[dict]:
 def collegas(tekst: str = "", ruimte: str | None = None) -> list[dict]:
 	"""Collega's om mee te delen: actieve gebruikers van de omgeving (geen websitegebruikers, gasten of
 	Administrator), gezocht op e-mailadres en volledige naam, hoogstens 20. `lid_als` is de rol in `ruimte`, of None
-	voor wie geen lid is. Alleen voor wie in die ruimte mag delen (schrijver of beheerder) en voor een beheerder van
-	de omgeving."""
+	voor wie geen lid is. Alleen voor leden van de omgeving die in die ruimte mogen delen (schrijver of beheerder) en
+	voor een beheerder van de omgeving: een gast krijgt de namen en adressen van de medewerkers nooit, ook niet met
+	beheren via een deling."""
+	vereis_lid()
 	if not mag_ruimte_maken():
 		if not ruimte:
 			frappe.throw(_("Geen toegang"), frappe.PermissionError)
