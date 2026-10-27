@@ -1,7 +1,14 @@
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from openaec_storage.installatie import DESKTOP_CLIENT, DESKTOP_REDIRECT, na_migratie, zorg_voor_desktop_client
+from openaec_storage.installatie import (
+	DESKTOP_CLIENT,
+	DESKTOP_REDIRECT,
+	PROJECTVELD,
+	na_migratie,
+	zorg_voor_desktop_client,
+	zorg_voor_projectveld,
+)
 
 
 class TestDesktopClient(IntegrationTestCase):
@@ -21,3 +28,15 @@ class TestDesktopClient(IntegrationTestCase):
 		self.assertTrue(frappe.db.exists("Mapsjabloon", "Bedrijf"))
 		self.assertTrue(frappe.db.exists("Mapsjabloon", "Project (BIM)"))
 		self.assertEqual(frappe.db.count("Mapsjabloon", {"name": "Bedrijf"}), 1)
+
+
+class TestProjectveld(IntegrationTestCase):
+	def test_alleen_met_het_doctype_project(self):
+		zorg_voor_projectveld()
+		zorg_voor_projectveld()  # tweede keer: niets dubbel
+		met_project = bool(frappe.db.exists("DocType", "Project"))
+		self.assertEqual(bool(frappe.db.exists("Custom Field", PROJECTVELD)), met_project)
+		if met_project:
+			veld = frappe.get_meta("Ruimte").get_field("project")
+			self.assertEqual((veld.fieldtype, veld.options), ("Link", "Project"))
+			self.assertEqual(frappe.db.count("Custom Field", {"dt": "Ruimte", "fieldname": "project"}), 1)
