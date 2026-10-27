@@ -290,6 +290,8 @@ class TestVoltooien(OverdrachtTest):
 		self.assertIsNone(lijst["Nog bezig"]["url"])
 
 	def test_telt_mee_in_het_opslaggebruik_zolang_hij_bestaat(self):
+		# Het gebruik van de hele omgeving ziet alleen een lid (systeemgebruiker).
+		frappe.db.set_value("User", self.anna, "user_type", "System User")
 		upload(self.ruimte, "r.txt", b"12345")
 		link = self.actieve({"a.bin": b"123"})
 		self.assertEqual(api.quotum()["gebruikt_bytes"], 8)
