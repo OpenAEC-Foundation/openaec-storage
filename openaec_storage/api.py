@@ -584,6 +584,152 @@ def verwijder_map(map: str) -> None:
 	_log(doc.ruimte, "verwijderd", "Opslagmap", doc.name, doc.naam)
 
 
+# --- kopiëren (verkenner: kopiëren en plakken) -------------------------------------------------------
+
+KOPIEER_MAX = 1000  # bestanden in één map die gekopieerd wordt (met alles wat erin staat)
+
+
+def _vrije_naam(ruimte: str, map: str | None, naam: str, is_map: bool = False) -> str:
+	"""`naam` als er op deze plek nog geen bestand of map zo heet; anders `naam (2)`, `naam (3)`, … (bij een bestand
+	vóór de extensie: `plan (2).pdf`)."""
+	stam, ext = (naam, "") if is_map else os.path.splitext(naam)
+	kandidaat, teller = naam, 2
+	while _actief_bestand(ruimte, map, kandidaat) or _actieve_map(ruimte, map, kandidaat):
+		kandidaat = f"{stam} ({teller}){ext}"
+		teller += 1
+	return kandidaat
+
+
+def _huidige_versie(bestand) -> dict:
+	"""De rij van de huidige versie van een bestand (met de S3-sleutel)."""
+	rij = frappe.db.get_value(
+		"Bestandsversie",
+		{"bestand": bestand.name, "volgnummer": cint(bestand.huidige_versie)},
+		["s3_sleutel", "grootte", "sha256", "blokgrootte", "blokhashes"],
+		as_dict=True,
+	)
+	if not rij:
+		frappe.throw(_("Versie bestaat niet"), frappe.DoesNotExistError)
+	return rij
+
+
+def _kopie(kopieer, versie, ruimte: str, map: str | None, naam: str, sleutels: list) -> dict:
+	"""De inhoud van `versie` naar een nieuwe sleutel in de opslag en als nieuw bestand `naam` op de plek; de nieuwe
+	sleutel komt in `sleutels` (om op te ruimen als het daarna toch mislukt)."""
+	mapsjablonen.controleer_upload(ruimte, map, naam)
+	sleutel = s3.nieuwe_sleutel()
+	kopieer(versie.s3_sleutel, sleutel)
+	sleutels.append(sleutel)
+	return _registreer(
+		{
+			"ruimte": ruimte,
+			"map": map,
+			"naam": naam,
+			"grootte": cint(versie.grootte),
+			"basis_versie": None,
+			"sha256": versie.sha256,
+			"bron": "web",
+			"sleutel": sleutel,
+			"blokgrootte": cint(versie.blokgrootte) or None,
+			"blokhashes": json.loads(versie.blokhashes) if versie.blokhashes else None,
+		}
+	)
+
+
+def _kopieer_bestand(kopieer, bestand: str, ruimte: str, map: str | None, sleutels: list) -> dict:
+	"""Eén bestand naar de doelplek (de rechten op het doel zijn al gecontroleerd)."""
+	bron = _bestand(bestand, "read")
+	if bron.verwijderd_op:
+		frappe.throw(_("Bestand staat in de prullenbak"))
+	versie = _huidige_versie(bron)
+	_controleer_quotum(cint(versie.grootte), ruimte)
+	return _kopie(kopieer, versie, ruimte, map, _vrije_naam(ruimte, map, bron.naam), sleutels)
+
+
+def _kopieer_map(kopieer, map: str, ruimte: str, doel_map: str | None, sleutels: list) -> dict:
+	"""Een map met alle mappen en bestanden erin naar de doelplek. Eerst alles bekijken (lezen op de bron, niet in
+	zichzelf, aantal en quotum), dan de mappen (een bovenliggende map vóór zijn submappen), dan de bestanden."""
+	bron = frappe.db.get_value("Opslagmap", map, ["name", "ruimte", "naam", "verwijderd_op"], as_dict=True)
+	if not bron or bron.verwijderd_op:
+		frappe.throw(_("Map bestaat niet"), frappe.DoesNotExistError)
+	vereis_op_plek(bron.ruimte, bron.name, "read")
+	boom = _submappen(bron.name)
+	if bron.ruimte == ruimte and doel_map in boom:
+		weiger(_("Een map kan niet in zichzelf of in een eigen submap worden gekopieerd"), "kopie_in_zichzelf")
+	bestanden = frappe.get_all(
+		"Opslagbestand",
+		filters={"map": ("in", boom), "verwijderd_op": ("is", "not set")},
+		fields=["name", "map", "naam", "huidige_versie"],
+		order_by="naam asc",
+		ignore_permissions=True,
+	)
+	if len(bestanden) > KOPIEER_MAX:
+		weiger(
+			_("Te veel bestanden in deze map om in één keer te kopiëren: hoogstens {0}").format(KOPIEER_MAX),
+			"batch_te_groot",
+		)
+	versies = {b.name: _huidige_versie(b) for b in bestanden}
+	_controleer_quotum(sum(cint(v.grootte) for v in versies.values()), ruimte)
+	naam = _vrije_naam(ruimte, doel_map, bron.naam, is_map=True)
+	nieuw = {bron.name: _maak_map(ruimte, naam, doel_map)[0]}
+	rijen = {
+		m.name: m
+		for m in frappe.get_all(
+			"Opslagmap", filters={"name": ("in", boom)}, fields=["name", "naam", "bovenliggende"], ignore_permissions=True
+		)
+	}
+	# `_submappen` zet een map altijd vóór de mappen eronder.
+	for m in boom[1:]:
+		nieuw[m] = _maak_map(ruimte, rijen[m].naam, nieuw[rijen[m].bovenliggende])[0]
+	for b in bestanden:
+		_kopie(kopieer, versies[b.name], ruimte, nieuw[b.map], b.naam, sleutels)
+	return {"map": nieuw[bron.name], "naam": naam, "bestanden": len(bestanden)}
+
+
+def _kopieer_een(functie, *args) -> dict:
+	"""Eén item van `kopieer` als `_per_bestand`: bij een fout gaat wat het in de database schreef terug, en ook de
+	objecten die het al in de opslag kopieerde."""
+	sleutels: list = []
+	uit = _per_bestand(functie, *args, sleutels)
+	if not uit["ok"]:
+		for sleutel in sleutels:
+			try:
+				s3.verwijder(sleutel)
+			except Exception:
+				frappe.log_error(title="openaec_storage: kopie opruimen mislukt")
+	return uit
+
+
+@frappe.whitelist(methods=["POST"])
+def kopieer(bestanden=None, doel_ruimte: str | None = None, doel_map: str | None = None, mappen=None) -> dict:
+	"""Kopieer bestanden (`bestanden`, id's) en mappen met alles erin (`mappen`, id's) naar een map (`doel_map` leeg =
+	het hoofdniveau van `doel_ruimte`), ook naar een andere ruimte. De inhoud wordt in de opslag zelf gekopieerd; elke
+	kopie is een nieuw bestand met één versie (de huidige van het origineel). Lezen op de bron, schrijven op het doel
+	en het quotum van het doel. Een naam die op het doel al bestaat, krijgt ` (2)`, ` (3)`, … erachter (bij een bestand
+	vóór de extensie); een map kan niet in zichzelf of een eigen submap (`kopie_in_zichzelf`).
+
+	Antwoord: `{resultaten: [{soort, bron, ok: true, bestand|map, naam} | {soort, bron, ok: false, fout, foutcode}]}`,
+	eerst de bestanden en dan de mappen, in de volgorde van de aanvraag; een fout bij één item houdt de andere niet op.
+	"""
+	bestanden, mappen = _als_lijst(bestanden), _als_lijst(mappen)
+	if not doel_ruimte or not frappe.db.exists("Ruimte", doel_ruimte):
+		frappe.throw(_("Ruimte bestaat niet"), frappe.DoesNotExistError)
+	if len(bestanden) + len(mappen) > KOPIEER_MAX:
+		weiger(_("Te veel in één verzoek: hoogstens {0}").format(KOPIEER_MAX), "batch_te_groot")
+	doel_map = _controleer_map(doel_ruimte, doel_map or None)
+	vereis_op_plek(doel_ruimte, doel_map, "write")
+	mapsjablonen.controleer_schrijven(doel_ruimte, doel_map)
+	kopieerder = s3.kopieerder()
+	resultaten = []
+	for bestand in bestanden:
+		uit = _kopieer_een(_kopieer_bestand, kopieerder, bestand, doel_ruimte, doel_map)
+		resultaten.append({"soort": "bestand", "bron": bestand, **uit})
+	for map in mappen:
+		uit = _kopieer_een(_kopieer_map, kopieerder, map, doel_ruimte, doel_map)
+		resultaten.append({"soort": "map", "bron": map, **uit})
+	return {"resultaten": resultaten}
+
+
 # --- wijzigingen en quotum ---------------------------------------------------------------------------
 
 
@@ -1250,7 +1396,8 @@ def mogelijkheden() -> dict:
 	"""Wat deze server kent, zodat de desktop-app nieuwe wegen alleen gebruikt waar ze bestaan (een oudere server
 	kent deze methode niet; dan blijft de app bij `bladeren` en uploads per bestand). `deling`: de parameter `deling`
 	(een gedeelde map als bovenste map) bestaat. `zoek_pad`: een pad in één verzoek naar een id; `overdracht_van_opslag`:
-	een overdracht van bestanden die al in de opslag staan (`overdracht.maak_van_opslag`), zonder ze opnieuw te uploaden."""
+	een overdracht van bestanden die al in de opslag staan (`overdracht.maak_van_opslag`), zonder ze opnieuw te uploaden;
+	`kopieer`: bestanden en mappen kopiëren naar een andere plek, ook in een andere ruimte."""
 	grenzen = {"max_bestand": KLEIN_MAX_BESTAND, "max_aantal": KLEIN_MAX_AANTAL, "max_bytes": KLEIN_MAX_BYTES}
 	return {
 		"upload_klein": grenzen,
@@ -1260,6 +1407,7 @@ def mogelijkheden() -> dict:
 		"deling": True,
 		"zoek_pad": True,
 		"overdracht_van_opslag": True,
+		"kopieer": True,
 	}
 
 

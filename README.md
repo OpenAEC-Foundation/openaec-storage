@@ -236,6 +236,17 @@ methodes onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de 
 | `zoek_pad` | wie de plek kan lezen (ook via een deling) | `ruimte`, `pad` (met `/`; leeg = het hoofdniveau), `soort?` (`map` of `bestand`), `deling?` (dan binnen de gedeelde map) | `{map}` of `{bestand}` met het id, en `gevonden`. Namen zonder hoofdletters en spaties eromheen, in Unicode-NFC; een precieze schrijfwijze gaat voor. Bij dubbele mappen met dezelfde naam (van vóór de controle daarop) zoekt hij in allebei, en wint aan het eind de map met inhoud. Een pad dat niet bestaat geeft `gevonden: false` (geen fout) |
 | `toegang` | wie de plek kan lezen | `doel_doctype`, `doel` | `{rechten, mag_delen, max_rechten}`: je hoogste recht hier (`lezen`, `schrijven` of `beheren`, uit je rol of een deling), of je hier mag delen (en delingen wijzigen en intrekken), en het hoogste recht dat je een ander mag geven (of `null`) |
 
+## Kopiëren
+
+`kopieer` (POST) kopieert bestanden en mappen (met alles erin) naar een map, ook in een andere ruimte (kopiëren en
+plakken in Docs). Parameters: `bestanden?` (id's), `mappen?` (id's), `doel_ruimte`, `doel_map?` (leeg = het
+hoofdniveau). Lezen op de bron, schrijven op het doel (anders 403 voor de hele aanvraag), de mapregels en het quotum
+van het doel. De inhoud wordt in de opslag zelf gekopieerd; elke kopie is een nieuw bestand met één versie. Een naam die
+op het doel al bestaat, krijgt ` (2)`, ` (3)`, … (bij een bestand vóór de extensie). Een map kan niet in zichzelf of
+een eigen submap (`kopie_in_zichzelf`); hoogstens 1000 items per aanvraag en 1000 bestanden per map (`batch_te_groot`).
+Antwoord: `{resultaten: [{soort, bron, ok: true, bestand|map, naam} | {soort, bron, ok: false, fout, foutcode}]}`,
+eerst de bestanden en dan de mappen; een fout bij één item houdt de andere niet op.
+
 ## Gedeeld met mij
 
 Een map of bestand dat iemand met een collega deelt (`deel` met `soort: "gebruiker"`), is voor die collega bruikbaar
@@ -322,7 +333,7 @@ onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de gebruiker
 
 | Methode | Parameters | Antwoord |
 |---|---|---|
-| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true, deling: true, zoek_pad: true, overdracht_van_opslag: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg. `deling`: de parameter `deling` (zie Gedeeld met mij) bestaat; `zoek_pad` en `overdracht_van_opslag`: zie Delen vanuit de desktop-app en Overdrachten |
+| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true, deling: true, zoek_pad: true, overdracht_van_opslag: true, kopieer: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg. `deling`: de parameter `deling` (zie Gedeeld met mij) bestaat; `zoek_pad` en `overdracht_van_opslag`: zie Delen vanuit de desktop-app en Overdrachten |
 | `boom` | `ruimte`, `start?` (0), `aantal?` (10 000, hoogstens 50 000), `deling?` | `{mappen: [{name, naam, bovenliggende, modified}], bestanden: [{name, naam, map, grootte, huidige_versie, modified}], meer}`: alle mappen en een pagina bestanden (op `name`), zonder de prullenbak. Zonder `deling` alleen voor leden van de ruimte; met `deling` alles onder de gedeelde map, plus `wortel` |
 | `maak_mappen` (POST) | `ruimte`, `paden` (lijst mappaden met `/`, hoogstens 1000), `deling?` (dan zijn de paden binnen de gedeelde map) | `{mappen: {pad: map}, fouten: {pad: {fout, foutcode}}}`; ontbrekende mappen (ook tussenliggende) worden aangemaakt zoals bij `maak_map`, bestaande hergebruikt (hoofdletters maken niet uit) |
 | `upload_klein` (POST, multipart/form-data) | `ruimte`, `bron?` (`sync`), `deling?` (dan zijn `pad` en `map` binnen de gedeelde map), `bestanden` (JSON-lijst: per bestand `naam`, `map` (id) of `pad` (mappad; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash` (BLAKE3 van de inhoud), `basis_versie?`, `sha256?`, `veld`), en de inhoud: alles achter elkaar in één bestandsveld `inhoud` (gesneden op `grootte`; zo doet de desktop-app het) of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd | `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} \| {index, ok: false, fout, foutcode}]}`, in de volgorde van `bestanden` |
