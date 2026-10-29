@@ -1,7 +1,8 @@
 """Vaste OAuth-client voor de desktop-app (ontwerp §8): publiek (PKCE, geen geheim), loopback-redirect,
 zonder toestemmingsscherm omdat het onze eigen app is. Wordt bij installeren en migreren bijgewerkt.
 
-Ook de standaardmapsjablonen ("Bedrijf" en "Project (BIM)") worden dan aangemaakt als ze er nog niet zijn, en op een
+Ook de standaardmapsjablonen ("Bedrijf", "Project (BIM)" en "Projectdossier") worden dan aangemaakt als ze er nog niet
+zijn, en op een
 site met ERPNext het veld `project` op Ruimte (zorg_voor_projectveld)."""
 
 import frappe
@@ -59,16 +60,20 @@ def zorg_voor_projectveld():
 
 
 def na_installatie():
+	from openaec_storage.dossier import zorg_voor_dossiersjabloon
 	from openaec_storage.mapsjablonen import zorg_voor_standaardsjablonen
 
 	zorg_voor_desktop_client()
 	zorg_voor_standaardsjablonen()
+	zorg_voor_dossiersjabloon()
 	zorg_voor_projectveld()
 
 
 def na_migratie():
+	from openaec_storage.dossier import zorg_voor_dossiersjabloon
 	from openaec_storage.mapsjablonen import zorg_voor_standaardsjablonen
 
 	zorg_voor_desktop_client()
 	zorg_voor_standaardsjablonen()
+	zorg_voor_dossiersjabloon()
 	zorg_voor_projectveld()

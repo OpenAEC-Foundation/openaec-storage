@@ -1,0 +1,110 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-10-28 00:00:00.000000",
+ "description": "Logboek van bulkacties (verwijderen, verplaatsen, bewerken) en van weigeringen door de veiligheidsgrenzen.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "gebruiker",
+  "actie",
+  "aantal",
+  "uitkomst",
+  "reden",
+  "grens",
+  "bron",
+  "ruimte",
+  "items",
+  "teruggedraaid_door",
+  "teruggedraaid_op"
+ ],
+ "fields": [
+  {
+   "fieldname": "gebruiker",
+   "fieldtype": "Link",
+   "label": "Gebruiker",
+   "options": "User",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "actie",
+   "fieldtype": "Select",
+   "label": "Actie",
+   "options": "verwijderen\nverplaatsen\nbewerken",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "aantal",
+   "fieldtype": "Int",
+   "label": "Aantal bestanden",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "uitkomst",
+   "fieldtype": "Select",
+   "label": "Uitkomst",
+   "options": "uitgevoerd\ngeweigerd\nteruggedraaid",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "reden",
+   "fieldtype": "Select",
+   "label": "Reden van weigeren",
+   "options": "\nper_keer\nper_tijdvak\ngeblokkeerd"
+  },
+  {
+   "fieldname": "grens",
+   "fieldtype": "Int",
+   "label": "Grens"
+  },
+  {
+   "fieldname": "bron",
+   "fieldtype": "Data",
+   "label": "Bron"
+  },
+  {
+   "fieldname": "ruimte",
+   "fieldtype": "Link",
+   "label": "Ruimte",
+   "options": "Ruimte"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Long Text",
+   "label": "Items (JSON)",
+   "description": "Per item soort, id, naam en de oude plek, om de actie terug te draaien."
+  },
+  {
+   "fieldname": "teruggedraaid_door",
+   "fieldtype": "Link",
+   "label": "Teruggedraaid door",
+   "options": "User"
+  },
+  {
+   "fieldname": "teruggedraaid_op",
+   "fieldtype": "Datetime",
+   "label": "Teruggedraaid op"
+  }
+ ],
+ "in_create": 1,
+ "modified": "2026-10-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Opslagbulkactie",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

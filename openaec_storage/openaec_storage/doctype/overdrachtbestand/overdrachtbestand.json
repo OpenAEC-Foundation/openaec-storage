@@ -35,7 +35,8 @@
    "ignore_xss_filter": 1,
    "label": "Naam",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "length": 255
   },
   {
    "fieldname": "map",

@@ -14,7 +14,9 @@
   "bron",
   "maker",
   "blokgrootte",
-  "blokhashes"
+  "blokhashes",
+  "revisie",
+  "revisiestatus"
  ],
  "fields": [
   {
@@ -79,9 +81,20 @@
    "fieldname": "blokhashes",
    "fieldtype": "Long Text",
    "label": "Blokhashes (JSON)"
+  },
+  {
+   "fieldname": "revisie",
+   "fieldtype": "Data",
+   "label": "Revisie"
+  },
+  {
+   "fieldname": "revisiestatus",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "\nconcept\nter_beoordeling\nvrijgegeven\nvervallen"
   }
  ],
- "modified": "2026-10-21 07:24:30.081544",
+ "modified": "2026-10-28 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Bestandsversie",

@@ -11,7 +11,17 @@
   "huidige_versie",
   "grootte",
   "mime",
-  "verwijderd_op"
+  "verwijderd_op",
+  "dossier_sectie",
+  "documentcode",
+  "discipline",
+  "documentsoort",
+  "fase",
+  "dossier_kolom",
+  "revisie",
+  "revisiestatus",
+  "hoofdmodel",
+  "herkomst"
  ],
  "fields": [
   {
@@ -33,7 +43,8 @@
    "fieldtype": "Data",
    "label": "Naam",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "length": 255
   },
   {
    "fieldname": "huidige_versie",
@@ -58,9 +69,71 @@
    "fieldname": "verwijderd_op",
    "fieldtype": "Datetime",
    "label": "Verwijderd op"
+  },
+  {
+   "fieldname": "dossier_sectie",
+   "fieldtype": "Section Break",
+   "label": "Projectdossier",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "documentcode",
+   "fieldtype": "Data",
+   "label": "Documentcode",
+   "search_index": 1,
+   "in_standard_filter": 1,
+   "description": "Revisies van hetzelfde document hebben dezelfde code (bijv. PROJ-0004-CO-TEK-001). Zetten via openaec_storage.dossier.zet_eigenschappen."
+  },
+  {
+   "fieldname": "discipline",
+   "fieldtype": "Data",
+   "label": "Discipline",
+   "description": "Code uit de instellingen van het dossier (bijv. CO)."
+  },
+  {
+   "fieldname": "documentsoort",
+   "fieldtype": "Data",
+   "label": "Soort document",
+   "description": "Code uit de instellingen van het dossier (bijv. TEK)."
+  },
+  {
+   "fieldname": "fase",
+   "fieldtype": "Data",
+   "label": "Fase",
+   "description": "Code uit de instellingen van het dossier (bijv. DO)."
+  },
+  {
+   "fieldname": "dossier_kolom",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "revisie",
+   "fieldtype": "Data",
+   "label": "Revisie",
+   "description": "Revisie van de huidige versie (A, B, C …)."
+  },
+  {
+   "fieldname": "revisiestatus",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "\nconcept\nter_beoordeling\nvrijgegeven\nvervallen"
+  },
+  {
+   "fieldname": "hoofdmodel",
+   "fieldtype": "Check",
+   "label": "Hoofdmodel",
+   "default": "0",
+   "description": "Het 3D-model van het project (per discipline hoogstens één)."
+  },
+  {
+   "fieldname": "herkomst",
+   "fieldtype": "Data",
+   "label": "Herkomst",
+   "read_only": 1,
+   "description": "Waar het bestand vandaan kwam als het automatisch is gespiegeld (bijv. File:<naam> bij een projectbijlage)."
   }
  ],
- "modified": "2026-10-20 00:00:00.000000",
+ "modified": "2026-10-28 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Opslagbestand",

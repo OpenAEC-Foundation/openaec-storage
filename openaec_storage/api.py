@@ -20,7 +20,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_url, add_to_date, cint, flt, now_datetime
 
-from openaec_storage import mapsjablonen, namen, s3
+from openaec_storage import mapsjablonen, namen, s3, veiligheid
 from openaec_storage.rechten import (
 	RANG,
 	actieve_deling,
@@ -245,9 +245,13 @@ def upload_start(
 	blokken niet opnieuw geüpload maar server-side uit de vorige versie gekopieerd (delta-sync, ontwerp §5).
 	"""
 	map = _controleer_map(ruimte, map)
-	vereis_op_plek(ruimte, map, "write", _bestaand_id(ruimte, map, naam))
+	bestaand_id = _bestaand_id(ruimte, map, naam)
+	vereis_op_plek(ruimte, map, "write", bestaand_id)
 	naam = _controleer_naam(naam, ruimte, map)
 	mapsjablonen.controleer_upload(ruimte, map, naam)
+	# Een nieuwe versie van een bestaand bestand telt als bewerken (veiligheidsgrenzen, zie veiligheid.py).
+	if bestaand_id:
+		veiligheid.controleer("bewerken", 1, bron=bron, ruimte=ruimte, items=[{"soort": "bestand", "id": bestaand_id, "naam": naam}])
 	grootte = cint(grootte)
 	if grootte < 0:
 		frappe.throw(_("Ongeldige grootte"))
@@ -431,6 +435,7 @@ def verwijder(bestand: str) -> None:
 	vereis_op_plek(doc.ruimte, doc.map, "write")
 	mapsjablonen.controleer_schrijven(doc.ruimte, doc.map)
 	_weiger_als_vergrendeld(bestand)
+	veiligheid.controleer("verwijderen", 1, ruimte=doc.ruimte, items=[{"soort": "bestand", "id": bestand, "naam": doc.naam}])
 	frappe.db.set_value("Opslagbestand", bestand, "verwijderd_op", now_datetime())
 	_log(doc.ruimte, "verwijderd", "Opslagbestand", bestand, doc.naam)
 
@@ -482,6 +487,12 @@ def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int 
 	doel = _actief_bestand(bron.ruimte, map, naam)
 	if doel and doel.name == bron.name:
 		return {"bestand": bron.name, "naam": naam, "versie": cint(bron.huidige_versie)}
+	veiligheid.controleer(
+		"verplaatsen",
+		1,
+		ruimte=bron.ruimte,
+		items=[{"soort": "bestand", "id": bron.name, "naam": naam, "oude_map": bron.map, "oude_naam": bron.naam}],
+	)
 	if doel and not cint(overschrijf):
 		frappe.throw(_("Er staat al een bestand met deze naam"))
 	if _actieve_map(bron.ruimte, map, naam):
@@ -529,10 +540,15 @@ def _submappen(map: str, ook_verwijderd: bool = False) -> list[str]:
 	return uit
 
 
+def _bestanden_onder(map: str) -> int:
+	"""Aantal bestanden (niet in de prullenbak) in de map en alles eronder."""
+	return frappe.db.count("Opslagbestand", {"map": ("in", _submappen(map)), "verwijderd_op": ("is", "not set")})
+
+
 @frappe.whitelist()
 def verplaats_map(map: str, naam: str, bovenliggende: str | None = None) -> dict:
 	"""Hernoem of verplaats een map binnen zijn ruimte (`bovenliggende` leeg = hoofdniveau)."""
-	doc = frappe.db.get_value("Opslagmap", map, ["name", "ruimte", "bovenliggende", "verwijderd_op"], as_dict=True)
+	doc = frappe.db.get_value("Opslagmap", map, ["name", "ruimte", "bovenliggende", "naam", "verwijderd_op"], as_dict=True)
 	if not doc or doc.verwijderd_op:
 		frappe.throw(_("Map bestaat niet"), frappe.DoesNotExistError)
 	vereis_op_plek(doc.ruimte, doc.name, "write")
@@ -549,6 +565,14 @@ def verplaats_map(map: str, naam: str, bovenliggende: str | None = None) -> dict
 		frappe.throw(_("Er staat al een map met deze naam"))
 	if _actief_bestand(doc.ruimte, bovenliggende, naam):
 		frappe.throw(_("Er staat al een bestand met deze naam"))
+	if (doc.bovenliggende or None) != bovenliggende or doc.naam != naam:
+		# Een map telt met alles wat erin staat (minstens 1).
+		veiligheid.controleer(
+			"verplaatsen",
+			max(1, _bestanden_onder(doc.name)),
+			ruimte=doc.ruimte,
+			items=[{"soort": "map", "id": doc.name, "naam": naam, "oude_map": doc.bovenliggende, "oude_naam": doc.naam}],
+		)
 	frappe.db.set_value("Opslagmap", doc.name, {"naam": naam, "bovenliggende": bovenliggende})
 	_log(doc.ruimte, "verplaatst", "Opslagmap", doc.name, naam)
 	return {"map": doc.name, "naam": naam}
@@ -577,11 +601,97 @@ def verwijder_map(map: str) -> None:
 	# Een bestand dat een ander heeft vergrendeld, gaat ook niet via zijn map naar de prullenbak.
 	for b in bestanden:
 		_weiger_als_vergrendeld(b, "In deze map staat een bestand dat vergrendeld is door {0}")
+	# Een map telt met alles wat erin staat (minstens 1).
+	veiligheid.controleer("verwijderen", max(1, len(bestanden)), ruimte=doc.ruimte, items=[{"soort": "map", "id": doc.name, "naam": doc.naam}])
 	for m in mappen:
 		frappe.db.set_value("Opslagmap", m, "verwijderd_op", moment)
 	for b in bestanden:
 		frappe.db.set_value("Opslagbestand", b, "verwijderd_op", moment)
 	_log(doc.ruimte, "verwijderd", "Opslagmap", doc.name, doc.naam)
+
+
+# --- bulk: verwijderen en verplaatsen in één aanroep (veiligheidsgrenzen als geheel) -------------------
+
+BULK_MAX = 5000  # items (bestanden en mappen) in één bulkaanroep
+
+
+def _plek_van_item(soort: str, id_: str) -> dict | None:
+	if soort == "map":
+		plek = frappe.db.get_value("Opslagmap", id_, ["name", "ruimte", "naam", "bovenliggende"], as_dict=True)
+		if plek:
+			plek["map"] = plek.pop("bovenliggende")
+		return plek
+	return frappe.db.get_value("Opslagbestand", id_, ["name", "ruimte", "naam", "map"], as_dict=True)
+
+
+def _bulk_voorbereiden(items: list) -> tuple[list[dict], int, str | None]:
+	"""Per item soort, id, naam en de huidige plek; het aantal bestanden (een map met alles erin) en de ruimte."""
+	if len(items) > BULK_MAX:
+		weiger(_("Te veel items in één keer: hoogstens {0}").format(BULK_MAX), "batch_te_groot")
+	uit, aantal, ruimte = [], 0, None
+	for item in items:
+		soort = item.get("soort") if item.get("soort") in ("bestand", "map") else "bestand"
+		plek = _plek_van_item(soort, item.get("id") or "")
+		regel = {"soort": soort, "id": item.get("id"), "naam": item.get("naam") or (plek.naam if plek else None)}
+		if plek:
+			regel.update({"oude_map": plek.map, "oude_naam": plek.naam})
+			ruimte = ruimte or plek.ruimte
+			aantal += max(1, _bestanden_onder(plek.name)) if soort == "map" else 1
+		else:
+			aantal += 1
+		uit.append(regel)
+	return uit, aantal, ruimte
+
+
+def _bulk_uitvoeren(actie: str, regels: list[dict], aantal: int, ruimte: str | None, functie) -> dict:
+	"""Controleer het geheel tegen de grenzen, voer per item uit (een weigering is het antwoord voor dat item) en
+	leg een uitgevoerde bulkactie (meer dan één item) vast in het logboek, met de oude plekken om terug te draaien."""
+	veiligheid.controleer(actie, aantal, ruimte=ruimte, items=regels)
+	frappe.flags.oa_bulk_gecontroleerd = True
+	try:
+		resultaten = [{"soort": r["soort"], "id": r["id"], **_per_bestand(lambda r=r: functie(r) or {})} for r in regels]
+	finally:
+		frappe.flags.oa_bulk_gecontroleerd = False
+	gelukt = [r for r, uit in zip(regels, resultaten) if uit["ok"]]
+	bulkactie = None
+	if len(regels) > 1 and gelukt:
+		bulkactie = veiligheid.log(actie, aantal, "uitgevoerd", ruimte=ruimte, items=gelukt)
+	return {"resultaten": resultaten, "bulkactie": bulkactie}
+
+
+@frappe.whitelist(methods=["POST"])
+def verwijder_bulk(bestanden=None, mappen=None) -> dict:
+	"""Meerdere bestanden (`bestanden`: ids) en mappen (`mappen`: ids, met alles erin) naar de prullenbak in één
+	aanroep. De veiligheidsgrenzen gelden voor het geheel: boven de grens per keer gaat er niets weg (foutcode
+	`bulk_grens`). Antwoord: `{resultaten: [{soort, id, ok, fout?, foutcode?}], bulkactie}`."""
+	items = [{"soort": "bestand", "id": b} for b in _als_lijst(bestanden)] + [{"soort": "map", "id": m} for m in _als_lijst(mappen)]
+	regels, aantal, ruimte = _bulk_voorbereiden(items)
+	return _bulk_uitvoeren(
+		"verwijderen",
+		regels,
+		aantal,
+		ruimte,
+		lambda r: verwijder(bestand=r["id"]) if r["soort"] == "bestand" else verwijder_map(map=r["id"]),
+	)
+
+
+@frappe.whitelist(methods=["POST"])
+def verplaats_bulk(items=None, map: str | None = None) -> dict:
+	"""Meerdere bestanden en mappen naar `map` (leeg = hoofdniveau) in hun ruimte, in één aanroep. `items`: lijst van
+	`{soort: "bestand"|"map", id, naam?}` (zonder naam blijft de naam). De veiligheidsgrenzen gelden voor het geheel.
+	Antwoord: `{resultaten: [{soort, id, ok, ...}], bulkactie}`."""
+	regels, aantal, ruimte = _bulk_voorbereiden([i for i in _als_lijst(items) if isinstance(i, dict)])
+
+	def een(r):
+		naam = r.get("naam") or r.get("oude_naam") or ""
+		if r["soort"] == "bestand":
+			uit = verplaats(bestand=r["id"], naam=naam, map=map or None)
+		else:
+			uit = verplaats_map(map=r["id"], naam=naam, bovenliggende=map or None)
+		r["naam"] = uit.get("naam", naam)
+		return uit
+
+	return _bulk_uitvoeren("verplaatsen", regels, aantal, ruimte, een)
 
 
 # --- kopiëren (verkenner: kopiëren en plakken) -------------------------------------------------------
@@ -1658,6 +1768,12 @@ def upload_klein_bytes(
 				KLEIN_MAX_AANTAL, KLEIN_MAX_BYTES // (1024 * 1024)
 			),
 			"batch_te_groot",
+		)
+	# Bestanden met een basis_versie zijn nieuwe versies van bestaande: bewerken, als geheel tegen de grenzen.
+	bewerkt = [b for b in bestanden if b.get("basis_versie") not in (None, "")]
+	if bewerkt:
+		veiligheid.controleer(
+			"bewerken", len(bewerkt), bron=bron, ruimte=ruimte, items=[{"soort": "bestand", "naam": b.get("naam")} for b in bewerkt]
 		)
 	mappen: dict = {}
 	resultaten = []

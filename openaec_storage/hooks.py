@@ -45,6 +45,12 @@ standard_portal_menu_items = [{"title": "Bestanden", "route": "/opslag"}]
 # Verlopen overdrachten en blijven liggende concepten opruimen (objecten uit S3, record naar Verlopen).
 scheduler_events = {"hourly": ["openaec_storage.overdracht.opruimen"]}
 
+# Projectdossier (dossier.py): revisie en status per versie; het bestand volgt zijn huidige versie.
+doc_events = {
+	"Bestandsversie": {"before_insert": "openaec_storage.dossier.bij_nieuwe_versie"},
+	"Opslagbestand": {"validate": "openaec_storage.dossier.bij_bestand_opslaan"},
+}
+
 after_install = "openaec_storage.installatie.na_installatie"
 after_migrate = "openaec_storage.installatie.na_migratie"
 

@@ -25,7 +25,7 @@
    "fieldname": "soort",
    "fieldtype": "Select",
    "label": "Soort",
-   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld\nvergrendeld\nontgrendeld\ngedeeld\ningetrokken\ndeling_gewijzigd\ngearchiveerd\nteruggezet\nsjabloon_toegepast\nquotum_gewijzigd\nverstuurd",
+   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld\nvergrendeld\nontgrendeld\ngedeeld\ningetrokken\ndeling_gewijzigd\ngearchiveerd\nteruggezet\nsjabloon_toegepast\nquotum_gewijzigd\nverstuurd\neigenschappen",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -44,7 +44,8 @@
   {
    "fieldname": "naam",
    "fieldtype": "Data",
-   "label": "Naam"
+   "label": "Naam",
+   "length": 255
   },
   {
    "fieldname": "namens",
@@ -54,7 +55,7 @@
    "description": "Voor wie het beheer de handeling uitvoerde; wie hem echt aanriep, staat in Gemaakt door (owner)."
   }
  ],
- "modified": "2026-10-26 12:00:00.000000",
+ "modified": "2026-10-28 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Opslagwijziging",
