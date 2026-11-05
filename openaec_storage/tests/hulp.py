@@ -20,12 +20,17 @@ def gebruiker(naam: str) -> str:
 
 
 def nummer_wijzigingen() -> None:
-	"""Geef de wijzigingsregels van deze transactie hun commitnummer, zoals vlak vóór een commit
-	(`commitnummer.deel_uit`). De hoofdthread van een test commit nooit: wie de wijzigingenlijst in zijn eigen
-	transactie wil lezen, nummert eerst."""
-	from openaec_storage import commitnummer
+	"""Geef elke regel met nummer 0 die deze transactie ziet (ook haar eigen, nog niet vastgelegde) een commitnummer,
+	zonder commit. De hoofdthread van een test commit nooit, en de veger weigert een transactie met schrijfwerk. Wie
+	de wijzigingenlijst in zijn eigen transactie leest, nummert dus eerst zelf; daarna vindt de veger niets meer."""
+	from openaec_storage.commitnummer import TELLER
 
-	commitnummer.deel_uit()
+	teller = frappe.db.sql("select current from `tabSeries` where name = %s", TELLER)[0][0]
+	for name in frappe.db.sql_list("select name from `tabOpslagwijziging` where commitnummer = 0 order by name"):
+		teller += 1
+		frappe.db.sql("update `tabOpslagwijziging` set commitnummer = %s where name = %s", (teller, name))
+	frappe.db.sql("update `tabSeries` set current = %s where name = %s", (teller, TELLER))
+
 
 def met_rol(email: str, rol: str) -> str:
 	"""Geef een testgebruiker een rol. De beheerrollen komen uit openaec_beheer; zonder die app wordt de rol aangemaakt."""

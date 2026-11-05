@@ -1,9 +1,13 @@
-"""Het commitnummer van de wijzigingenlijst (ontwerp samenwerken §5.4, stap 4b).
+"""Het commitnummer van de wijzigingenlijst (ontwerp samenwerken §5.4, stap 4b): de veger nummert bij het lezen.
 
 Elke `Verbinding` is een eigen thread met een eigen Frappe-context en databaseverbinding, zoals een verzoek of taak op
 een tweede werker. De test bepaalt stap voor stap wie invoegt, wie commit en wie terugdraait; wat niet gecommit is,
 blijft open staan tot de volgende stap. Wat een andere verbinding moet zien, is echt gecommit, dus deze tests ruimen
-hun gegevens zelf op. De hoofdthread leest alleen, telkens met een verse momentopname."""
+hun gegevens zelf op. De hoofdthread leest alleen, telkens met een verse transactie; de veger commit daar zelf.
+
+De isolatie is die van productie: REPEATABLE-READ met `innodb_snapshot_isolation` aan (`test_isolatie_is_die_van_
+productie`). Elke proef eindigt met: de vastgelegde regel staat precies één keer in `wijzigingen(sinds=0)`, en haar
+nummer ligt boven de cursor die de client al kreeg."""
 
 import queue
 import random
@@ -13,10 +17,11 @@ from unittest import mock
 
 import frappe
 from frappe.tests import IntegrationTestCase
+from frappe.utils import get_test_client
 
 from openaec_storage import api, commitnummer, ruimtebeheer
 from openaec_storage.patches import commitnummer_invullen
-from openaec_storage.tests.hulp import gebruiker, ruim_op, ruimte
+from openaec_storage.tests.hulp import gebruiker, nummer_wijzigingen, ruim_op, ruimte
 
 WACHT = 60  # seconden: hoogstens zo lang wachten op een stap in een andere verbinding
 
@@ -86,6 +91,30 @@ def rollback():
 	frappe.db.rollback()
 
 
+def houd_teller_vast():
+	frappe.db.sql("select current from `tabSeries` where name = %s for update", commitnummer.TELLER)
+
+
+def korte_wachttijd():
+	frappe.db.sql("set session innodb_lock_wait_timeout = 1")
+
+
+def lees_vanaf(ruimte_naam: str, cursor: int, als: str, limiet: int = 1000) -> dict:
+	"""Een client die leest, in een verse transactie, zoals een nieuw verzoek."""
+	frappe.db.rollback()
+	frappe.set_user(als)
+	try:
+		return api.wijzigingen(ruimte=ruimte_naam, sinds=cursor, limiet=limiet)
+	finally:
+		frappe.set_user("Administrator")
+
+
+def getimed(functie):
+	begin = time.perf_counter()
+	uit = functie()
+	return uit, time.perf_counter() - begin
+
+
 class Basis(IntegrationTestCase):
 	def setUp(self):
 		ruim_op()
@@ -112,7 +141,7 @@ class Basis(IntegrationTestCase):
 		self.verbindingen.append(v)
 		return v
 
-	# --- lezen in de hoofdthread, telkens met een verse momentopname -------------------------------------
+	# --- lezen in de hoofdthread, telkens met een verse transactie ----------------------------------------
 
 	def lees(self, ruimte_naam: str | None = None, sinds: int = 0, limiet: int = 1000, deling=None, als=None) -> dict:
 		frappe.db.rollback()
@@ -130,9 +159,31 @@ class Basis(IntegrationTestCase):
 		frappe.db.rollback()
 		return frappe.db.get_value("Opslagwijziging", {"doel": doel}, "name")
 
+	def bestaat(self, doctype: str, name: str) -> bool:
+		frappe.db.rollback()
+		return bool(frappe.db.exists(doctype, name))
+
 	def teller(self) -> int:
 		frappe.db.rollback()
 		return frappe.db.sql("select current from `tabSeries` where name = %s", commitnummer.TELLER)[0][0]
+
+	def precies_eens(self, doel: str, cursor: int, ruimte_naam: str | None = None) -> int:
+		"""Het einde van elke proef: de vastgelegde regel staat precies één keer in `wijzigingen(sinds=0)`, en wie vanaf
+		de cursor leest die hij al kreeg, krijgt haar ook precies één keer, met een hoger nummer. Geeft het nummer."""
+		ruimte_naam = ruimte_naam or self.r1
+		self.assertEqual(doelen(self.lees(ruimte_naam, 0)).count(doel), 1, f"{doel} niet precies één keer")
+		vanaf = [w for w in self.lees(ruimte_naam, cursor)["wijzigingen"] if w["doel"] == doel]
+		self.assertEqual(len(vanaf), 1, f"{doel} niet precies één keer vanaf cursor {cursor}")
+		self.assertGreater(vanaf[0]["volgnummer"], cursor)
+		return vanaf[0]["volgnummer"]
+
+	def geen_dubbele_nummers(self):
+		frappe.db.rollback()
+		dubbel = frappe.db.sql(
+			"""select commitnummer, count(*) from `tabOpslagwijziging` where commitnummer > 0
+			group by commitnummer having count(*) > 1"""
+		)
+		self.assertEqual(dubbel, ())
 
 
 def doelen(antwoord: dict) -> list[str]:
@@ -140,6 +191,13 @@ def doelen(antwoord: dict) -> list[str]:
 
 
 class TestCommitnummer(Basis):
+	def test_isolatie_is_die_van_productie(self):
+		a = self.verbinding("A")
+		self.assertEqual(
+			a.doe(lambda: frappe.db.sql("select @@transaction_isolation, @@innodb_snapshot_isolation")[0]),
+			("REPEATABLE-READ", 1),
+		)
+
 	def test_omgekeerde_commitvolgorde_mist_niets(self):
 		a, b = self.verbinding("A"), self.verbinding("B")
 		begin = self.lees(self.r1)["cursor"]
@@ -150,27 +208,26 @@ class TestCommitnummer(Basis):
 		a.doe(commit)
 		tweede = self.lees(self.r1, eerste["cursor"])
 		self.assertEqual(doelen(eerste) + doelen(tweede), ["b.ifc", "a.ifc"])
-		# A voegde eerst in (lagere name) maar committe als laatste: A krijgt het hogere nummer.
+		# A voegde eerst in (lagere name) maar werd pas na de eerste lezing zichtbaar: A krijgt het hogere nummer.
 		self.assertLess(eerst_ingevoegd, later_ingevoegd)
 		self.assertGreater(self.nummer(eerst_ingevoegd), self.nummer(later_ingevoegd))
+		self.assertGreater(self.precies_eens("a.ifc", eerste["cursor"]), eerste["cursor"])
 
 	def test_teruggedraaide_transactie_geeft_geen_gat_en_geen_nummer(self):
 		a, b = self.verbinding("A"), self.verbinding("B")
-		voor = self.teller()
 		begin = self.lees(self.r1)["cursor"]
+		voor = self.teller()
 		b.doe(lambda: schrijf(self.r1, "blijft.ifc"))
 		weg = a.doe(lambda: schrijf(self.r1, "weg.ifc"))
 		a.doe(rollback)
 		b.doe(commit)
-		# A meldt de nummeraar na de rollback bij de volgende regel opnieuw aan.
 		a.doe(lambda: schrijf(self.r1, "daarna.ifc"))
 		a.doe(commit)
 		uit = self.lees(self.r1, begin)
 		self.assertEqual(doelen(uit), ["blijft.ifc", "daarna.ifc"])
 		volgnummers = [w["volgnummer"] for w in uit["wijzigingen"]]
-		self.assertEqual(volgnummers[1], volgnummers[0] + 1, "een rollback laat geen gat")
+		self.assertEqual(volgnummers, [voor + 1, voor + 2], "een rollback laat geen gat")
 		self.assertIsNone(self.nummer(weg))
-		self.assertEqual(volgnummers, [voor + 1, voor + 2])
 		self.assertEqual(self.teller(), voor + 2)
 
 	def test_twee_ruimtes_krijgen_elk_hun_eigen_regels_met_unieke_nummers(self):
@@ -180,14 +237,17 @@ class TestCommitnummer(Basis):
 		namen["een-1"] = a.doe(lambda: schrijf(self.r1, "een-1"))
 		namen["twee-1"] = b.doe(lambda: schrijf(self.r2, "twee-1"))
 		b.doe(commit)
+		self.lees(self.r1)  # de veger nummert over de hele site, ook de regel van de andere ruimte
 		namen["een-2"] = a.doe(lambda: schrijf(self.r1, "een-2"))
 		a.doe(commit)
+		self.lees(self.r2)
 		namen["twee-2"] = b.doe(lambda: schrijf(self.r2, "twee-2"))
 		b.doe(commit)
 		een, twee = self.lees(self.r1, c1), self.lees(self.r2, c2)
 		self.assertEqual(doelen(een), ["een-1", "een-2"])
 		self.assertEqual(doelen(twee), ["twee-1", "twee-2"])
-		# Over de hele site in commitvolgorde; het gat in de nummers van een ruimte is een regel van de andere.
+		# Over de hele site in de volgorde waarin de regels zichtbaar werden; een gat in de nummers van een ruimte is
+		# een regel van de andere.
 		volgorde = sorted(namen, key=lambda d: self.nummer(namen[d]))
 		self.assertEqual(volgorde, ["twee-1", "een-1", "een-2", "twee-2"])
 		nummers = [w["volgnummer"] for w in een["wijzigingen"] + twee["wijzigingen"]]
@@ -203,6 +263,7 @@ class TestCommitnummer(Basis):
 		self.assertEqual((leeg["wijzigingen"], leeg["cursor"], leeg["meer"]), ([], begin, False))
 		a.doe(commit)
 		self.assertEqual(doelen(self.lees(self.r1, leeg["cursor"])), ["laat.ifc"])
+		self.precies_eens("laat.ifc", leeg["cursor"])
 
 	def test_deling_als_wortel_schuift_de_cursor_niet_voorbij_een_open_regel(self):
 		bea = gebruiker("bea")
@@ -253,25 +314,30 @@ class TestCommitnummer(Basis):
 		leeg = self.lees(self.r1, cursor, limiet=2)
 		self.assertEqual((leeg["wijzigingen"], leeg["cursor"], leeg["meer"]), ([], cursor, False))
 
-	def test_taak_die_tussendoor_commit_nummert_bij_elke_commit(self):
+	def test_taak_die_tussendoor_commit_mist_niets(self):
+		"""Een taak commit tussendoor (ook met `commit(chain=True)`), een ander verzoek ertussen; een client leest na
+		elke commit vanaf zijn cursor."""
 		a, b = self.verbinding("taak"), self.verbinding("ander")
-		begin = self.lees(self.r1)["cursor"]
+		cursor = begin = self.lees(self.r1)["cursor"]
 
 		def stap(doel: str, keten: bool = False):
-			name = schrijf(self.r1, doel)
+			schrijf(self.r1, doel)
 			frappe.db.commit(chain=keten)
-			return name
 
-		namen = [
-			a.doe(lambda: stap("taak-1", keten=True)),
-			b.doe(lambda: stap("ander")),
-			a.doe(lambda: stap("taak-2")),
-			a.doe(lambda: stap("taak-3")),
-		]
-		nummers = [self.nummer(n) for n in namen]
-		self.assertTrue(all(nummers), nummers)
-		self.assertEqual(nummers, list(range(nummers[0], nummers[0] + 4)))
-		self.assertEqual(doelen(self.lees(self.r1, begin)), ["taak-1", "ander", "taak-2", "taak-3"])
+		gezien = []
+		for wie, doel, keten in (
+			(a, "taak-1", True),
+			(b, "ander", False),
+			(a, "taak-2", True),
+			(a, "taak-3", False),
+		):
+			wie.doe(lambda d=doel, k=keten: stap(d, k))
+			uit = self.lees(self.r1, cursor)
+			gezien += doelen(uit)
+			cursor = uit["cursor"]
+		self.assertEqual(gezien, ["taak-1", "ander", "taak-2", "taak-3"])
+		for doel in gezien:
+			self.precies_eens(doel, begin)
 
 	def test_batch_met_een_item_terug_naar_een_savepoint(self):
 		a = self.verbinding("A")
@@ -294,14 +360,12 @@ class TestCommitnummer(Basis):
 		self.assertEqual(self.teller(), volgnummers[1])
 		self.assertIsNone(self.nummer(weg))
 
-	def test_alles_terug_naar_een_savepoint_neemt_geen_slot_op_de_teller(self):
-		a = self.verbinding("A")
+	def test_lezen_zonder_nieuwe_regels_neemt_geen_slot(self):
+		"""Een batch die helemaal terug ging naar een savepoint, laat niets achter. Een lezer vindt dan geen regel met
+		nummer 0, en raakt de teller niet aan: hij wacht ook niet als een ander het tellerslot heeft."""
+		a, b, lezer = self.verbinding("A"), self.verbinding("B"), self.verbinding("L")
+		begin = self.lees(self.r1)["cursor"]
 		voor = self.teller()
-		echte, sloten = commitnummer._vergrendel_teller, []
-
-		def vergrendel():
-			sloten.append(1)
-			return echte()
 
 		def batch():
 			frappe.db.savepoint("alles")
@@ -309,163 +373,115 @@ class TestCommitnummer(Basis):
 			frappe.db.rollback(save_point="alles")
 			frappe.db.commit()
 
-		with mock.patch.object(commitnummer, "_vergrendel_teller", vergrendel):
-			a.doe(batch)
-		self.assertEqual((sloten, self.teller()), ([], voor))
-
-	def test_callback_na_de_nummeraar_schrijft_nog_een_regel(self):
-		a = self.verbinding("A")
-		volgorde = []
-		echte = commitnummer._vergrendel_teller
-
-		def vergrendel():
-			volgorde.append("teller")
-			return echte()
-
-		def callback():
-			volgorde.append("callback")
-			schrijf(self.r1, "uit-callback")
-
-		def transactie():
-			gewoon = schrijf(self.r1, "gewoon")  # meldt de nummeraar aan
-			frappe.db.before_commit.add(callback)  # staat ná de nummeraar
-			frappe.db.commit()
-			return gewoon
-
-		with mock.patch.object(commitnummer, "_vergrendel_teller", vergrendel):
-			gewoon = a.doe(transactie)
-		# Het slot op de teller komt als laatste, ook na een callback die later is aangemeld.
-		self.assertEqual(volgorde, ["callback", "teller"])
-		self.assertEqual(self.nummer(self.name_van("uit-callback")), self.nummer(gewoon) + 1)
-
-	def test_callback_die_blijft_uitstellen_breekt_de_commit_af(self):
-		"""De proef van Sol (fixronde 1, punt 2): een callback zet zich steeds opnieuw achteraan, en draait als laatste
-		handeling terug naar een savepoint van na het maken van de map en vóór de nummering. Vroeger nummerde de
-		nummeraar na `MAX_UITSTEL` keer toch: tellerslot, de callback zag het nummer, de rollback naar het savepoint
-		maakte het weer 0, en de SQL-commit legde map en regel vast met nummer 0 (de lijst gaf ze nooit). Nu mislukt de
-		commit; er komt niets vast. Een nieuwe poging nummert opnieuw: als de callback klaar is, is de nummeraar de
-		laatste."""
-		a = self.verbinding("A")
-		voor = self.teller()
-		gemaakt, gezien = {}, []
-
-		def koppig():
-			gemaakt["rondes"] += 1
-			if gemaakt["rondes"] <= commitnummer.MAX_UITSTEL + 2:
-				frappe.db.before_commit.add(koppig)
-			else:
-				gezien.append(frappe.db.get_value("Opslagwijziging", gemaakt["regel"], "commitnummer"))
-				frappe.db.rollback(save_point="na_de_map")
-
-		def transactie():
-			gemaakt["map"] = api.maak_map(ruimte=self.r1, naam="Koppig")["map"]
-			gemaakt["regel"] = frappe.db.get_value("Opslagwijziging", {"doel": gemaakt["map"]}, "name")
-			gemaakt["rondes"] = 0
-			frappe.db.savepoint("na_de_map")
-			frappe.db.before_commit.add(koppig)
-			frappe.db.commit()
-
-		with self.assertRaises(commitnummer.NummeringMislukt):
-			a.doe(transactie)
-		# Niets vastgelegd: geen map, geen regel (ook niet met nummer 0), en de teller staat stil.
-		self.assertIsNone(self.name_van(gemaakt["map"]))
-		self.assertFalse(frappe.db.exists("Opslagmap", gemaakt["map"]))
+		a.doe(batch)
+		b.doe(houd_teller_vast)
+		lezer.doe(korte_wachttijd)
+		uit, duur = lezer.doe(lambda: getimed(lambda: lees_vanaf(self.r1, begin, self.anna)))
+		self.assertEqual((uit["wijzigingen"], uit["cursor"]), ([], begin))
+		self.assertLess(duur, 0.5)
+		b.doe(rollback)
 		self.assertEqual(self.teller(), voor)
-		self.assertEqual(gezien, [])
-		# Een nieuwe poging: de callback draait zijn laatste rondes (en ziet nummer 0), daarna nummert de nummeraar.
-		a.doe(commit)
-		self.assertEqual(gezien, [0])
-		nummer = self.nummer(gemaakt["regel"])
-		self.assertEqual(nummer, voor + 1)
-		self.assertEqual(self.teller(), nummer)
-		self.assertIn(gemaakt["map"], doelen(self.lees(self.r1)))
 
-	def test_wachttijd_op_de_teller_om_dan_mislukt_de_commit_en_nummert_de_volgende(self):
-		"""De proef van Sol (fixronde 1, punt 1): een tweede verbinding houdt de teller vast; `maak_map`; met een
-		wachttijd van 1 s geeft `commit()` 1205 (QueryTimeoutError). Vroeger had de nummeraar zijn lijst en zijn
-		aanmelding dan al weggegooid: de volgende `commit()` legde map en regel vast met nummer 0, en
-		`wijzigingen(sinds=0)` gaf ze nooit. Nu staan na de fout de naam nog op de lijst en de nummeraar nog in de
-		wachtrij, en nummert de volgende commit."""
-		a, b = self.verbinding("A"), self.verbinding("B")
-		voor = self.teller()
-		b.doe(lambda: frappe.db.sql("select current from `tabSeries` where name = %s for update", commitnummer.TELLER))
+	def test_schrijver_neemt_het_tellerslot_nooit(self):
+		"""Sol, PR #16 ronde 2, punt 3: wie het tellerslot bij het schrijven nam, kon in een kring van wachtende
+		transacties komen. Nu schrijft en commit een schrijver terwijl een ander het tellerslot heeft, zonder te wachten
+		(wachttijd 1 s). Alleen een veger wacht op het tellerslot."""
+		a, b, lezer = self.verbinding("A"), self.verbinding("B"), self.verbinding("L")
+		begin = self.lees(self.r1)["cursor"]
+		b.doe(houd_teller_vast)
 
 		def map_maken():
-			frappe.db.sql("set session innodb_lock_wait_timeout = 1")
-			map_id = api.maak_map(ruimte=self.r1, naam="Wacht")["map"]
-			return map_id, frappe.db.get_value("Opslagwijziging", {"doel": map_id}, "name")
-
-		map_id, regel = a.doe(map_maken)
-		with self.assertRaises(frappe.QueryTimeoutError):
-			a.doe(commit)
-		namen, aangemeld = a.doe(
-			lambda: (list(commitnummer._staat()["namen"]), list(frappe.db.before_commit._functions).count(commitnummer._nummer))
-		)
-		self.assertEqual((namen, aangemeld), ([regel], 1))
-		self.assertIsNone(self.name_van(map_id), "niets vastgelegd")
-		b.doe(rollback)
-		a.doe(commit)
-		self.assertEqual(self.nummer(regel), voor + 1)
-		self.assertEqual(self.teller(), voor + 1)
-		self.assertIn(map_id, doelen(self.lees(self.r1, sinds=0)))
-		self.assertEqual(
-			frappe.db.sql("select count(*) from `tabOpslagwijziging` where ruimte = %s and commitnummer = 0", self.r1)[0][0], 0
-		)
-
-	def test_halve_nummering_gaat_helemaal_terug(self):
-		"""Mislukt het uitdelen na het nummeren van de regels maar vóór de teller is bijgezet, dan gaat alles terug naar
-		het savepoint van de nummeraar. Anders had de regel al een nummer boven de teller: een nieuwe poging sloeg haar
-		over, en een andere transactie kon hetzelfde nummer nog eens uitgeven."""
-		a = self.verbinding("A")
-		voor = self.teller()
-
-		def transactie():
-			regel = schrijf(self.r1, "half")
-			echte, keer = frappe.db.sql, {"aantal": 0}
-
-			def sql(query, *args, **kwargs):
-				if str(query).startswith("update `tabSeries`") and not keer["aantal"]:
-					keer["aantal"] += 1
-					raise frappe.QueryTimeoutError("nagebootst")
-				return echte(query, *args, **kwargs)
-
-			with mock.patch.object(frappe.db, "sql", sql):
-				try:
-					frappe.db.commit()
-				except frappe.QueryTimeoutError:
-					pass
-			na_de_fout = frappe.db.get_value("Opslagwijziging", regel, "commitnummer")
+			korte_wachttijd()
+			map_id = api.maak_map(ruimte=self.r1, naam="Tijdens het slot")["map"]
 			frappe.db.commit()
-			return regel, na_de_fout
+			return map_id
 
-		regel, na_de_fout = a.doe(transactie)
-		self.assertEqual(na_de_fout, 0, "de regel houdt geen nummer van een mislukte nummering")
-		self.assertEqual((self.nummer(regel), self.teller()), (voor + 1, voor + 1))
+		map_id, duur = a.doe(lambda: getimed(map_maken))
+		self.assertLess(duur, 0.5)
+		self.assertEqual(self.nummer(self.name_van(map_id)), 0)
+		lezer.doe(korte_wachttijd)
+		with self.assertRaises(frappe.QueryTimeoutError):
+			lezer.doe(lambda: lees_vanaf(self.r1, begin, self.anna))
+		b.doe(rollback)
+		self.precies_eens(map_id, begin)
+
+	def test_veger_wacht_niet_op_een_open_schrijftransactie(self):
+		"""De veger nummert alleen vastgelegde regels, met een gewone lezing; de open regel van een schrijver laat hij
+		liggen. Gemeten met een wachttijd van 1 s: hij wacht niet. Na de commit krijgt de open regel een nummer boven de
+		cursor die de client al kreeg."""
+		a, b, lezer = self.verbinding("A"), self.verbinding("B"), self.verbinding("L")
+		begin = self.lees(self.r1)["cursor"]
+		open_regel = a.doe(lambda: schrijf(self.r1, "open.ifc"))
+		dicht_regel = b.doe(lambda: schrijf(self.r1, "dicht.ifc"))
+		b.doe(commit)
+		lezer.doe(korte_wachttijd)
+		eerste, duur = lezer.doe(lambda: getimed(lambda: lees_vanaf(self.r1, begin, self.anna)))
+		self.assertEqual(doelen(eerste), ["dicht.ifc"])
+		self.assertLess(duur, 0.5)
+		self.assertEqual(self.nummer(open_regel), None, "de open regel is voor anderen nog onzichtbaar")
+		a.doe(commit)
+		tweede = lezer.doe(lambda: lees_vanaf(self.r1, eerste["cursor"], self.anna))
+		self.assertEqual(doelen(tweede), ["open.ifc"])
+		self.assertLess(open_regel, dicht_regel)
+		self.assertGreater(self.precies_eens("open.ifc", eerste["cursor"]), self.nummer(dicht_regel))
+
+	def test_twee_vegers_tegelijk_geven_geen_dubbel_nummer(self):
+		"""Twee vegers vanaf twee verbindingen wachten tegelijk op het tellerslot; terwijl ze wachten, komen er regels
+		bij. De eerste nummert alles wat vastgelegd is; de tweede ziet daarna de nieuwe teller en niets meer om te
+		nummeren. Beide clients krijgen dezelfde nummers, en die verschuiven daarna niet."""
+		a, b = self.verbinding("A"), self.verbinding("B")
+		l1, l2 = self.verbinding("L1"), self.verbinding("L2")
+		begin = self.lees(self.r1)["cursor"]
+
+		def tien(voorvoegsel: str) -> list[str]:
+			doelen_ = [f"{voorvoegsel}-{i}" for i in range(10)]
+			for doel in doelen_:
+				schrijf(self.r1, doel)
+			frappe.db.commit()
+			return doelen_
+
+		geschreven = a.doe(lambda: tien("voor"))
+		b.doe(houd_teller_vast)
+		wachtend = [lezer.begin(lambda: getimed(lambda: lees_vanaf(self.r1, begin, self.anna))) for lezer in (l1, l2)]
+		time.sleep(0.5)
+		geschreven += a.doe(lambda: tien("tussen"))
+		b.doe(rollback)
+		(u1, d1), (u2, d2) = (uitkomst_van(q) for q in wachtend)
+		self.assertGreater(min(d1, d2), 0.4, "beide vegers wachtten op het tellerslot")
+		nummers = {w["doel"]: w["volgnummer"] for w in u1["wijzigingen"]}
+		self.assertEqual(sorted(nummers), sorted(geschreven))
+		self.assertEqual({w["doel"]: w["volgnummer"] for w in u2["wijzigingen"]}, nummers)
+		self.assertEqual(len(set(nummers.values())), 20)
+		self.assertEqual({w["doel"]: w["volgnummer"] for w in self.lees(self.r1, begin)["wijzigingen"]}, nummers)
+		self.geen_dubbele_nummers()
 
 	def test_activiteit_sorteert_en_nummert_op_het_commitnummer(self):
 		a, b = self.verbinding("A"), self.verbinding("B")
 		a.doe(lambda: schrijf(self.r1, "a.ifc"))
 		b.doe(lambda: schrijf(self.r1, "b.ifc"))
 		b.doe(commit)
-		a.doe(commit)
 		frappe.db.rollback()
 		frappe.set_user(self.anna)
 		try:
+			ruimtebeheer.activiteit(self.r1)  # de veger nummert b.ifc; a.ifc is nog open
+			a.doe(commit)
+			frappe.db.rollback()
 			activiteit = ruimtebeheer.activiteit(self.r1, aantal=500)
 		finally:
 			frappe.set_user("Administrator")
 		eigen = [(r["doel"], r["volgnummer"]) for r in activiteit["regels"] if r["doel"] in ("a.ifc", "b.ifc")]
 		lijst = self.lees(self.r1)["wijzigingen"]
 		uit_lijst = {w["doel"]: w["volgnummer"] for w in lijst}
-		# Nieuwste eerst: A committe als laatste. Hetzelfde nummer als in de wijzigingenlijst.
+		# Nieuwste eerst: A werd als laatste zichtbaar. Hetzelfde nummer als in de wijzigingenlijst.
 		self.assertEqual([d for d, _ in eigen], ["a.ifc", "b.ifc"])
 		self.assertEqual(dict(eigen), {d: uit_lijst[d] for d in ("a.ifc", "b.ifc")})
 
 	def test_gelijktijdig_schrijven_en_lezen_mist_niets(self):
-		"""Drie schrijvers met korte transacties (soms tussen invoegen en commit even wachten) en één lezer die
-		steeds vanaf zijn cursor leest. De lezer krijgt elke regel precies één keer, in oplopende volgorde."""
+		"""Drie schrijvers met korte transacties (soms tussen invoegen en commit even wachten) en twee lezers die elk
+		steeds vanaf hun eigen cursor lezen, dus twee vegers. Elke lezer krijgt elke regel precies één keer, in
+		oplopende volgorde."""
 		schrijvers = [self.verbinding(f"S{i}") for i in range(3)]
-		lezer = self.verbinding("L")
+		lezers = [self.verbinding(f"L{i}") for i in range(2)]
 		begin = self.lees(self.r1)["cursor"]
 
 		def schrijf_veel(wie: str) -> list[str]:
@@ -478,77 +494,292 @@ class TestCommitnummer(Basis):
 				frappe.db.commit()
 			return geschreven
 
-		def lees_vanaf(cursor: int) -> dict:
-			frappe.db.rollback()
-			frappe.set_user(self.anna)
-			try:
-				return api.wijzigingen(ruimte=self.r1, sinds=cursor, limiet=7)
-			finally:
-				frappe.set_user("Administrator")
-
 		bezig = [s.begin(lambda w=s.name: schrijf_veel(w)) for s in schrijvers]
-		gezien, volgnummers, cursor = [], [], begin
-		while True:
-			# Zijn alle schrijvers al klaar vóór deze lezing, dan ziet ze alles; lees dan door tot de laatste pagina.
-			klaar = all(not q.empty() for q in bezig)
-			uit = lezer.doe(lambda c=cursor: lees_vanaf(c))
-			gezien += doelen(uit)
-			volgnummers += [w["volgnummer"] for w in uit["wijzigingen"]]
-			cursor = uit["cursor"]
-			if klaar and not uit["meer"]:
-				break
+		alles_geschreven = threading.Event()
+
+		def lees_alles() -> tuple[list[str], list[int]]:
+			gezien, volgnummers, cursor = [], [], begin
+			while True:
+				# Zijn alle schrijvers al klaar vóór deze lezing, dan ziet ze alles; lees dan door tot de laatste pagina.
+				klaar = alles_geschreven.is_set()
+				uit = lees_vanaf(self.r1, cursor, self.anna, limiet=7)
+				gezien += doelen(uit)
+				volgnummers += [w["volgnummer"] for w in uit["wijzigingen"]]
+				cursor = uit["cursor"]
+				if klaar and not uit["meer"]:
+					return gezien, volgnummers
+
+		lezend = [lezer.begin(lees_alles) for lezer in lezers]
 		geschreven = [d for q in bezig for d in uitkomst_van(q)]
-		self.assertEqual(sorted(gezien), sorted(geschreven), "de lezer mist regels of krijgt ze dubbel")
-		self.assertEqual(volgnummers, sorted(set(volgnummers)))
-		print(f"\n  {self._testMethodName}: {len(geschreven)} regels, lezer zag ze allemaal precies één keer")
+		alles_geschreven.set()
+		for q in lezend:
+			gezien, volgnummers = uitkomst_van(q)
+			self.assertEqual(sorted(gezien), sorted(geschreven), "een lezer mist regels of krijgt ze dubbel")
+			self.assertEqual(volgnummers, sorted(set(volgnummers)))
+		self.geen_dubbele_nummers()
+		print(f"\n  {self._testMethodName}: {len(geschreven)} regels, beide lezers zagen ze allemaal precies één keer")
 
-	def test_slot_op_de_teller_duurt_kort_ook_bij_een_batch(self):
-		"""Meting: hoe lang een transactie het slot op de teller houdt, bij 1, 100 en 500 regels in één transactie.
-		Het slot loopt van het vergrendelen tot de SQL-commit klaar is. Wat Frappe daarna nog doet (de after_commit-
-		callbacks van de ingevoegde documenten), valt erbuiten; dat staat er apart bij."""
-		a = self.verbinding("A")
-		echte = commitnummer._vergrendel_teller
+	def test_veging_duurt_kort_ook_bij_een_batch(self):
+		"""Meting: hoe lang een veging duurt (van de eerste lezing tot de commit; het tellerslot duurt korter), bij 1,
+		100 en 500 vastgelegde regels zonder nummer."""
+		a, lezer = self.verbinding("A"), self.verbinding("L")
 
-		def vergrendel():
-			waarde = echte()
-			frappe.local.oa_slot_sinds = time.perf_counter()
-			return waarde
-
-		def batch(n: int) -> tuple[float, float, float]:
+		def batch(n: int):
 			for i in range(n):
 				schrijf(self.r1, f"batch-{n}-{i}")
-			momenten, echte_sql = {}, frappe.db.sql
+			frappe.db.commit()
 
-			def sql(query, *args, **kwargs):
-				uit = echte_sql(query, *args, **kwargs)
-				if str(query).strip() == "commit":
-					momenten["commit"] = time.perf_counter()
-				return uit
-
-			frappe.db.sql = sql
-			try:
-				begin = time.perf_counter()
-				frappe.db.commit()
-				einde = time.perf_counter()
-			finally:
-				del frappe.db.sql
-			return momenten["commit"] - frappe.local.oa_slot_sinds, einde - begin, einde - momenten["commit"]
+		def veeg():
+			frappe.db.rollback()
+			return getimed(commitnummer.veeg)[1]
 
 		metingen = {}
-		with mock.patch.object(commitnummer, "_vergrendel_teller", vergrendel):
-			for n in (1, 100, 500):
-				metingen[n] = a.doe(lambda n=n: batch(n))
-		verslag = ", ".join(
-			f"{n} regels: slot {s * 1000:.1f} ms (hele commit {c * 1000:.1f} ms, waarvan na de SQL-commit {na * 1000:.1f} ms)"
-			for n, (s, c, na) in metingen.items()
+		for n in (1, 100, 500):
+			a.doe(lambda n=n: batch(n))
+			metingen[n] = lezer.doe(veeg)
+		print(
+			f"\n  {self._testMethodName}: "
+			+ ", ".join(f"{n} regels: {duur * 1000:.1f} ms" for n, duur in metingen.items())
 		)
-		print(f"\n  {self._testMethodName}: {verslag}")
-		self.assertLess(max(s for s, _, _ in metingen.values()), 2)
+		self.assertLess(max(metingen.values()), 2)
+		frappe.db.rollback()
+		self.assertEqual(frappe.db.count("Opslagwijziging", {"commitnummer": 0}), 0)
+
+	def test_halve_veging_komt_nooit_vast(self):
+		"""Mislukt de veging halverwege, dan draait de veger zijn transactie terug: ook een aanroeper die de fout opvangt
+		en daarna commit, legt geen half genummerde regels vast. De volgende lezing nummert alles."""
+		a, lezer = self.verbinding("A"), self.verbinding("L")
+		begin = self.lees(self.r1)["cursor"]
+		voor = self.teller()
+
+		def twee():
+			namen = [schrijf(self.r1, "half-1"), schrijf(self.r1, "half-2")]
+			frappe.db.commit()
+			return namen
+
+		namen = a.doe(twee)
+
+		def slordige_aanroeper():
+			echte, keer = frappe.db.sql, []
+
+			def sql(query, *args, **kwargs):
+				if str(query).startswith("update `tabOpslagwijziging`"):
+					keer.append(1)
+					if len(keer) == 2:
+						raise frappe.QueryTimeoutError("nagebootst")
+				return echte(query, *args, **kwargs)
+
+			frappe.db.rollback()
+			with mock.patch.object(frappe.db, "sql", sql):
+				try:
+					commitnummer.veeg()
+				except frappe.QueryTimeoutError:
+					pass
+			frappe.db.commit()
+
+		lezer.doe(slordige_aanroeper)
+		self.assertEqual([self.nummer(n) for n in namen], [0, 0])
+		self.assertEqual(self.teller(), voor)
+		self.assertEqual(doelen(self.lees(self.r1, begin)), ["half-1", "half-2"])
+		self.assertEqual([self.nummer(n) for n in namen], [voor + 1, voor + 2])
+
+	def test_veger_begint_opnieuw_na_een_deadlock(self):
+		"""Bij fout 1213 (of 1020, in Frappe allebei QueryDeadlockError) begint de veger opnieuw bij de commit."""
+		a, lezer = self.verbinding("A"), self.verbinding("L")
+		begin = self.lees(self.r1)["cursor"]
+		voor = self.teller()
+		regel = a.doe(lambda: (schrijf(self.r1, "opnieuw.ifc"), frappe.db.commit())[0])
+
+		def met_een_deadlock():
+			echte, keer = frappe.db.sql, []
+
+			def sql(query, *args, **kwargs):
+				if "for update" in str(query) and not keer:
+					keer.append(1)
+					raise frappe.QueryDeadlockError("nagebootst")
+				return echte(query, *args, **kwargs)
+
+			with mock.patch.object(frappe.db, "sql", sql):
+				return lees_vanaf(self.r1, begin, self.anna), len(keer)
+
+		uit, deadlocks = lezer.doe(met_een_deadlock)
+		self.assertEqual((doelen(uit), deadlocks), (["opnieuw.ifc"], 1))
+		self.assertEqual((self.nummer(regel), self.teller()), (voor + 1, voor + 1))
+
+	def test_veger_weigert_een_transactie_met_schrijfwerk(self):
+		"""Een lezer schrijft zelf niets. Staat er toch schrijfwerk in de transactie, dan commit de veger die niet."""
+		a = self.verbinding("A")
+
+		def lezen_na_schrijven():
+			schrijf(self.r1, "eigen.ifc")
+			try:
+				api.wijzigingen(ruimte=self.r1)
+			finally:
+				frappe.db.rollback()
+
+		with self.assertRaisesRegex(RuntimeError, "committen"):
+			a.doe(lezen_na_schrijven)
+		self.assertIsNone(self.name_van("eigen.ifc"))
+
+	def test_get_verzoek_via_de_http_laag_houdt_de_nummers(self):
+		"""Een GET-verzoek via de echte WSGI-app van Frappe (`frappe.app.application`, met de werkzeug-testclient in
+		een eigen thread, zoals Frappe's eigen API-tests). Frappe draait na een GET terug (`sync_database`); de nummers
+		van de veger staan daarna toch in de database, en een volgende lezing geeft dezelfde nummers."""
+		a = self.verbinding("A")
+		begin = self.lees(self.r1)["cursor"]
+
+		def inloggen() -> str:
+			from frappe.auth import CookieManager, LoginManager
+			from frappe.utils import set_request
+
+			set_request(path="/")
+			frappe.local.cookie_manager = CookieManager()
+			frappe.local.login_manager = LoginManager()
+			frappe.local.login_manager.login_as(self.anna)
+			frappe.db.commit()
+			return frappe.session.sid
+
+		sid = a.doe(inloggen)
+		regel = a.doe(lambda: (schrijf(self.r1, "via-http.ifc"), frappe.db.commit())[0])
+		self.assertEqual(self.nummer(regel), 0)
+		antwoord = {}
+
+		def verzoek():
+			antwoord["uit"] = get_test_client().get(
+				"/api/method/openaec_storage.api.wijzigingen",
+				query_string={"ruimte": self.r1, "sinds": begin, "sid": sid},
+				headers={"X-Frappe-Site-Name": self.site},
+			)
+
+		draad = threading.Thread(target=verzoek)
+		draad.start()
+		draad.join(WACHT)
+		uit = antwoord["uit"]
+		self.assertEqual(uit.status_code, 200, uit.text)
+		bericht = uit.json["message"]
+		self.assertEqual(doelen(bericht), ["via-http.ifc"])
+		gekregen = bericht["wijzigingen"][0]["volgnummer"]
+		self.assertGreater(gekregen, begin)
+		self.assertEqual(self.nummer(regel), gekregen, "het nummer staat na het GET-verzoek in de database")
+		self.assertEqual(self.precies_eens("via-http.ifc", begin), gekregen)
+
+		def uitloggen():
+			from frappe.sessions import delete_session
+
+			delete_session(sid, reason="test")
+			frappe.db.commit()
+
+		a.doe(uitloggen)
+
+
+class TestCommitroutes(Basis):
+	"""De proeven van Sol op PR #16, ronde 2: commitroutes buiten `before_commit` om. Op 71c4446 legde elke route een
+	regel vast met nummer 0 die de wijzigingenlijst nooit gaf. Nu nummert de veger hem bij de volgende lezing."""
+
+	def test_a_after_rollback_callback_maakt_een_map(self):
+		"""Een `after_rollback`-callback maakt een map; daarna een andere map en een volledige rollback, dan een gewone
+		commit. Frappe begint vóór de callbacks al een nieuwe transactie: de map van de callback komt daarin."""
+		a = self.verbinding("A")
+		begin = self.lees(self.r1)["cursor"]
+		gemaakt = {}
+
+		def proef():
+			frappe.db.after_rollback.add(
+				lambda: gemaakt.update(callback=api.maak_map(ruimte=self.r1, naam="Uit de callback")["map"])
+			)
+			gemaakt["terug"] = api.maak_map(ruimte=self.r1, naam="Teruggedraaid")["map"]
+			frappe.db.rollback()
+			frappe.db.commit()
+
+		a.doe(proef)
+		self.assertTrue(self.bestaat("Opslagmap", gemaakt["callback"]))
+		self.assertIsNone(self.name_van(gemaakt["terug"]))
+		self.assertNotIn(gemaakt["terug"], doelen(self.lees(self.r1, 0)))
+		self.precies_eens(gemaakt["callback"], begin)
+
+	def test_b_rauwe_commit_en_dan_rollback(self):
+		"""`maak_map()`, dan `frappe.db.sql("commit")`, dan `frappe.db.rollback()`: map en regel zijn vastgelegd."""
+		a = self.verbinding("A")
+		begin = self.lees(self.r1)["cursor"]
+
+		def proef():
+			map_id = api.maak_map(ruimte=self.r1, naam="Rauw")["map"]
+			frappe.db.sql("commit")
+			frappe.db.rollback()
+			return map_id
+
+		map_id = a.doe(proef)
+		self.assertTrue(self.bestaat("Opslagmap", map_id))
+		self.precies_eens(map_id, begin)
+
+	def test_c_before_commit_callback_commit_rauw_en_gooit(self):
+		"""Een `before_commit`-callback doet een rauwe SQL-commit en gooit dan; de aanroeper draait terug."""
+		a = self.verbinding("A")
+		begin = self.lees(self.r1)["cursor"]
+
+		def callback():
+			frappe.db.sql("commit")
+			raise frappe.ValidationError("na de rauwe commit")
+
+		def proef():
+			map_id = api.maak_map(ruimte=self.r1, naam="Callback")["map"]
+			frappe.db.before_commit.add(callback)
+			try:
+				frappe.db.commit()
+			except frappe.ValidationError:
+				frappe.db.rollback()
+			return map_id
+
+		map_id = a.doe(proef)
+		self.assertTrue(self.bestaat("Opslagmap", map_id))
+		self.precies_eens(map_id, begin)
+
+	def test_d_mislukte_rename_table_commit_de_map(self):
+		"""`maak_map()`, dan `RENAME TABLE` op een tabel die niet bestaat: fout 1146, maar MariaDB commit eerst."""
+		a = self.verbinding("A")
+		begin = self.lees(self.r1)["cursor"]
+
+		def proef():
+			map_id = api.maak_map(ruimte=self.r1, naam="Hernoemd")["map"]
+			try:
+				frappe.db.sql("rename table `tabBestaatNiet` to `tabBestaatNietOok`")
+			except frappe.db.ProgrammingError as fout:
+				code = fout.args[0]
+			frappe.db.rollback()
+			return map_id, code
+
+		map_id, code = a.doe(proef)
+		self.assertEqual(code, 1146)
+		self.assertTrue(self.bestaat("Opslagmap", map_id))
+		self.precies_eens(map_id, begin)
+
+	def test_e_mislukte_alter_table_na_een_savepoint(self):
+		"""`maak_map()`, een savepoint en een rollback daarheen (Frappe zet `transaction_writes` dan op 0), dan een
+		mislukte `ALTER TABLE`: Frappe houdt hem niet tegen, en MariaDB commit eerst."""
+		a = self.verbinding("A")
+		begin = self.lees(self.r1)["cursor"]
+
+		def proef():
+			map_id = api.maak_map(ruimte=self.r1, naam="Gewijzigd")["map"]
+			frappe.db.savepoint("na_de_map")
+			frappe.db.rollback(save_point="na_de_map")
+			schrijfwerk = frappe.db.transaction_writes
+			try:
+				frappe.db.sql("alter table `tabBestaatNiet` add column x int")
+			except frappe.db.ProgrammingError as fout:
+				code = fout.args[0]
+			frappe.db.rollback()
+			return map_id, code, schrijfwerk
+
+		map_id, code, schrijfwerk = a.doe(proef)
+		self.assertEqual((code, schrijfwerk), (1146, 0))
+		self.assertTrue(self.bestaat("Opslagmap", map_id))
+		self.precies_eens(map_id, begin)
 
 
 class TestMigratie(IntegrationTestCase):
 	"""Bestaande regels en de teller. Draait in de hoofdthread zonder commit en eindigt met een rollback; wat het in
-	zijn eigen transactie leest, nummert het eerst zelf (`commitnummer.deel_uit`)."""
+	zijn eigen transactie leest, nummert het eerst zelf (`hulp.nummer_wijzigingen`)."""
 
 	def setUp(self):
 		ruim_op()
@@ -578,7 +809,7 @@ class TestMigratie(IntegrationTestCase):
 		)
 		# Een cursor van vóór de migratie (een name) blijft geldig: de rest komt erna.
 		api._log(self.ruimte, "nieuw", "Opslagmap", "nieuw")
-		commitnummer.deel_uit()
+		nummer_wijzigingen()
 		uit = api.wijzigingen(ruimte=self.ruimte, sinds=oud[0])
 		self.assertEqual(doelen(uit), ["oud-1", "oud-2", "nieuw"])
 		self.assertEqual(uit["wijzigingen"][-1]["volgnummer"], hoogste + 1)
@@ -609,6 +840,7 @@ class TestNummerVanBuiten(IntegrationTestCase):
 		ruim_op()
 
 	def test_eigen_nummer_bij_invoegen_en_opslaan_telt_niet(self):
+		nummer_wijzigingen()
 		begin = api.wijzigingen(ruimte=self.ruimte)["cursor"]
 		doc = frappe.get_doc(
 			{
@@ -621,7 +853,7 @@ class TestNummerVanBuiten(IntegrationTestCase):
 			}
 		).insert()
 		self.assertEqual(frappe.db.get_value("Opslagwijziging", doc.name, "commitnummer"), 0)
-		commitnummer.deel_uit()
+		nummer_wijzigingen()
 		nummer = frappe.db.get_value("Opslagwijziging", doc.name, "commitnummer")
 		self.assertGreater(nummer, 0)
 		self.assertLess(nummer, 10**9)
@@ -630,4 +862,3 @@ class TestNummerVanBuiten(IntegrationTestCase):
 		doc.commitnummer = 10**9
 		doc.save()
 		self.assertEqual(frappe.db.get_value("Opslagwijziging", doc.name, "commitnummer"), nummer)
-
