@@ -6,7 +6,8 @@ Stand: 5 november 2026, na review ronde 1. Voor: Ethan. Over: de sync tussen de 
 
 Ik heb het samenwerkprotocol nagebouwd als een wiskundig model (TLA+). Een programma (de model checker TLC) liep
 daarna alle volgordes af waarin clients, server en netwerk kunnen handelen, binnen vaste grenzen. Dat vond vier
-fouten die nog niet bekend waren, en bevestigde dat de bekende fouten echt zijn en dat de geplande fixes ze oplossen.
+fouten. Drie waren nog niet bekend; de vierde (fout 2) vond een review van desktop-PR #11 dezelfde dag ook. Het model
+bevestigde ook dat de bekende fouten echt zijn en dat de geplande fixes ze oplossen.
 Een tweede model (Sol) las het model en de code na; zijn bevindingen zijn verwerkt. De technische kant (bronnen,
 aannames, hoe je het herhaalt) staat in [`formeel/README.md`](formeel/README.md).
 
@@ -100,6 +101,9 @@ nog in de prullenbak. Niemand krijgt een melding.
 - Fix: de client stuurt de versie mee die hij verwijdert, en de server weigert als dat niet de huidige versie is. De
   vergelijking en het verwijderen moeten onder hetzelfde slot op de bestandsregel gebeuren; een losse controle
   vooraf verplaatst de race alleen. Weigert de server, dan haalt de client de nieuwe versie op.
+- Ook bekend: desktop-PR #11 (offline wachtrij) noemt hetzelfde gat als knownbugs 27, en wacht op "optie E"
+  (verwijderen met een basis op de server). Wat het model toevoegt: de tweede stap (Anna's eigen sync verwijdert ook
+  haar lokale kopie, dus niemand merkt het), en dat een controle vlak vóór het verwijderen het gat niet sluit.
 - Gemeld: [openaec-storage#21](https://github.com/OpenAEC-Foundation/openaec-storage/issues/21) (server) en
   [openaec-cloud-desktop#14](https://github.com/OpenAEC-Foundation/openaec-cloud-desktop/issues/14) (client).
 - Model: `SyncClient.tla`, runs `Sync_5a_k2p1`, `Sync_5b_k2p1` (fout) en `*_fix` (met de fix).
@@ -137,7 +141,9 @@ vastligt. Bij "conflictkopie" wijzen twee versies naar hetzelfde object.
 - De desktop-sync stuurt "klaar" niet twee keer met hetzelfde token. Andere clients mogen dat wel; het commentaar bij
   `een_afronding` gaat daarvan uit.
 - Fix: bij een tweede "klaar" eerst kijken of een versie dit S3-object al heeft, en dan die versie teruggeven. En:
-  ruim nooit een sleutel op die een versieregel heeft.
+  ruim nooit een sleutel op die een versieregel heeft. Dat is ook "optie B" in `offline.md` van desktop-PR #11: een
+  herhaalbare afronding, zodat de desktop na een netwerkfout "klaar" gewoon kan herhalen. Zonder deze fix zou een
+  desktop die dat doet, deze fout raken.
 - Gemeld: [opmerking bij storage-PR #9](https://github.com/OpenAEC-Foundation/openaec-storage/pull/9#issuecomment-6661893101).
 - Model: `UploadServer.tla`, runs `UploadServer_pr9_inhoud` en `UploadServer_pr9_lus_voltooi_herhaalbaar`.
 
