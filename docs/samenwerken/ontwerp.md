@@ -955,8 +955,8 @@ Attributen leest ze opnieuw uit de tekst als ze nodig zijn. Een inhoudshash hang
 wijst, en die staan soms verderop in het bestand. Daarom rekent ze in een paar doorlopen eerst uit wat globaal is
 (kringen, ankers, gedeelde knopen), en dan per object de hash (`docs/samenwerken/gb-schaal.md` in
 openaec-cloud-desktop). Rekensom (schatting) voor het testmodel van 6,3 GB van P4 (116 miljoen instanties, 780 000
-objecten): 0,6 GB per versie. `verschil` heeft er twee, samenvoegen drie: ongeveer 1,9 GB, net onder de grens van 2 GB. Een
-bestand met nummers die niet oplopen, valt terug op ongeveer 40 bytes per instantie; dat haalt de grens niet.
+objecten): 0,6 GB per versie. `verschil` heeft er twee, samenvoegen drie: ongeveer 1,9 GB, net onder de grens van
+2 GB. Een bestand met nummers die niet oplopen, valt terug op ongeveer 40 bytes per instantie; dat haalt de grens niet.
 - De client bewaart de index van de basis naast de momentopname S in `.openaec/` (§5.6). Samenvoegen hoeft dan alleen
   ons en hun te indexeren.
 - De index is een cache: hij is altijd opnieuw te maken uit het IFC-bestand (zie §12.3).
