@@ -304,7 +304,8 @@ Bij fout 1020 of 1213 (`innodb_snapshot_isolation`, deadlock) begint de veger ee
 
 ### 5.5 API-overzicht
 
-Alles onder `/api/method/openaec_storage.samenwerken.<methode>`, met de inlog van de gebruiker. Rechten volgen
+Alles onder `/api/method/openaec_storage.samenwerken.<onderwerp>.<methode>` (één module per onderwerp: `versies`,
+`opmerkingen`, `aanwezigheid`, `meldingen`, `uitchecken`, `rechten`), met de inlog van de gebruiker. Rechten volgen
 `vereis_op_plek`, dus ook delingen. Namen zijn een voorstel.
 
 | Methode | Recht | Wat |
