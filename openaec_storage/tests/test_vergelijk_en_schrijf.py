@@ -433,6 +433,8 @@ class TestGelijktijdig(Hulp, IntegrationTestCase):
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
 		frappe.db.delete("Opslagvergrendeling")
+		frappe.db.delete("Opslagdeling", {"ruimte": self.ruimte})
+		frappe.db.delete("Notification Log", {"for_user": self.anna})
 		ruim_op()
 		frappe.db.commit()
 		self.s3.stop()
@@ -451,20 +453,21 @@ class TestGelijktijdig(Hulp, IntegrationTestCase):
 				return " | ".join(str(x) for x in rij[0])
 		return "onbekend"
 
-	def wissel(self, functie_a, functie_b) -> tuple[Verzoek, Verzoek, dict]:
-		"""A (Anna) en B (Piet) in de vaste volgorde van `Wissel`. Geeft beide verzoeken en de stand van B vlak voordat
-		A commit."""
+	def wissel(self, functie_a, functie_b, gebruiker_b: str | None = None, b_langs_registreer: bool = True):
+		"""A (Anna) en B (standaard Piet) in de vaste volgorde van `Wissel`. Geeft beide verzoeken en de stand van B
+		vlak voordat A commit. Gaat B niet langs `api._registreer` (de uploadlink), dan krijgt hij alleen de bedenktijd."""
 		frappe.db.commit()
 		w = Wissel()
 		a = Verzoek("A", self, self.anna, functie_a)
-		b = Verzoek("B", self, self.piet, functie_b)
+		b = Verzoek("B", self, gebruiker_b or self.piet, functie_b)
 		stand = {"klaar": None, "wacht_op": None}
 		with mock.patch.object(api, "_registreer", w.registreer):
 			try:
 				a.start()
 				self.assertTrue(wacht_tot(w.a_vastgelegd, a), f"A legde niets vast: {a.fout!r}")
 				b.start()
-				self.assertTrue(wacht_tot(w.b_bij_vastleggen, b), f"B kwam niet bij het vastleggen: {b.fout!r}")
+				if b_langs_registreer:
+					self.assertTrue(wacht_tot(w.b_bij_vastleggen, b), f"B kwam niet bij het vastleggen: {b.fout!r}")
 				time.sleep(BEDENKTIJD)
 				stand = {"klaar": b.klaar.is_set(), "wacht_op": self.wacht_op(b)}
 			finally:
@@ -563,6 +566,33 @@ class TestGelijktijdig(Hulp, IntegrationTestCase):
 		self.assertEqual(self.inhoud(r[1]["bestand"]), b"piet 2")
 		self.assertEqual(self.inhoud(r[2]["bestand"]), b"los")
 		self.assertFalse(stand["klaar"], f"B wachtte niet op het slot: {stand}")
+
+	def test_uploadlink_tegelijk_met_een_gewone_upload(self):
+		"""De uploadlink vergrendelt dezelfde map en ziet daarna het bestand van de gewone upload: een volgnummer."""
+		from openaec_storage import delen
+
+		link = api.deel(doel_doctype="Opslagmap", doel=self.map, rechten="uploaden")
+		van_anna = start(self.ruimte, "nieuw.ifc", b"van anna", map=self.map)
+		frappe.set_user("Guest")
+		try:
+			begin = delen.upload_start(token=link["token"], naam="nieuw.ifc", grootte=len(b"van buiten"))
+			antwoord = requests.put(begin["delen"][0]["url"], data=b"van buiten", timeout=30)
+			antwoord.raise_for_status()
+		finally:
+			frappe.set_user(self.anna)
+		stukken = [{"nummer": 1, "etag": antwoord.headers["ETag"]}]
+		a, b, stand = self.wissel(
+			lambda: api.upload_klaar(**van_anna),
+			lambda: delen.upload_klaar(token=link["token"], upload=begin["upload"], delen=stukken),
+			gebruiker_b="Guest",
+			b_langs_registreer=False,
+		)
+		self.assertIsNone(a.fout, repr(a.fout))
+		self.assertIsNone(b.fout, f"de uploadlink gaf een fout: {b.fout!r}")
+		namen = self.actief("nieuw.ifc", self.map)
+		self.assertEqual(namen, ["nieuw (2).ifc", "nieuw.ifc"], f"twee actieve bestanden met dezelfde naam? {namen}")
+		self.assertEqual(b.resultaat["naam"], "nieuw (2).ifc")
+		self.assertFalse(stand["klaar"], f"de uploadlink wachtte niet op het slot: {stand}")
 
 	def test_eigen_transactie_leest_wat_een_ander_net_vastlegde(self):
 		"""Waarom het vastleggen een eigen transactie onder READ COMMITTED krijgt: de momentopname van een verzoek ziet

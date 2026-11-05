@@ -242,7 +242,7 @@ def upload_start(token: str, naam: str, grootte: int, wachtwoord: str | None = N
 @rate_limit(limit=300, seconds=3600)
 def upload_klaar(token: str, upload: str, delen, wachtwoord: str | None = None, afzender: str | None = None) -> dict:
 	"""Rond het aanleveren af: een nieuw bestand in de gedeelde map (nooit een overschrijving)."""
-	from openaec_storage.api import _log
+	from openaec_storage.api import _eigen_transactie, _log
 
 	deling = _uploaddeling(token, wachtwoord)
 	info = frappe.cache.get_value(UPLOAD_SLEUTEL + (upload or ""))
@@ -256,33 +256,36 @@ def upload_klaar(token: str, upload: str, delen, wachtwoord: str | None = None, 
 		frappe.throw(_("Ontvangen grootte wijkt af van de aangekondigde grootte"))
 
 	map = deling.doel
-	# Twee gelijktijdige uploads met dezelfde naam: de tweede ziet de eerste en krijgt een volgnummer.
-	frappe.db.sql("select name from `tabOpslagmap` where name = %s for update", map)
-	naam = _vrije_naam(deling.ruimte, map, info["naam"])
-	doc = frappe.get_doc(
-		{
-			"doctype": "Opslagbestand",
-			"ruimte": deling.ruimte,
-			"map": map,
-			"naam": naam,
-			"huidige_versie": 1,
-			"grootte": info["grootte"],
-		}
-	).insert(ignore_permissions=True)
-	frappe.get_doc(
-		{
-			"doctype": "Bestandsversie",
-			"bestand": doc.name,
-			"ruimte": deling.ruimte,
-			"volgnummer": 1,
-			"s3_sleutel": info["sleutel"],
-			"grootte": info["grootte"],
-			"bron": "link",
-			"maker": "Guest",
-			"blokgrootte": info["blokgrootte"],
-		}
-	).insert(ignore_permissions=True)
-	_log(deling.ruimte, "nieuw", "Opslagbestand", doc.name, naam)
+	# Twee gelijktijdige uploads met dezelfde naam (ook een gewone upload naar deze map): de tweede wacht op het slot
+	# op de map, ziet de eerste en krijgt een volgnummer. Dat zien lukt alleen in een eigen transactie
+	# (api._eigen_transactie); in de momentopname van het verzoek staat de eerste er nog niet.
+	with _eigen_transactie():
+		frappe.db.sql("select name from `tabOpslagmap` where name = %s for update", map)
+		naam = _vrije_naam(deling.ruimte, map, info["naam"])
+		doc = frappe.get_doc(
+			{
+				"doctype": "Opslagbestand",
+				"ruimte": deling.ruimte,
+				"map": map,
+				"naam": naam,
+				"huidige_versie": 1,
+				"grootte": info["grootte"],
+			}
+		).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "Bestandsversie",
+				"bestand": doc.name,
+				"ruimte": deling.ruimte,
+				"volgnummer": 1,
+				"s3_sleutel": info["sleutel"],
+				"grootte": info["grootte"],
+				"bron": "link",
+				"maker": "Guest",
+				"blokgrootte": info["blokgrootte"],
+			}
+		).insert(ignore_permissions=True)
+		_log(deling.ruimte, "nieuw", "Opslagbestand", doc.name, naam)
 	frappe.cache.delete_value(UPLOAD_SLEUTEL + upload)
 	_meld_maker(deling, naam, (afzender or "").strip()[:140])
 	return {"naam": naam}
