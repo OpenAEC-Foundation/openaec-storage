@@ -933,19 +933,22 @@ hash heeft (`api.py` `_herbruikbare_blokken`, r. 308). Wordt één regel een byt
 Voorbeeld: in een model van 1 GiB (128 blokken) verandert één wand in het midden. Dan gaan 64 blokken (512 MiB) opnieuw
 over de lijn. Downloaden met `blokken` werkt op dezelfde manier.
 
-**G1. Een objectindex in plaats van het hele model.** Eén of twee doorlopen door het bestand (mmap of blokken) geven per
-instantie de plek in het bestand, en per object (GlobalId) een inhoudshash volgens de regels van §5.6, met de
-verwijzingen. Rekensom (schatting): 5 GB heeft ongeveer 90 miljoen instanties (57 bytes per instantie, zoals het model
-van 92 MB). Zelfs met 24 bytes per instantie is de index 2,1 GB per versie, en samenvoegen heeft er drie. Daarom staan
-de tabellen op schijf (mmap), niet in het geheugen. Een inhoudshash hangt af van de knopen waar een knoop naar wijst, en
-die staan soms verderop in het bestand. Dat vraagt twee doorlopen of sorteren op schijf.
+**G1. Een objectindex in plaats van het hele model.** Het bestand blijft waar het is (mmap). Per instantie houdt de
+bibliotheek alleen de plek in het bestand en een paar bits bij (object, wie ernaar verwijst, anker), per object de
+GlobalId en een inhoudshash volgens de regels van §5.6. Attributen leest ze opnieuw uit de tekst als ze nodig zijn.
+Een inhoudshash hangt af van de knopen waar een knoop naar wijst, en die staan soms verderop in het bestand. Daarom
+rekent ze in een paar doorlopen eerst uit wat globaal is (kringen, ankers, gedeelde knopen), en dan per object de
+hash. Rekensom (schatting): 5 GB heeft ongeveer 90 miljoen instanties (57 bytes per instantie, zoals het model van
+92 MB). Met 12 bytes per instantie is de index 1,1 GB per versie, en samenvoegen heeft er drie. Haalt de index de grens
+van 2 GB niet, dan gaan ook de tabellen naar schijf, of de bibliotheek indexeert de versies na elkaar.
 - De client bewaart de index van de basis naast de momentopname S in `.openaec/` (§5.6). Samenvoegen hoeft dan alleen
   ons en hun te indexeren.
 - De index is een cache: hij is altijd opnieuw te maken uit het IFC-bestand (zie §12.3).
 - Elke client rekent de index zelf uit. Een index van een andere client kan fout zijn, door een fout of met opzet, en
   dan verdwijnt een wijziging stil. Een index van de server is alleen te vertrouwen als de server de bibliotheek draait
   (A6).
-- Status: wordt gebouwd op `samenvoegen/gb-schaal` (openaec-cloud-desktop).
+- Status: wordt gebouwd op `samenvoegen/gb-schaal` (openaec-cloud-desktop), eerst voor `verschil` (`stromend.rs`,
+  nog niet gecommit op 5 november, 15:35).
 
 **G2. Alleen gewijzigde objecten lezen en samenvoegen.** Gelijke hash is gelijk. Alleen een object met een andere hash
 leest de bibliotheek uit het bestand, met zijn knopen, en daarop gelden de regels van §5.6. De schrijver kopieert de
@@ -1202,10 +1205,10 @@ Punten die een review op schaal en duurzaamheid moet toetsen:
    bij een deling als wortel, of bij een soort regel die de client niet kent?
 5. D2: kan een client met een cursor net onder, op of boven de ondergrens iets missen? Wat bij een verwijdering tijdens
    een lezing, en bij een deling als wortel?
-6. D4: blijft de regel van §5.4 staan als pushes gebundeld worden, bijv. een bundel die klaarstond vóór een deling
-   werd ingetrokken?
-7. D3: geeft de veger in delen dezelfde garantie als §5.4 (niets gemist, geen dubbel nummer), ook met de tijdgrens en
+6. D3: geeft de veger in delen dezelfde garantie als §5.4 (niets gemist, geen dubbel nummer), ook met de tijdgrens en
    twee vegers tegelijk? Is "niet vegen als het slot bezet is" veilig?
+7. D4: blijft de regel van §5.4 staan als pushes gebundeld worden, bijv. een bundel die klaarstond vóór een deling
+   werd ingetrokken?
 8. D5: twee gelijktijdige claims met overlap, een verlopen claim, en de schrijfgrens. Wint er altijd precies één?
 9. D6: klopt de schatting e^(−λT)? Verliest een wachtrij op de server ooit stil werk, bijv. door een andere versie van
    de bibliotheek dan in de client?
