@@ -26,7 +26,7 @@
    "fieldname": "soort",
    "fieldtype": "Select",
    "label": "Soort",
-   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld\nvergrendeld\nontgrendeld\ngedeeld\ningetrokken\ndeling_gewijzigd\ngearchiveerd\nteruggezet\nsjabloon_toegepast\nquotum_gewijzigd\nverstuurd\neigenschappen",
+   "options": "nieuw\ngewijzigd\nverplaatst\nverwijderd\nhersteld\nvergrendeld\nontgrendeld\ngedeeld\ningetrokken\ndeling_gewijzigd\ngearchiveerd\nteruggezet\nsjabloon_toegepast\nquotum_gewijzigd\nverstuurd\neigenschappen\nobjecten_uitgecheckt\nobjecten_vrijgegeven",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -65,7 +65,7 @@
    "description": "Uitgedeeld door de veger vóór een lezing, aan regels die al vastgelegd zijn; 0 tot dan. Volgnummer en cursor van de wijzigingenlijst."
   }
  ],
- "modified": "2026-11-05 12:00:00.000000",
+ "modified": "2026-11-05 14:30:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Opslagwijziging",

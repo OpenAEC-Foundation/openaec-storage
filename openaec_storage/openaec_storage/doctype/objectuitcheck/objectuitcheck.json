@@ -1,0 +1,76 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-11-05 14:30:00.000000",
+ "description": "Uitchecken per object: een groep objecten (GlobalIds) in een bestand die een gebruiker claimt, met een omschrijving en een vervaltijd. Alleen de API van samenwerken/uitchecken.py schrijft hier.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "bestand",
+  "ruimte",
+  "gebruiker",
+  "objecten",
+  "omschrijving",
+  "verloopt"
+ ],
+ "fields": [
+  {
+   "fieldname": "bestand",
+   "fieldtype": "Link",
+   "label": "Bestand",
+   "options": "Opslagbestand",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "ruimte",
+   "fieldtype": "Link",
+   "label": "Ruimte",
+   "options": "Ruimte",
+   "reqd": 1
+  },
+  {
+   "fieldname": "gebruiker",
+   "fieldtype": "Link",
+   "label": "Gebruiker",
+   "options": "User",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "objecten",
+   "fieldtype": "JSON",
+   "label": "Objecten",
+   "description": "Lijst van GlobalIds",
+   "reqd": 1
+  },
+  {
+   "fieldname": "omschrijving",
+   "fieldtype": "Small Text",
+   "label": "Omschrijving"
+  },
+  {
+   "fieldname": "verloopt",
+   "fieldtype": "Datetime",
+   "label": "Verloopt",
+   "reqd": 1,
+   "in_list_view": 1
+  }
+ ],
+ "modified": "2026-11-05 14:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "OpenAEC Storage",
+ "name": "Objectuitcheck",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
