@@ -1,0 +1,123 @@
+TLC2 Version 2026.11.03.180953 (rev: 309e489)
+Running breadth-first search Model-Checking with fp 55 and seed -95194986965729282 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 2764510] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/MCSlot.tla
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/Slot.tla
+Parsing file /tmp/tlc-6064713318738879213/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-6064713318738879213/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-6064713318738879213/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-6064713318738879213/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-6064713318738879213/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-6064713318738879213/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-6064713318738879213/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Slot
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MCSlot
+Linting of module Slot
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MCSlot
+Starting... (2026-11-05 14:27:48)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-05 14:27:48.
+Warning: The variable verlopen was changed while it is specified as UNCHANGED at
+line 220, col 27 to line 220, col 34 of module Slot
+(Use the -nowarning option to disable this warning.)
+Warning: The variable verlopen was changed while it is specified as UNCHANGED at
+line 220, col 27 to line 220, col 34 of module Slot
+Error: Invariant SlotBeschermt is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ rijen = {}
+/\ onderSlot = {}
+/\ verlopen = {}
+/\ houdt = [anna |-> FALSE, piet |-> FALSE]
+/\ aantal = [anna |-> 0, piet |-> 0]
+/\ volgId = 1
+/\ gestolen = {}
+/\ vz = [ anna |-> [soort |-> "geen", fase |-> "geen", snap |-> {}],
+  piet |-> [soort |-> "geen", fase |-> "geen", snap |-> {}] ]
+/\ rijslot = Geen
+
+State 2: <Begin("anna","vergrendel") line 82, col 5 to line 86, col 81 of module Slot>
+/\ rijen = {}
+/\ onderSlot = {}
+/\ verlopen = {}
+/\ houdt = [anna |-> FALSE, piet |-> FALSE]
+/\ aantal = [anna |-> 1, piet |-> 0]
+/\ volgId = 1
+/\ gestolen = {}
+/\ vz = [ anna |-> [soort |-> "vergrendel", fase |-> "controleer", snap |-> {}],
+  piet |-> [soort |-> "geen", fase |-> "geen", snap |-> {}] ]
+/\ rijslot = Geen
+
+State 3: <Begin("piet","upload") line 82, col 5 to line 86, col 81 of module Slot>
+/\ rijen = {}
+/\ onderSlot = {}
+/\ verlopen = {}
+/\ houdt = [anna |-> FALSE, piet |-> FALSE]
+/\ aantal = [anna |-> 1, piet |-> 1]
+/\ volgId = 1
+/\ gestolen = {}
+/\ vz = [ anna |-> [soort |-> "vergrendel", fase |-> "controleer", snap |-> {}],
+  piet |-> [soort |-> "upload", fase |-> "controleer", snap |-> {}] ]
+/\ rijslot = Geen
+
+State 4: <VergrendelControleer("anna") line 102, col 5 to line 107, col 89 of module Slot>
+/\ rijen = {}
+/\ onderSlot = {}
+/\ verlopen = {}
+/\ houdt = [anna |-> FALSE, piet |-> FALSE]
+/\ aantal = [anna |-> 1, piet |-> 1]
+/\ volgId = 1
+/\ gestolen = {}
+/\ vz = [ anna |-> [soort |-> "vergrendel", fase |-> "schrijf", snap |-> {}],
+  piet |-> [soort |-> "upload", fase |-> "controleer", snap |-> {}] ]
+/\ rijslot = Geen
+
+State 5: <UploadControleer("piet") line 187, col 5 to line 194, col 80 of module Slot>
+/\ rijen = {}
+/\ onderSlot = {}
+/\ verlopen = {}
+/\ houdt = [anna |-> FALSE, piet |-> FALSE]
+/\ aantal = [anna |-> 1, piet |-> 1]
+/\ volgId = 1
+/\ gestolen = {}
+/\ vz = [ anna |-> [soort |-> "vergrendel", fase |-> "schrijf", snap |-> {}],
+  piet |-> [soort |-> "upload", fase |-> "schrijf", snap |-> {}] ]
+/\ rijslot = "piet"
+
+State 6: <VergrendelSchrijf("anna") line 111, col 5 to line 122, col 57 of module Slot>
+/\ rijen = {[id |-> 1, g |-> "anna"]}
+/\ onderSlot = {}
+/\ verlopen = {}
+/\ houdt = [anna |-> TRUE, piet |-> FALSE]
+/\ aantal = [anna |-> 1, piet |-> 1]
+/\ volgId = 2
+/\ gestolen = {}
+/\ vz = [ anna |-> [soort |-> "geen", fase |-> "geen", snap |-> {}],
+  piet |-> [soort |-> "upload", fase |-> "schrijf", snap |-> {}] ]
+/\ rijslot = "piet"
+
+State 7: <UploadSchrijf("piet") line 198, col 5 to line 202, col 69 of module Slot>
+/\ rijen = {[id |-> 1, g |-> "anna"]}
+/\ onderSlot = {[id |-> 1, g |-> "anna"]}
+/\ verlopen = {}
+/\ houdt = [anna |-> TRUE, piet |-> FALSE]
+/\ aantal = [anna |-> 1, piet |-> 1]
+/\ volgId = 2
+/\ gestolen = {}
+/\ vz = [ anna |-> [soort |-> "geen", fase |-> "geen", snap |-> {}],
+  piet |-> [soort |-> "geen", fase |-> "geen", snap |-> {}] ]
+/\ rijslot = Geen
+
+573 states generated, 352 distinct states found, 186 states left on queue.
+The depth of the complete state graph search is 8.
+Finished in 01s at (2026-11-05 14:27:48)
+Trace exploration spec path: ./MCSlot_TTrace_1793885266.tla
+EXIT:12

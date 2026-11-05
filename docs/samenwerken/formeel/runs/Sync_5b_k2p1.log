@@ -1,0 +1,1337 @@
+TLC2 Version 2026.11.03.180953 (rev: 309e489)
+Running breadth-first search Model-Checking with fp 108 and seed 2946349291986734799 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 2926064] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/MCSyncClient.tla
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/SyncClient.tla
+Parsing file /tmp/tlc-8558181784148998429/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-8558181784148998429/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-8558181784148998429/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-8558181784148998429/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-8558181784148998429/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-8558181784148998429/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-8558181784148998429/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module SyncClient
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MCSyncClient
+Linting of module SyncClient
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MCSyncClient
+Starting... (2026-11-05 14:43:52)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-05 14:43:53.
+Progress(22) at 2026-11-05 14:43:56: 55.484 states generated (55.484 s/min), 23.499 distinct states found (23.499 ds/min), 3.454 states left on queue.
+Error: Invariant GeenStilVerlies is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {}
+/\ lok = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 1
+/\ versies = [B1 |-> <<>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+
+State 2: <Lijst("anna","f1") line 200, col 5 to line 203, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {}
+/\ lok = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 1
+/\ versies = [B1 |-> <<>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+
+State 3: <Bewerk("anna","f1") line 165, col 5 to line 172, col 121 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {}
+/\ lok = [anna |-> [f1 |-> {1}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 2
+/\ versies = [B1 |-> <<>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+
+State 4: <Beslis("anna","f1") line 207, col 5 to line 233, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {}
+/\ lok = [anna |-> [f1 |-> {1}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "upload",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 2
+/\ versies = [B1 |-> <<>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+
+State 5: <UploadLees("anna","f1") line 241, col 5 to line 245, col 137 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {}
+/\ lok = [anna |-> [f1 |-> {1}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "upload_stuur",
+              sv |-> Geen,
+              pl |-> {1},
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 2
+/\ versies = [B1 |-> <<>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+
+State 6: <UploadStuur("anna","f1") line 249, col 5 to line 259, col 91 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "na_upload",
+              sv |-> Geen,
+              pl |-> {1},
+              tmp |-> [b |-> "B1", v |-> 1, soort |-> "nieuw"],
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 2
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+
+State 7: <NaUpload("anna","f1") line 263, col 5 to line 276, col 119 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "einde",
+              sv |-> Geen,
+              pl |-> {1},
+              tmp |-> [b |-> "B1", v |-> 1, soort |-> "nieuw"],
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 2
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 8: <Einde("anna","f1") line 459, col 5 to line 485, col 72 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "bewaar",
+              sv |-> Geen,
+              pl |-> {1},
+              tmp |-> [b |-> "B1", v |-> 1, soort |-> "nieuw"],
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 2
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 9: <Bewaar("anna","f1") line 488, col 5 to line 491, col 129 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 2
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 10: <Lijst("anna","f1") line 200, col 5 to line 203, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 2
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 11: <Bewerk("anna","f1") line 165, col 5 to line 172, col 121 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 12: <Beslis("anna","f1") line 207, col 5 to line 233, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_start",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> 1,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 13: <Lijst("piet","f1") line 200, col 5 to line 203, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_start",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> 1,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 14: <Beslis("piet","f1") line 207, col 5 to line 233, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_start",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> 1,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "download",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 15: <LusStart("anna","f1") line 374, col 5 to line 394, col 127 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_schrijf",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 1>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "download",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 16: <DownloadHaal("piet","f1") line 284, col 5 to line 290, col 127 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_schrijf",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 1>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "download_plaats",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> {1},
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 17: <DownloadVerplaats("piet","f1") line 317, col 5 to line 320, col 126 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_schrijf",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 1>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "download_zet",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> {1},
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 18: <DownloadZet("piet","f1") line 324, col 5 to line 330, col 127 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> {1}]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_schrijf",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 1>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "einde",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> {1},
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 19: <Einde("piet","f1") line 459, col 5 to line 485, col 72 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> {1}]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_schrijf",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 1>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "bewaar",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> {1},
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 20: <Bewaar("piet","f1") line 488, col 5 to line 491, col 129 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> {1}]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_schrijf",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 1>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 21: <Lijst("piet","f1") line 200, col 5 to line 203, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> {1}]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "lus_schrijf",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 1>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 22: <LusSchrijf("anna","f1") line 398, col 5 to line 418, col 118 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> {1}]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "na_samenvoegen",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 2>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 23: <NaSamenvoegen("anna","f1") line 423, col 5 to line 435, col 116 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> {1}]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "einde",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 2>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 24: <Einde("anna","f1") line 459, col 5 to line 485, col 72 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> {1}]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "bewaar",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> {1, 2},
+              inh |-> {1, 2},
+              basis |-> <<"B1", 2>>,
+              n |-> 1,
+              van |-> 1 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 25: <Bewaar("anna","f1") line 488, col 5 to line 491, col 129 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> {1}]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 0
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 26: <VerwijderDoorGebruiker("piet","f1") line 184, col 5 to line 190, col 110 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {1}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 1
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 27: <Beslis("piet","f1") line 207, col 5 to line 233, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {1}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "verwijder_server",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> 1,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 1
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> "B1"]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+
+State 28: <VerwijderServer("piet","f1") line 355, col 5 to line 365, col 108 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {1}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "rust",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "einde",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> 1,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {"B1"}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 1
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 29: <Lijst("anna","f1") line 200, col 5 to line 203, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {1}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "scan",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "einde",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> 1,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {"B1"}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 1
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 30: <Beslis("anna","f1") line 207, col 5 to line 233, col 132 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {1}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> {1, 2}], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "verwijder_lokaal",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "einde",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> 1,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {"B1"}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 1
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> Geen] ]
+
+State 31: <VerwijderLokaalVeilig("anna","f1") line 347, col 5 to line 351, col 121 of module SyncClient>
+/\ bron = [ anna |->
+      [ f1 |->
+            [ basis |-> 2,
+              soort |-> "verwijder",
+              inhoud |-> {1, 2},
+              verwacht |-> {1, 2} ] ],
+  piet |-> [f1 |-> Geen] ]
+/\ nStoring = 0
+/\ gewist = {1}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "einde",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "einde",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> 1,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {"B1"}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 1
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+
+State 32: <Einde("anna","f1") line 459, col 5 to line 485, col 72 of module SyncClient>
+/\ bron = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nStoring = 0
+/\ gewist = {1}
+/\ gebruikt = {"B1"}
+/\ lok = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ r = [ anna |->
+      [ f1 |->
+            [ pc |-> "bewaar",
+              sv |-> Geen,
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> Geen,
+              n |-> 0,
+              van |-> 0 ] ],
+  piet |->
+      [ f1 |->
+            [ pc |-> "einde",
+              sv |-> [b |-> "B1", v |-> 1],
+              pl |-> Geen,
+              tmp |-> Geen,
+              ons |-> Geen,
+              inh |-> Geen,
+              basis |-> 1,
+              n |-> 0,
+              van |-> 0 ] ] ]
+/\ prul = {"B1"}
+/\ opKopie = {}
+/\ buf = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+/\ nVerwijder = 1
+/\ bekend = [ anna |-> [f1 |-> [b |-> "B1", v |-> 2, k |-> {1, 2}, afg |-> Geen]],
+  piet |-> [f1 |-> [b |-> "B1", v |-> 1, k |-> {1}, afg |-> Geen]] ]
+/\ actief = [f1 |-> Geen]
+/\ elders = {}
+/\ volgend = 3
+/\ versies = [B1 |-> <<{1}, {1, 2}>>, B2 |-> <<>>, B3 |-> <<>>, B4 |-> <<>>, B5 |-> <<>>]
+/\ mem = [anna |-> [f1 |-> Geen], piet |-> [f1 |-> Geen]]
+
+146735 states generated, 62467 distinct states found, 3737 states left on queue.
+The depth of the complete state graph search is 32.
+Finished in 06s at (2026-11-05 14:43:57)
+Trace exploration spec path: ./MCSyncClient_TTrace_1793886231.tla
+EXIT:12

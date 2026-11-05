@@ -1,0 +1,176 @@
+TLC2 Version 2026.11.03.180953 (rev: 309e489)
+Running breadth-first search Model-Checking with fp 1 and seed 2672687252806004887 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 2930464] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/MCUploadServer.tla
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/UploadServer.tla
+Parsing file /tmp/tlc-17333853835216652115/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-17333853835216652115/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-17333853835216652115/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-17333853835216652115/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-17333853835216652115/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-17333853835216652115/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-17333853835216652115/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module UploadServer
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MCUploadServer
+Linting of module UploadServer
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MCUploadServer
+Starting... (2026-11-05 14:45:19)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-05 14:45:19.
+Error: Invariant GeenStilleOverschrijving is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ opPlek = {}
+/\ gebruikt = {}
+/\ tok = [ t1 |-> [st |-> "nog", soort |-> Geen, bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t2 |-> [st |-> "nog", soort |-> Geen, bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t3 |-> [st |-> "nog", soort |-> Geen, bn |-> Geen, bb |-> Geen, bv |-> Geen] ]
+/\ s3weg = {}
+/\ uitval = 0
+/\ versies = [F1 |-> <<>>, F2 |-> <<>>, F3 |-> <<>>, F4 |-> <<>>]
+/\ verwijderd = 0
+/\ kopie = [F1 |-> FALSE, F2 |-> FALSE, F3 |-> FALSE, F4 |-> FALSE]
+/\ afr = [ t1 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t2 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t3 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0] ]
+
+State 2: <Start("t1") line 81, col 5 to line 88, col 85 of module UploadServer>
+/\ opPlek = {}
+/\ gebruikt = {}
+/\ tok = [ t1 |->
+      [st |-> "open", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t2 |-> [st |-> "nog", soort |-> Geen, bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t3 |-> [st |-> "nog", soort |-> Geen, bn |-> Geen, bb |-> Geen, bv |-> Geen] ]
+/\ s3weg = {}
+/\ uitval = 0
+/\ versies = [F1 |-> <<>>, F2 |-> <<>>, F3 |-> <<>>, F4 |-> <<>>]
+/\ verwijderd = 0
+/\ kopie = [F1 |-> FALSE, F2 |-> FALSE, F3 |-> FALSE, F4 |-> FALSE]
+/\ afr = [ t1 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t2 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t3 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0] ]
+
+State 3: <Klaar9("t1") line 135, col 5 to line 149, col 31 of module UploadServer>
+/\ opPlek = {"F1"}
+/\ gebruikt = {"F1"}
+/\ tok = [ t1 |->
+      [st |-> "weg", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t2 |-> [st |-> "nog", soort |-> Geen, bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t3 |-> [st |-> "nog", soort |-> Geen, bn |-> Geen, bb |-> Geen, bv |-> Geen] ]
+/\ s3weg = {}
+/\ uitval = 0
+/\ versies = [ F1 |-> <<[basis |-> Geen, sleutel |-> "t1", conflict |-> FALSE]>>,
+  F2 |-> <<>>,
+  F3 |-> <<>>,
+  F4 |-> <<>> ]
+/\ verwijderd = 0
+/\ kopie = [F1 |-> FALSE, F2 |-> FALSE, F3 |-> FALSE, F4 |-> FALSE]
+/\ afr = [ t1 |-> [n |-> 1, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t2 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t3 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0] ]
+
+State 4: <Start("t2") line 81, col 5 to line 88, col 85 of module UploadServer>
+/\ opPlek = {"F1"}
+/\ gebruikt = {"F1"}
+/\ tok = [ t1 |->
+      [st |-> "weg", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t2 |->
+      [st |-> "open", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t3 |-> [st |-> "nog", soort |-> Geen, bn |-> Geen, bb |-> Geen, bv |-> Geen] ]
+/\ s3weg = {}
+/\ uitval = 0
+/\ versies = [ F1 |-> <<[basis |-> Geen, sleutel |-> "t1", conflict |-> FALSE]>>,
+  F2 |-> <<>>,
+  F3 |-> <<>>,
+  F4 |-> <<>> ]
+/\ verwijderd = 0
+/\ kopie = [F1 |-> FALSE, F2 |-> FALSE, F3 |-> FALSE, F4 |-> FALSE]
+/\ afr = [ t1 |-> [n |-> 1, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t2 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t3 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0] ]
+
+State 5: <Klaar9("t2") line 135, col 5 to line 149, col 31 of module UploadServer>
+/\ opPlek = {"F1"}
+/\ gebruikt = {"F1", "F2"}
+/\ tok = [ t1 |->
+      [st |-> "weg", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t2 |->
+      [st |-> "weg", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t3 |-> [st |-> "nog", soort |-> Geen, bn |-> Geen, bb |-> Geen, bv |-> Geen] ]
+/\ s3weg = {}
+/\ uitval = 0
+/\ versies = [ F1 |-> <<[basis |-> Geen, sleutel |-> "t1", conflict |-> FALSE]>>,
+  F2 |-> <<[basis |-> Geen, sleutel |-> "t2", conflict |-> TRUE]>>,
+  F3 |-> <<>>,
+  F4 |-> <<>> ]
+/\ verwijderd = 0
+/\ kopie = [F1 |-> FALSE, F2 |-> TRUE, F3 |-> FALSE, F4 |-> FALSE]
+/\ afr = [ t1 |-> [n |-> 1, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t2 |-> [n |-> 1, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t3 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0] ]
+
+State 6: <Start("t3") line 81, col 5 to line 88, col 85 of module UploadServer>
+/\ opPlek = {"F1"}
+/\ gebruikt = {"F1", "F2"}
+/\ tok = [ t1 |->
+      [st |-> "weg", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t2 |->
+      [st |-> "weg", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t3 |->
+      [ st |-> "open",
+        soort |-> "nummer",
+        bn |-> 1,
+        bb |-> Geen,
+        bv |-> <<"F2", 1>> ] ]
+/\ s3weg = {}
+/\ uitval = 0
+/\ versies = [ F1 |-> <<[basis |-> Geen, sleutel |-> "t1", conflict |-> FALSE]>>,
+  F2 |-> <<[basis |-> Geen, sleutel |-> "t2", conflict |-> TRUE]>>,
+  F3 |-> <<>>,
+  F4 |-> <<>> ]
+/\ verwijderd = 0
+/\ kopie = [F1 |-> FALSE, F2 |-> TRUE, F3 |-> FALSE, F4 |-> FALSE]
+/\ afr = [ t1 |-> [n |-> 1, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t2 |-> [n |-> 1, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t3 |-> [n |-> 0, fase |-> "rust", zag |-> Geen, nr |-> 0] ]
+
+State 7: <Klaar9("t3") line 135, col 5 to line 149, col 31 of module UploadServer>
+/\ opPlek = {"F1"}
+/\ gebruikt = {"F1", "F2"}
+/\ tok = [ t1 |->
+      [st |-> "weg", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t2 |->
+      [st |-> "weg", soort |-> "geen", bn |-> Geen, bb |-> Geen, bv |-> Geen],
+  t3 |->
+      [ st |-> "weg",
+        soort |-> "nummer",
+        bn |-> 1,
+        bb |-> Geen,
+        bv |-> <<"F2", 1>> ] ]
+/\ s3weg = {}
+/\ uitval = 0
+/\ versies = [ F1 |->
+      << [basis |-> Geen, sleutel |-> "t1", conflict |-> FALSE],
+         [basis |-> <<"F2", 1>>, sleutel |-> "t3", conflict |-> FALSE] >>,
+  F2 |-> <<[basis |-> Geen, sleutel |-> "t2", conflict |-> TRUE]>>,
+  F3 |-> <<>>,
+  F4 |-> <<>> ]
+/\ verwijderd = 0
+/\ kopie = [F1 |-> FALSE, F2 |-> TRUE, F3 |-> FALSE, F4 |-> FALSE]
+/\ afr = [ t1 |-> [n |-> 1, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t2 |-> [n |-> 1, fase |-> "rust", zag |-> Geen, nr |-> 0],
+  t3 |-> [n |-> 1, fase |-> "rust", zag |-> Geen, nr |-> 0] ]
+
+8864 states generated, 5449 distinct states found, 4239 states left on queue.
+The depth of the complete state graph search is 7.
+Finished in 03s at (2026-11-05 14:45:21)
+Trace exploration spec path: ./MCUploadServer_TTrace_1793886318.tla
+EXIT:12

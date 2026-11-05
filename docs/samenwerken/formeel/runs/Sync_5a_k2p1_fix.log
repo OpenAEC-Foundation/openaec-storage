@@ -1,0 +1,38 @@
+TLC2 Version 2026.11.03.180953 (rev: 309e489)
+Running breadth-first search Model-Checking with fp 100 and seed -1459802974494660177 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 2928333] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/MCSyncClient.tla
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/SyncClient.tla
+Parsing file /tmp/tlc-16921394654500067356/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-16921394654500067356/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-16921394654500067356/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-16921394654500067356/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-16921394654500067356/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-16921394654500067356/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-16921394654500067356/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module SyncClient
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MCSyncClient
+Linting of module SyncClient
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MCSyncClient
+Starting... (2026-11-05 14:44:42)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-05 14:44:43.
+Progress(20) at 2026-11-05 14:44:46: 40.672 states generated (40.672 s/min), 17.351 distinct states found (17.351 ds/min), 2.990 states left on queue.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 4.9E-10
+  based on the actual fingerprints:  val = 1.3E-9
+193153 states generated, 81520 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 57.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 7 and the 95th percentile is 2).
+Finished in 07s at (2026-11-05 14:44:49)
+EXIT:0

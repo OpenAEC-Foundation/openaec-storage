@@ -1,0 +1,41 @@
+TLC2 Version 2026.11.03.180953 (rev: 309e489)
+Running breadth-first search Model-Checking with fp 8 and seed -8591576976048373824 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 2765061] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/MCSlot.tla
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/Slot.tla
+Parsing file /tmp/tlc-10187243270213637101/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-10187243270213637101/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-10187243270213637101/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-10187243270213637101/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-10187243270213637101/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-10187243270213637101/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-10187243270213637101/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Slot
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MCSlot
+Linting of module Slot
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MCSlot
+Starting... (2026-11-05 14:27:56)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-05 14:27:56.
+Warning: The variable verlopen was changed while it is specified as UNCHANGED at
+line 220, col 27 to line 220, col 34 of module Slot
+(Use the -nowarning option to disable this warning.)
+Warning: The variable verlopen was changed while it is specified as UNCHANGED at
+line 220, col 27 to line 220, col 34 of module Slot
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 2.6E-12
+13883 states generated, 5969 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 16.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 7 and the 95th percentile is 4).
+Finished in 02s at (2026-11-05 14:27:57)
+EXIT:0
