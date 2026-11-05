@@ -256,19 +256,90 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
      (`Notification`), `Webhook`s, `Server Script`s bij een DocType-gebeurtenis en automatiseringen (`Automation
      Flow`) (`frappe/model/document.py` r. 1531–1534). Een meldingsregel op `Opslagbestand` met de maker als
      ontvanger geeft zo een `Notification Log` aan Anna, ook nadat zij haar leesrecht verloor (review Sol, ronde
-     4). Daarom bestaat er geen configuratie die op een DocType van de opslag reageert of ernaar verwijst: de opslag
-     weigert `Notification`, `Webhook`, `Server Script` (DocType-gebeurtenis), `Automation Flow`, `Assignment Rule`,
-     `Auto Repeat`, `Workflow`, `Kanban Board`, `ToDo`, `Comment` en Frappe-`DocShare` met een DocType van de opslag
-     als doel. Dat is één functie in `doc_events`, bij `validate`, met per soort het veld dat naar de DocType wijst.
-     De patch bij de invoering zet bestaande regels van die soorten voor de opslag uit (een Frappe-`DocShare`
-     verwijdert hij) en logt elke regel. De DocTypes met bestanden, versies en samenwerkgegevens houden
-     `track_changes` uit (zo staan ze nu); dan maakt Frappe er geen `Version` en geen `Document Follow` voor
-     (`frappe/desk/form/document_follow.py` r. 54). De opslag gebruikt geen van deze soorten zelf: delen gaat via de
-     eigen rechten (§5.14), opmerkingen via `Opslagopmerking` (K6), meldingen via `gebeurtenis` (§5.10). De lijst
-     volgt Frappe zoals in de bench; welke soorten de kern heeft, staat bij A2.
+     4). Wie zo'n regel mag maken, bepaalt hoe het ontwerp dit sluit. Er zijn twee groepen (rechten volgens de
+     DocTypes in de bench):
+     - **Wat een gewone gebruiker kan** (`Desk User`, een rol in een ruimte, een gast): een `Kanban Board`, `ToDo`,
+       `Comment`, Frappe-`DocShare`, `Document Follow` of `Auto Repeat` maken. Die zijn dicht. De opslag weigert
+       ze met een DocType van de opslag als doel (één functie in `doc_events`, bij `validate`, met per soort het
+       veld dat naar de DocType wijst). Alle DocTypes van de opslag houden `track_changes` uit, ook `Overdracht`
+       (dat staat nu aan, maar niets leest die geschiedenis): dan maakt Frappe er geen `Version` voor, en volgt
+       niemand er een automatisch na het aanmaken (`frappe/desk/form/document_follow.py` r. 54). Zo kan de
+       weigering van `Document Follow` ook geen overdracht laten mislukken (review Sol, ronde 5).
+     - **Wat alleen een beheerder van de site kan** (`System Manager`, of `Script Manager` voor een `Server
+       Script`): `Notification`, `Webhook`, `Server Script`, `Automation Flow`, `Assignment Rule`, `Milestone
+       Tracker` en `Workflow`. Die rollen lezen nu al elke tabel van de site: `System Console` voert code uit met
+       `read_sql` (`frappe/desk/doctype/system_console/system_console.py` r. 29–33), en een `Server Script` net
+       zo. Tegen wat zij instellen, beschermt geen regel in een app. Hier ligt dus de grens van het vertrouwen:
+       een beheerder van de site is vertrouwd voor alle data van de site, net als bij elke andere app in Frappe.
+       Een regel van een beheerder op een record dat gegevens doorgeeft (bijv. een meldingsregel op `Notification
+       Log` of `Document Follow`, review Sol, ronde 5) valt onder die grens. De opslag doet wel twee dingen tegen
+       vergissingen: hij weigert zo'n regel als die direct op een DocType van de opslag reageert (dezelfde
+       functie), en de patch bij de invoering zet bestaande regels van die soorten voor de opslag uit, haalt hun
+       ingeplande taken uit de wachtrij voordat de werkers weer starten, en logt elke regel.
+     - **Wat Frappe uitvoert met andere rechten dan die van wie het start** (review Sol, ronde 6). Hier telt niet
+       het doel, maar wiens rechten gelden. Er zijn twee soorten:
+       - `Auto Email Report` voert een rapport uit als de gebruiker in het veld `user` ("Based on Permissions For
+         User"), en de maker kiest die vrij (`frappe/email/doctype/auto_email_report/auto_email_report.py` r. 152,
+         `frappe/core/doctype/report/report.py` r. 312). `Report Manager` mag het maken, en die rol is geen
+         beheerder. Anna heeft `Desk User` en `Report Manager`, maar geen leesrecht op F1. Zij maakt een `Report
+         Builder` op `Opslagbestand`, kiest `user = Administrator` en zichzelf als ontvanger, en krijgt F1 via
+         `download` of `send_now`. Met een rapport op `Notification Log` werkt het net zo. De patch bij de
+         invoering sluit dit in vier stappen:
+         1. De rechten op `Auto Email Report` zijn daarna alleen voor `System Manager` (`Custom DocPerm`).
+            `Report Manager` verliest lezen, schrijven, maken en delen, dus ook de lijst.
+         2. Elke `DocShare` op een `Auto Email Report` gaat weg. Frappe kijkt na een weigering nog naar een
+            deling, ook voor de lijst (`frappe/permissions.py` r. 200–209); `download` en `send_now` controleren
+            alleen die toegang, niet of het rapport aan staat (r. 303–323).
+         3. Alle bestaande rapporten gaan uit, ook die van een beheerder: een `Report Manager` kon vóór de
+            invoering elk rapport wijzigen (`user`, ontvangers), en de scheduler controleert bij het uitvoeren
+            geen rechten (r. 342). De ingeplande taken gaan uit de wachtrij voordat de werkers weer starten. De
+            patch logt elk rapport.
+         4. In de eerste versie blijven ze uit: de opslag weigert `enabled = 1` bij `validate` (in dezelfde functie
+            in `doc_events`). Een rapport leest zijn definitie (`Report`) bij elke uitvoering opnieuw, en een
+            `Report Manager` mag een `Report Builder` van een beheerder wijzigen (`frappe/desk/reportview.py`
+            r. 392). Anna haalt dan het filter op haar ruimte uit de definitie, en het rapport dat een beheerder
+            goedkeurde, mailt haar F1 als `Administrator` (review Sol, ronde 8). Een rapport kan pas weer aan als
+            ook de definitie beschermd is; dat staat als optie in §9.
+
+         Een `has_permission`-haak is niet genoeg: hij dekt de lijst niet en wijkt voor een bestaande deling
+         (review Sol, ronde 7). `user` aan de maker binden is ook niet genoeg: dan kan een `Report Manager` nog
+         een rapport van een beheerder downloaden dat als `Administrator` draait.
+       - Een voorbereid rapport (`Prepared Report`) bewaart de uitkomst van een rapport, gemaakt met de rechten van
+         wie het aanvroeg (`frappe/core/doctype/prepared_report/prepared_report.py` r. 127). Wie `Prepared Report
+         User` heeft, leest elke uitkomst van een rapport dat hij mag gebruiken, ook een uitkomst die
+         `Administrator` maakte, met de bijlage erbij (r. 365–385; `frappe/core/doctype/file/file.py` r. 1105).
+         Anna mag rapport R gebruiken maar F1 niet lezen; een uitkomst van R van `Administrator` geeft haar F1
+         (review Sol, ronde 8). De patch bij de invoering sluit dit net als bij `Auto Email Report`: de rechten
+         op `Prepared Report` zijn daarna alleen voor `System Manager` (`Custom DocPerm`), en elke `DocShare` op
+         een `Prepared Report` gaat weg. De bijlagen volgen het document, dus die zijn dan ook dicht. Wat het
+         kost: een rapport dat Frappe in de achtergrond voorbereidt (een groot rapport, vooral in ERPNext), is in
+         de eerste versie alleen voor beheerders. "Alleen je eigen uitkomst" is een optie voor later (§9).
+       - Een sjabloon (Jinja) krijgt bij het renderen leestoegang tot elke tabel, zonder rechtencontrole:
+         `frappe.db.get_all` met `ignore_permissions`, `frappe.db.get_value` en `frappe.db.sql` voor leesquery's
+         (`frappe/utils/safe_exec.py` r. 306–311, 351–353 en 580–589, ook met `restrict_globals`). Wie een
+         sjabloon mag schrijven dat Frappe rendert, leest dus alle gegevens van de opslag: namen, paden,
+         opmerkingen, meldingen, en ook het token van een deellink (`Opslagdeling.token`). Met dat token geeft
+         `openaec_storage/delen.py` (r. 153) een downloadlink, dus ook de inhoud van de bestanden ligt binnen
+         bereik (review Sol, ronde 7). In de bench
+         kunnen `System Manager` (`Print Format`, `Email Template`, `Notification`, `Web Template`) en `Website
+         Manager` (`Web Page`, `frappe/website/doctype/web_page/web_page.py` r. 116–130) zo'n sjabloon schrijven. Met ERPNext komen er rollen
+         bij. Zo zijn het onderwerp en het bericht van `Auto Repeat` een sjabloon, en geeft
+         `generate_message_preview` het resultaat direct terug (`frappe/automation/doctype/auto_repeat/
+         auto_repeat.py` r. 424, 461 en 646–656). `Accounts User` en `Accounts Manager` mogen `Auto Repeat`
+         maken, maar alleen voor een DocType met `allow_auto_repeat`. De bench heeft er geen; ERPNext wel. Dat
+         laatste is afgeleid, niet getoetst. Een app kan dit niet sluiten zonder Frappe te veranderen. Elke rol
+         die sjablonen mag schrijven, hoort dus bij de grens van het vertrouwen, net als `System Manager`.
+
+     Een planner, modelleur of gast krijgt dus nooit een van deze beheerdersrollen, en ook geen rol die sjablonen
+     mag schrijven; dat staat bij A4. Krijgen gewone medewerkers in de kern zo'n rol, dan is de keuze "Een eigen
+     site voor de opslag" (§9) nodig. De opslag
+     gebruikt geen van deze soorten zelf: delen gaat via de eigen rechten (§5.14), opmerkingen via
+     `Opslagopmerking` (K6), meldingen via `gebeurtenis` (§5.10). De lijsten volgen Frappe zoals in de bench;
+     welke soorten de kern heeft, staat bij A2.
    - **In de eigen API.** De controllers hebben een lege `notify_update`: opslaan via de eigen API geeft geen
-     `doc_update` en geen `list_update`. De andere reacties van Frappe zijn dicht omdat er geen configuratie voor
-     bestaat (hierboven). `gebeurtenis` geeft de kamer zelf op (`room=` de persoonlijke kamer), niet `user=`: met een
+     `doc_update` en geen `list_update`. De andere reacties van Frappe (meldingsregels, webhooks, scripts,
+     automatiseringen) hangen af van configuratie; die is voor gewone gebruikers dicht en voor beheerders de grens
+     van het vertrouwen (hierboven). `gebeurtenis` geeft de kamer zelf op (`room=` de persoonlijke kamer), niet `user=`: met een
      `task_id` in de context kiest `publish_realtime` anders de kamer van de taak (`frappe/realtime/__init__.py`
      r. 66–73).
    - **Bij abonneren**, als tweede slot. De realtimeserver vraagt bij `doc_subscribe`, `doc_open` en
@@ -283,9 +354,18 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
    ontvanger zonder recht zit in elke soort kamer (site, taak, document, DocType, open formulier). Na een handeling
    via elke standaardroute (die geweigerd wordt) en via de eigen API ontvangt hij niets over het document; een lezer
    ontvangt alleen in zijn persoonlijke kamer. Ook in de proef: een meldingsregel op `Opslagbestand` met de maker als
-   ontvanger, gemaakt vóór de invoering; na de invoering en een upload van Piet krijgt Anna (geen leesrecht meer)
-   geen `Notification Log`. En per soort configuratie hierboven: aanmaken met een opslag-DocType als doel wordt
-   geweigerd. Dit hangt af van A2 (§9): welke realtimeserver de kern draait, welke controle die bij abonneren vraagt,
+   ontvanger, gemaakt vóór de invoering, met een taak die al in de wachtrij stond; na de invoering en een upload van
+   Piet krijgt Anna (geen leesrecht meer) geen `Notification Log`. Per soort uit beide groepen: aanmaken met een
+   opslag-DocType als doel wordt geweigerd. En een `Overdracht` maken met `follow_created_documents` aan slaagt,
+   zonder `Document Follow`. Anna met `Report Manager` maakt een `Auto Email Report` met `user = Administrator`,
+   een keer op `Opslagbestand` en een keer op `Notification Log`. Maken, `download` en `send_now` worden
+   geweigerd, en de lijst toont haar geen rapporten. Vóór de invoering zette Anna een rapport van een beheerder
+   op `user = Administrator` met zichzelf als ontvanger, en deelde ze een eigen rapport met zichzelf. Na de
+   invoering staan alle rapporten uit, de scheduler verstuurt niets, en `download` en `send_now` worden ook op
+   het gedeelde rapport geweigerd. Daarna kan niemand een automatisch rapport aanzetten, ook een beheerder niet. Anna met
+   `Prepared Report User` ziet geen uitkomst die `Administrator` maakte, ook niet de bijlage, niet in de lijst
+   en niet via een deling van vóór de invoering. De proef schrijft ook de rollen op die in de site een sjabloon
+   mogen schrijven, en legt die lijst naast A4. Dit hangt af van A2 (§9): welke realtimeserver de kern draait, welke controle die bij abonneren vraagt,
    en welke soorten configuratie op een document reageren;
 2. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
    app houdt de handeling niet tegen;
@@ -590,7 +670,11 @@ basis, ons en hun. De client maakt dan een conflictkopie, zoals nu, en zet het r
 per conflict laten kiezen.
 
 **Schrijven.** Het resultaat begint bij de tekst van ons. Alleen regels van gewijzigde objecten veranderen, en wat
-van hun komt, krijgt nieuwe nummers achteraan. Zo blijft de delta per blok klein bij het uploaden. Een knoop zonder
+van hun komt, krijgt nieuwe nummers achteraan. Zo blijft de tekst zo dicht mogelijk bij die van ons. Bij het
+uploaden helpt dat nu nog niet: de opslag vergelijkt de blokken van 8 MiB op hun plek, en één regel die vooraan
+langer of korter wordt, verschuift alle blokken erna. In meting 07 (desktop-PR #12) gaan na het samenvoegen van een
+bestand van 92 MB alle 11 blokken over het netwerk. Alleen blokken die op inhoud worden hergebruikt, maken de
+upload klein; dat staat bij A11 en in hoofdstuk 12. Een knoop zonder
 GlobalId (geometrie, stijl, plaatsing) hergebruikt de schrijver alleen als hij bij hetzelfde object hoort; een knoop
 met dezelfde inhoud bij een ander object is niet dezelfde knoop. Voorbeeld: W (rood) en V (blauw) hebben elk eigen,
 gelijke geometrie; hun maakt V groen. Het resultaat geeft V groen en laat W rood, nooit andersom. Een gelijk
@@ -785,12 +869,70 @@ offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
 - Realtime: een bericht over een opslagdocument komt alleen in de persoonlijke kamer van een lezer (§5.4, "Geen
   andere route": dicht bij de bron, in de eigen API en bij abonneren). Een negatieve proef per soort kamer (site,
   taak, document, DocType, open formulier) hoort bij stap 6.
+- Grens van het vertrouwen: een beheerder van de site (`System Manager`, `Script Manager`) is vertrouwd voor alle
+  data van de site; hij kan elke tabel lezen. Dat geldt ook voor elke rol die een sjabloon mag schrijven dat Frappe
+  rendert: in de bench `Website Manager`, met ERPNext ook `Accounts User` en `Accounts Manager` (via `Auto Repeat`).
+  Alles wat een andere gebruiker kan aanmaken of starten, valt binnen de bescherming (§5.4, "Bij de bron"), ook
+  `Auto Email Report` en `Prepared Report`.
 - Een deellink zonder account (soort `link`) kan geen opmerkingen plaatsen en ziet geen aanwezigheid: er is geen
   persoon om te tonen of te melden.
 - De samenvoegbibliotheek leest onbetrouwbare invoer. Ze mag nooit vastlopen of crashen op een kapot bestand, en ze
   heeft grenzen voor diepte en grootte.
 - Een samengevoegde versie is een gewone nieuwe versie. De versie van hun blijft bestaan en is terug te zetten. De
   eigen invoer van ons staat lokaal bewaard (§5.6, "Wat er bewaard blijft"), of als conflictkopie op de server.
+
+### 5.15 De koppeling met de werkplek en de gestreamde desktop
+
+Bron: het contract tussen een app en de SuperCloud in de Blueprint, `docs/supercloud-koppeling.md`
+(OpenAEC-Foundation/OpenAEC-Blueprint, `main` op `ba163af9`, 5 november 2026), Infra-issue #75, en het voorbeeld in
+Open Calc Studio (`src/services/file/siteHost.ts` en `hostFileActions.ts`, branch `feat/werkplek-app-tools`). Een
+tool draait in de SuperCloud op twee manieren: **route A**, als browsertool in de werkplek, met het hostcontract
+`window.openaecHost` (`open`, `save`, `list`, `versions`); en **route B**, als desktop-app in een gestreamde desktop,
+waar de SuperCloud het bestand uit Docs in een werkmap van de container zet en het teruggezette bestand als nieuwe
+versie bewaart. "De SuperCloud doet het transport, de rechten, het slot en de versies."
+
+Wat dat voor dit ontwerp betekent:
+
+- **De opslaan-lus zit voor route A in de host.** Een tool slaat op met `save(bytes, {id, expectedVersion})`, en
+  `expectedVersion` is de `version` die `open` gaf. Dat is de basis van §5.5. Een conflict geeft nu een kopie, waarvan
+  de tool de naam toont. De tool behandelt `version` als ondoorzichtig (`string | number`; Calc Studio geeft hem
+  alleen terug). De host kan daar dus de `versie_id` gebruiken in plaats van het volgnummer, zonder dat er één tool
+  verandert. Dat is nodig: een volgnummer kan terugkomen (§5.5). Zie A5.
+- **De werkplek voorkomt nu tegelijk bewerken.** `open` geeft `readOnly: true` als "iemand anders het bewerkt". Dat
+  is manier A van §5.2 (voorkomen), met een slot per bestand. Voor een soort die de bibliotheek kan samenvoegen
+  (IFC) is het voorstel op termijn: geen alleen-lezen voor de tweede, wel aanwezigheid (§5.8), en bij opslaan
+  samenvoegen in de host in plaats van een kopie (issue #11). Voor DWG, PDF en andere soorten blijft het slot. Zie
+  A12.
+- **Route A krijgt eerst alleen conflictkopieën, geen samenvoegen** (review Sol, ronde 7). Het antwoord van `save` is
+  `{id, name, version}`; niets zegt dat de host iets anders bewaarde dan de tool stuurde. Calc Studio neemt na `save`
+  de nieuwe `version` als basis, en houdt zijn eigen inhoud (`hostFileActions.ts` r. 70–86, commit `4e8ed38`). Na een
+  samengevoegde opslag zou de volgende opslag het werk van de ander dus wissen: de basis klopt, de inhoud mist het.
+  Opnieuw openen helpt niet altijd: werkte de gebruiker tijdens het opslaan verder, dan valt dat werk weg. Samenvoegen
+  in route A komt pas met drie afspraken in het hostcontract:
+  1. `save` zegt herkenbaar dat de host samenvoegde (bijv. `merged: true`).
+  2. De basis van de tool gaat alleen vooruit samen met de inhoud die hij werkelijk laadt.
+  3. De tool bewaart de verstuurde momentopname S tot het antwoord er is. Is het document sinds S niet veranderd,
+     dan laadt de tool het resultaat N en neemt hij N als basis. Is het wel veranderd (inhoud L), dan voegt de
+     tool samen met basis S, ons L en hun N, en neemt hij daarna N als basis. Dat is dezelfde regel als in §5.6
+     voor de desktop-sync (de opslaan-lus, punt 2): N bevat alle wijzigingen van S, dus S is de juiste basis. Bij
+     een conflict geeft de tool een conflictkopie, zoals nu. De bibliotheek moet daarvoor in de tool draaien (of
+     de host doet die stap met S).
+
+  Een eerdere versie van punt 3 hield de oude basis en de eigen inhoud. Dan verdwijnt een ongedaan maken tijdens
+  het opslaan zonder conflict: S zet A van 0 op 1, de gebruiker zet A terug op 0, en samenvoegen met de oude basis
+  kiest A = 1 van de server (review Sol, ronde 8).
+- **Aanwezigheid hoeft de tool niet te melden.** De host weet wanneer een tool een bestand opent (en of het
+  alleen-lezen is) en wanneer het frame sluit; de host meldt zelf `meld_aanwezig` en `meld_weg` namens de gebruiker.
+  Naar de tool toe heeft het contract al een gebeurtenis (`openaec-host-preferences`). Het voorstel is een tweede in
+  dezelfde vorm, met alleen soort en bestand (zoals de push in §5.4); de inhoud haalt de tool bij de host op
+  (issue #10). Zie A8.
+- **Route B is een sync.** Het bestand in de werkmap terugzetten als nieuwe versie heeft dezelfde risico's als de
+  desktop-sync: zonder de basis gaat werk van een ander verloren (§2), en een programma dat het bestand nog open heeft
+  kan in een vervangen bestand schrijven (§5.6, veilig vervangen). Zie A13, en de optie "één sync" in §9.
+- **De assistent (MCP).** In route A opent en bewaart de assistent niets zelf ("Openen en opslaan doet de gebruiker
+  via het hostcontract"). In route B heeft hij wel `<tool>_open` en `<tool>_opslaan` (Blueprint r. 125–126). Daar
+  gelden dezelfde regels als voor route B: de basis, de rechten van de gebruiker en veilig vervangen, ongeacht wie
+  het opslaan start (review Sol, ronde 7).
 
 ## 6. Keuzes
 
@@ -865,24 +1007,27 @@ De kern (`openaec-supercloud`, org OpenAECStudio) is niet gelezen. Besluit van E
 wordt niet verder gebouwd tot de kern gelezen is. Storage-PR #9 en #16 blijven draft. Dit hoofdstuk zegt daarom per
 aanname drie dingen: de kleinste vorm van de aanname, welke keuzes in dit ontwerp ervan afhangen, en wat ik in de kern
 als eerste lees. Keuzes die lang moeten meegaan, staan hier als opties. Ze worden pas vastgelegd als de kern gelezen
-is.
+is. Sinds 5 november is er één openbare bron over de kern: het contract tussen een app en de SuperCloud
+(§5.15). Wat daaruit volgt, staat bij A5, A8, A12 en A13.
 
 | # | Aanname, zo klein mogelijk | Keuzes die ervan afhangen | Eerst lezen in de kern |
 |---|---|---|---|
 | A1 | De inhoud en de versies van een bestand in een ruimte staan alleen in openaec-storage (`Bestandsversie` + S3), en niets schrijft er buiten de API van openaec-storage om | §5.3, §5.4 (de wijzigingenlijst als enige bron), stap 4 en 4b, K3 | Welke app de DocTypes voor bestanden en versies bezit; of de kern zelf naar S3 of naar `tabBestandsversie` schrijft (zoek in de code op `Bestandsversie`, `s3`, `boto3`) |
 | A2 | Een ingelogde client kan één realtime-kanaal per site volgen, de realtimeserver vraagt bij abonneren `frappe.realtime.has_permission`, en de Frappe van de kern kent dezelfde soorten configuratie die op een document reageert als de bench (§5.4) | §5.4 (push, geen gedeelde kamers), §5.8, §5.10, §5.14 | De Procfile of compose van de kern (draait `socketio`, en welke versie: de Node-server of die in Python?), welke controle die bij abonneren vraagt, de Frappe-versie en welke DocTypes in de kern op `run_method` van een document reageren (`Notification`, `Webhook`, `Automation Flow` …), de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
 | A3 | De kern heeft nog geen eigen DocTypes voor opmerkingen, meldingen of activiteit op bestanden | §5.9, §5.10, K6 | De lijst van DocTypes in de kern (alle `doctype/*/*.json`) en waar `Notification Log` wordt gebruikt |
-| A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling) | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4) | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, en of de kern `DocShare` gebruikt |
-| A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis | §5.5 (de basis), `bij_conflict` | Dat document, §6 |
+| A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling), en alleen beheerders van de site hebben `System Manager` of `Script Manager` | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4), de grens van het vertrouwen in §5.4 | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, of de kern `DocShare` gebruikt, en wie in de kern `System Manager` of `Script Manager` krijgt. Ook: welke apps in de kern draaien (ERPNext?), welke rollen daar een sjabloon mogen schrijven (`Website Manager`, `Accounts User` …), en wie die rollen krijgt (§5.4, review Sol ronde 6). En wie `Report Manager` of `Prepared Report User` heeft, en of rapporten van de kern in de achtergrond worden voorbereid (§5.4, review Sol ronde 8) |
+| A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis. Het hostcontract bevestigt de vorm: `save(bytes, {id, expectedVersion})`, en een conflict geeft een kopie (§5.15). Open is nog: is `version` daar het volgnummer of een id dat nooit terugkomt? | §5.5 (de basis), `bij_conflict`, §5.15 | Dat document, §6; en in `openaec_werkplek` wat de host als `version` teruggeeft en hoe hij `expectedVersion` aan storage doorgeeft |
 | A6 | Naast Frappe kan een los programma draaien (zoals de WebDAV-gateway van openaec-storage in een eigen container) | Handhaving op de server (§5.7 trede 2), `gewijzigd` bij opmerkingen (§5.9), samenvoegen op de server | De compose- of deployconfig van de kern: welke containers er zijn, en of er een plek is voor een hulpprogramma |
 | A7 | De `BIM Issue` van open-bim-platform en opmerkingen op bestanden mogen één systeem worden | §5.9, K6 | Of de kern al naar `BIM Issue` verwijst, en wie de eigenaar van dat DocType is |
-| A8 | Het werkplekprotocol kan een gebeurtenis naar een tool sturen | Aanwezigheid en samenvoegen in de browser-apps | De code van `openaec_werkplek` (de berichten tussen werkplek en tool) |
+| A8 | De host kan een tool een gebeurtenis over een bestand sturen, zoals hij nu al `openaec-host-preferences` stuurt (§5.15), en de host hoort zelf nieuwe versies (via A2 of de wijzigingenlijst) | Aanwezigheid en nieuwe versies in de browser-apps (#10) | In `openaec_werkplek`: hoe `openaec-host-preferences` wordt verstuurd, en of de host berichten van de server ontvangt |
+| A12 | Het slot dat de werkplek gebruikt voor `readOnly` ("iemand anders bewerkt het") is het slot per bestand van openaec-storage (`vergrendel`, `Opslagvergrendeling`) | §5.2 manier A, §5.7, samenvoegen in de werkplek (#11), de vergelijking met Microsoft 365 (§4a) | Waar `openaec_werkplek` `readOnly` bepaalt, en hoe lang zo'n slot blijft staan |
+| A13 | Route B (de gestreamde desktop) zet een bestand terug met de versie die hij in de werkmap zette als basis | §5.6 (de opslaan-lus), §5.15 | De code die de werkmap van de container vult en terugzet: geeft die een basis mee, en vervangt hij een bestand dat een programma nog open heeft? |
 | A9 | De database is MariaDB 11.8 of nieuwer, met REPEATABLE READ en `innodb_snapshot_isolation` aan | §5.4 (de veger), de transacties van stap 4 | De image en de `my.cnf` van de database in de deploy van de kern. Het team gebruikt nu een image met erpnext v16.51.1; de proeven draaiden op Frappe 16.55.2 |
 | A10 | Er draaien achtergrondwerkers (RQ) en de scheduler | Meldingen bundelen (§5.10), de haak (§5.4), een taak voor `anker_status` | De Procfile of compose: `worker`, `schedule` |
-| A11 | De opslag in productie gebruikt dezelfde blokken van 8 MiB met BLAKE3 als de code van openaec-storage | Alleen de gewijzigde blokken versturen bij grote modellen | De opslaginstellingen in de deploy van de kern |
+| A11 | De opslag in productie gebruikt dezelfde blokken van 8 MiB met BLAKE3 als de code van openaec-storage. Die blokken liggen op een vaste plek; na samenvoegen gaan dan alle blokken opnieuw (meting 07, desktop-PR #12). Voor een kleine upload is hergebruik op inhoud nodig | Alleen de gewijzigde blokken versturen bij grote modellen (§5.6, hoofdstuk 12) | De opslaginstellingen in de deploy van de kern |
 
 **Volgorde van lezen** zodra er toegang is: eerst A1 en A4 (wie bezit de bestanden en de rechten), dan A9 en A10 (de
-database en de werkers), dan A2, A6 en A8 (realtime, hulpprogramma's, werkplek), dan A3, A5, A7 en A11. Daarna werk ik
+database en de werkers), dan A2, A6, A8, A12 en A13 (realtime, hulpprogramma's, werkplek), dan A3, A5, A7 en A11. Daarna werk ik
 dit ontwerp bij, en pas dan wordt er weer op de server gebouwd.
 
 **Keuzes die lang meegaan, als opties tot de kern gelezen is:**
@@ -899,6 +1044,24 @@ dit ontwerp bij, en pas dan wordt er weer op de server gebouwd.
 - **De vorm van de basis in de API** (`basis_versie_id` uit PR #9). De bibliotheek en de sync zien alleen de trait
   `Opslag`; de vorm in de API kan dus nog veranderen zonder dat de bibliotheek verandert. Beslissend: A1 en A5.
 - **Eén systeem voor opmerkingen** (eigen DocType of `BIM Issue`). Beslissend: A3 en A7.
+- **Slot of samenvoegen in de werkplek, per soort bestand.** Optie 1: het slot blijft voor alles (nu; de tweede
+  persoon krijgt alleen-lezen). Optie 2: geen slot voor een soort die de bibliotheek kan samenvoegen (IFC), wel
+  aanwezigheid en samenvoegen bij opslaan; het slot blijft voor de rest. Optie 2 is het voorstel: alleen zo werken
+  twee mensen tegelijk aan één model. Het vraagt wel eerst de drie afspraken over `save` uit §5.15; tot dan blijft
+  optie 1. Beslissend: A12, en waar het samenvoegen draait (A6).
+- **Eén sync voor de desktop en route B.** Optie 1: de gestreamde desktop gebruikt dezelfde sync als de desktop-app
+  (`openaec-sync`: de basis, veilig vervangen, samenvoegen bij opslaan). Optie 2: de kern houdt een eigen werkmap,
+  die dan dezelfde regels moet volgen. Optie 1 is het voorstel: één plek voor dezelfde risico's. Beslissend: A13.
+- **Automatische en voorbereide rapporten.** Optie 1: `Auto Email Report` blijft uit en `Prepared Report` is alleen
+  voor beheerders (de eerste versie, §5.4). Optie 2: een `Auto Email Report` mag weer aan, als een `Report` dat een
+  aanstaand automatisch rapport gebruikt, alleen door een `System Manager` te wijzigen of te verwijderen is; en een
+  `Prepared Report` is te lezen door wie het aanvroeg (ook in de lijst en voor de bijlage, zonder delingen). Optie 2
+  vraagt eerst een eigen review. Beslissend: A4 (wie heeft `Report Manager` en `Prepared Report User`, en leunt de
+  kern op voorbereide rapporten van ERPNext).
+- **Een eigen site voor de opslag.** Optie 1: de opslag deelt de site met de andere apps (nu). Dan is elke rol die
+  een sjabloon mag schrijven, vertrouwd voor alle gegevens van de opslag, ook de bestanden (§5.4). Optie 2: de opslag krijgt een eigen
+  site met een eigen database; alleen de beheerders van die site zijn dan vertrouwd. Dat kost wel een aanmelding over
+  twee sites heen. Optie 1 is het voorstel zolang alleen beheerders zulke rollen krijgen. Beslissend: A4.
 
 ## 10. Issues voor de owner van de kern
 
@@ -906,6 +1069,11 @@ Deze staan als issues in openaec-storage, zoals #2 tot en met #7:
 
 1. #10 Werkplek: aanwezigheid en gebeurtenissen van een bestand aan een tool doorgeven.
 2. #11 Werkplek: samenvoegen bij opslaan vanuit een tool, in plaats van een conflictkopie.
+
+   Bij #10 en #11 staat een reactie die het voorstel op het hostcontract van de Blueprint legt (§5.15): de host meldt
+   aanwezigheid zelf, en een gebeurtenis in de vorm van `openaec-host-preferences`. Samenvoegen in `save` vraagt wel
+   een nieuwe vorm voor de tool: een herkenbaar antwoord en een basis die bij de geladen inhoud hoort (§5.15, review
+   Sol ronde 7). Tot dan geeft route A conflictkopieën.
 3. #12 Realtime in de SuperCloud: draait socket.io, en kan de desktop-app er met een token bij?
 4. #13 Server: een Rust-hulpprogramma naast Frappe voor verschil en samenvoegen van IFC.
 5. #14 Eén systeem voor opmerkingen op bestanden en BIM-issues (BCF).
@@ -922,6 +1090,11 @@ Deze staan als issues in openaec-storage, zoals #2 tot en met #7:
 - open-bim-platform: `docs/superpowers/specs/2026-10-26-open-bim-platform-design.md` (§5.6 BIM Issue en BCF, §6.2
   ifcmerge, §7.4 eisen aan storage).
 - Microsoft 365 en AEC-tools: de links in §3.
+- OpenAEC-Blueprint, `main` op `ba163af9`: `docs/supercloud-koppeling.md` (het contract tussen een app en de
+  SuperCloud). Open-Infra-Studio issue #75. Open Calc Studio, branch `feat/werkplek-app-tools`:
+  `src/services/file/siteHost.ts`, `src/services/file/hostFileActions.ts`. Het voorbeeld van Open PDF Studio
+  (`js/core/werkplek-app.js`) staat niet op de standaardbranch van `open-pdf-studio`; volgens het contract gaat het
+  over de assistent, niet over bestanden.
 
 ## 12. Schaal en duurzaamheid
 
