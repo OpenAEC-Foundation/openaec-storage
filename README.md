@@ -181,7 +181,9 @@ te lezen.
 | `quotum_pool_vol` | 417 | Het quotum van de omgeving is vol |
 | `quotum_ruimte_vol` | 417 | Het eigen quotum van de ruimte is vol |
 | `map_alleen_lezen` | 403 | Wijzigen in een alleen-lezenmap zonder beheerder van de ruimte te zijn |
-| `bestand_vergrendeld` | 403 | Verwijderen, verplaatsen of hernoemen van een bestand dat een ander heeft vergrendeld, of een map verwijderen waarin zo'n bestand staat |
+| `bestand_vergrendeld` | 403 | Verwijderen, verplaatsen of hernoemen van een bestand dat een ander heeft vergrendeld, of een map verwijderen waarin zo'n bestand staat; ook een upload met `bij_conflict: "weiger"` naar zo'n bestand (zie Vergelijk-en-schrijf) |
+| `verouderde_basis` | 409 | Upload met `bij_conflict: "weiger"` waarvan `basis_versie` niet (meer) de huidige versie is; `huidige_versie` staat naast de foutcode. Geen conflictkopie (zie Vergelijk-en-schrijf) |
+| `ongeldige_samenvoeging` | 417 | `samengevoegd_uit` klopt niet: geen `{"basis": n, "hun": m}` met gehele getallen, `basis` niet kleiner dan `hun`, `hun` niet gelijk aan `basis_versie`, of een van beide versies bestaat niet voor dit bestand |
 | `extensie_niet_toegestaan` | 417 | Bestandssoort niet toegestaan in deze map |
 | `ongeldige_naam` | 417 | Naam die niet kan (zie Geldige namen): nieuw bestand, nieuwe map, hernoemen of verplaatsen |
 | `gebruiker_onbekend` | 417 | `deel` met `soort: "gebruiker"` voor een gebruiker die niet bestaat en die niet als gast kan worden uitgenodigd: geen geldig e-mailadres, of geen Beheer op de site (melding "Kies een bestaande gebruiker om mee te delen") |
@@ -333,16 +335,46 @@ onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de gebruiker
 
 | Methode | Parameters | Antwoord |
 |---|---|---|
-| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true, deling: true, zoek_pad: true, overdracht_van_opslag: true, kopieer: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg. `deling`: de parameter `deling` (zie Gedeeld met mij) bestaat; `zoek_pad` en `overdracht_van_opslag`: zie Delen vanuit de desktop-app en Overdrachten |
+| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true, deling: true, zoek_pad: true, overdracht_van_opslag: true, kopieer: true, bij_conflict_weiger: true, samengevoegd_uit: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg. `deling`: de parameter `deling` (zie Gedeeld met mij) bestaat; `zoek_pad` en `overdracht_van_opslag`: zie Delen vanuit de desktop-app en Overdrachten; `bij_conflict_weiger` en `samengevoegd_uit`: zie Vergelijk-en-schrijf |
 | `boom` | `ruimte`, `start?` (0), `aantal?` (10 000, hoogstens 50 000), `deling?` | `{mappen: [{name, naam, bovenliggende, modified}], bestanden: [{name, naam, map, grootte, huidige_versie, modified}], meer}`: alle mappen en een pagina bestanden (op `name`), zonder de prullenbak. Zonder `deling` alleen voor leden van de ruimte; met `deling` alles onder de gedeelde map, plus `wortel` |
 | `maak_mappen` (POST) | `ruimte`, `paden` (lijst mappaden met `/`, hoogstens 1000), `deling?` (dan zijn de paden binnen de gedeelde map) | `{mappen: {pad: map}, fouten: {pad: {fout, foutcode}}}`; ontbrekende mappen (ook tussenliggende) worden aangemaakt zoals bij `maak_map`, bestaande hergebruikt (hoofdletters maken niet uit) |
-| `upload_klein` (POST, multipart/form-data) | `ruimte`, `bron?` (`sync`), `deling?` (dan zijn `pad` en `map` binnen de gedeelde map), `bestanden` (JSON-lijst: per bestand `naam`, `map` (id) of `pad` (mappad; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash` (BLAKE3 van de inhoud), `basis_versie?`, `sha256?`, `veld`), en de inhoud: alles achter elkaar in één bestandsveld `inhoud` (gesneden op `grootte`; zo doet de desktop-app het) of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd | `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} \| {index, ok: false, fout, foutcode}]}`, in de volgorde van `bestanden` |
+| `upload_klein` (POST, multipart/form-data) | `ruimte`, `bron?` (`sync`), `deling?` (dan zijn `pad` en `map` binnen de gedeelde map), `bestanden` (JSON-lijst: per bestand `naam`, `map` (id) of `pad` (mappad; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash` (BLAKE3 van de inhoud), `basis_versie?`, `sha256?`, `bij_conflict?`, `samengevoegd_uit?` (zie Vergelijk-en-schrijf), `veld`), en de inhoud: alles achter elkaar in één bestandsveld `inhoud` (gesneden op `grootte`; zo doet de desktop-app het) of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd | `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} \| {index, ok: false, fout, foutcode, huidige_versie?}]}`, in de volgorde van `bestanden`; `huidige_versie` bij `verouderde_basis` |
 | `download_klein` | `bestanden` (lijst bestand-id's of `{bestand, versie}`) | `{bestanden: [{index, ok: true, bestand, naam, versie, grootte, blokhash, inhoud (base64)} \| {index, ok: false, fout, foutcode}]}`; de inhoud komt tegelijk uit S3 |
 
 Grenzen: hoogstens 1 MiB per bestand, en 64 bestanden of 16 MiB per verzoek (`KLEIN_MAX_*` in `api.py`). Een groter
 bestand gaat langs de gewone weg in delen van 8 MiB. Bij `upload_klein` schrijft de server de inhoud zelf naar S3
 (`s3.zet`); bij een conflict (een verouderde `basis_versie`, of een bestand dat iemand anders vergrendelde) komt er
-een conflictkopie naast het origineel, net als bij `upload_klaar`.
+een conflictkopie naast het origineel, net als bij `upload_klaar` (of een weigering met `bij_conflict: "weiger"`).
+Elk bestand wordt in een eigen transactie vastgelegd: gaat er één mis, ook door een deadlock, dan blijven de andere
+staan en mislukt alleen dat bestand.
+
+## Vergelijk-en-schrijf
+
+Standaard wordt een upload met een verouderde `basis_versie` een conflictkopie naast het origineel. Een client die
+zelf kan samenvoegen (de opslaan-lus uit het ontwerp "samenwerken", §5.6), vraagt in plaats daarvan: schrijf alleen
+als de basis nog de huidige versie is. Zonder deze parameters verandert er niets voor bestaande clients (desktop-app,
+WebDAV-gateway, browser, uploadlink). `mogelijkheden` geeft `bij_conflict_weiger: true` en `samengevoegd_uit: true`.
+
+| Parameter | Bij | Wat |
+|---|---|---|
+| `bij_conflict` | `upload_start`, en per bestand in `upload_klein` | `"kopie"` (standaard): conflictkopie zoals altijd. `"weiger"`: geen conflictkopie, maar 409 met de foutcode `verouderde_basis` en `huidige_versie` naast de foutcode (in `upload_klein` per bestand `{index, ok: false, fout, foutcode: "verouderde_basis", huidige_versie}`). Ook zonder `basis_versie` naar een bestand dat er al is. Een slot van een ander geeft 403 `bestand_vergrendeld`, ook zonder kopie; dat gaat vóór `verouderde_basis`, want opnieuw samenvoegen helpt daar niet. `upload_start` weigert al als het op dat moment al zo is (dan hoeft de inhoud niet geüpload te worden); `upload_klaar` vergelijkt daarna opnieuw onder een slot, ruimt bij een weigering het object in de opslag en de upload-token op, en de client begint opnieuw met `upload_start`. Is het bestand intussen verwijderd of verplaatst, dan wordt het een nieuw bestand, zoals zonder `weiger` |
+| `samengevoegd_uit` | `upload_start` (JSON), en per bestand in `upload_klein` | `{"basis": n, "hun": m}`: deze inhoud is een samenvoeging van versie n (de gemeenschappelijke basis) en versie m van het bestand, met `m` gelijk aan `basis_versie`. Twee gehele getallen, `n < m`, en beide versies bestaan; anders 417 `ongeldige_samenvoeging`. Het komt op de nieuwe versie (`Bestandsversie.samengevoegd_uit`) en staat in `versies` (`samengevoegd_uit` per versie, of null). Niet op een conflictkopie of een nieuw bestand: die versies horen bij een ander bestand. In de wijzigingenlijst blijft het een gewone `gewijzigd` |
+
+**Vastleggen onder een slot.** Een nieuwe versie (of een nieuw bestand) wordt vastgelegd in `_registreer`. Die
+vergrendelt eerst de regel van het bestaande bestand en zijn slot (`Opslagvergrendeling`, nu met een index op
+`bestand`), en vergelijkt daarna `basis_versie` met de huidige versie. Komt er een nieuw bestand of een
+conflictkopie, dan vergrendelt hij als laatste de plek (de regel van de map, of van de ruimte voor het hoofdniveau)
+en kijkt hij opnieuw of de naam intussen bestaat. Twee uploads naar hetzelfde bestand of dezelfde naam wachten zo op
+elkaar, en de tweede ziet wat de eerste vastlegde: uitkomst één nieuwe versie plus een conflictkopie (of
+`verouderde_basis`), nooit een fout, nooit twee versies met hetzelfde volgnummer en nooit twee actieve bestanden met
+dezelfde naam. Niemand vraagt na de plek nog een bestand, en `_maak_map` vraagt eerst de ruimte en dan mappen; zo
+blijven twee aanvragen niet op elkaar wachten, en wacht een gewone nieuwe versie niet op aanvragen die mappen maken.
+`upload_klaar`, `upload_klein`
+(per bestand) en de uploadlink leggen vast in een eigen, korte transactie onder READ COMMITTED (`_eigen_transactie`):
+een Frappe-verzoek leest onder REPEATABLE READ uit de momentopname van zijn eerste lezing, en zou na het wachten op
+het slot nog de oude stand zien; MariaDB 11.6+ (`innodb_snapshot_isolation`) weigert dan zelfs de vergrendelende
+lezing (fout 1020, voor Frappe een `QueryDeadlockError`). Wat het verzoek daarvoor schreef, wordt eerst vastgelegd.
+Tests: `tests/test_vergelijk_en_schrijf.py` (twee echte databaseverbindingen die in een vaste volgorde wisselen).
 
 
 ## Overdrachten

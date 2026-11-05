@@ -567,6 +567,44 @@ class TestGelijktijdig(Hulp, IntegrationTestCase):
 		self.assertEqual(self.inhoud(r[2]["bestand"]), b"los")
 		self.assertFalse(stand["klaar"], f"B wachtte niet op het slot: {stand}")
 
+	def test_nieuwe_versie_wacht_niet_op_wie_de_map_vasthoudt(self):
+		"""`_maak_map` (en zo `maak_mappen` en `kopieer`) houdt mappen vast tot het einde van zijn verzoek. Een nieuwe
+		versie van een bestaand bestand vraagt dat slot niet; een nieuw bestand in die map wacht er wel op."""
+		bestand = self.basis("plan.ifc", map=self.map)
+		vast, los = threading.Event(), threading.Event()
+
+		def houd_vast():
+			frappe.db.sql("select name from `tabOpslagmap` where name = %s for update", self.map)
+			vast.set()
+			los.wait(WACHT)
+
+		versie = start(self.ruimte, "plan.ifc", b"twee", map=self.map, basis_versie=1)
+		nieuw = start(self.ruimte, "ander.ifc", b"nieuw", map=self.map)
+		frappe.db.commit()
+		houder = Verzoek("houder", self, self.anna, houd_vast)
+		houder.start()
+		c = None
+		try:
+			self.assertTrue(vast.wait(WACHT), repr(houder.fout))
+			b = Verzoek("B", self, self.anna, lambda: api.upload_klaar(**versie))
+			b.start()
+			b.join(10)
+			self.assertTrue(b.klaar.is_set(), f"de nieuwe versie wachtte op het slot van de map: {self.wacht_op(b)}")
+			self.assertIsNone(b.fout, repr(b.fout))
+			c = Verzoek("C", self, self.anna, lambda: api.upload_klaar(**nieuw))
+			c.start()
+			time.sleep(BEDENKTIJD)
+			self.assertFalse(c.klaar.is_set(), "een nieuw bestand hoort te wachten op het slot van de map")
+		finally:
+			los.set()
+			houder.join(WACHT)
+			if c:
+				c.join(WACHT)
+		self.assertIsNone(c.fout, repr(c.fout))
+		frappe.db.rollback()
+		self.assertEqual(self.volgnummers(bestand), [1, 2])
+		self.assertEqual(c.resultaat["naam"], "ander.ifc")
+
 	def test_uploadlink_tegelijk_met_een_gewone_upload(self):
 		"""De uploadlink vergrendelt dezelfde map en ziet daarna het bestand van de gewone upload: een volgnummer."""
 		from openaec_storage import delen

@@ -270,7 +270,9 @@ def _weiger_bij_conflict(bestaand, slot, basis_versie: int | None) -> None:
 
 def _vergrendel_plek(ruimte: str, map: str | None) -> None:
 	"""Slot op de plek van een bestand: de map, of de ruimte voor het hoofdniveau (zoals `_maak_map` en de
-	uploadlink). Wie hier een bestand vastlegt, wacht tot een ander op dezelfde plek klaar is."""
+	uploadlink). Wie hier een nieuw bestand vastlegt, wacht tot een ander op dezelfde plek klaar is. Vraag dit slot
+	als laatste (na `_vergrendel_bestand`): `_maak_map` vergrendelt eerst de ruimte en dan mappen, en niemand vraagt
+	na de plek nog een bestand."""
 	if map:
 		frappe.db.sql("select name from `tabOpslagmap` where name = %s for update", map)
 	else:
@@ -279,8 +281,8 @@ def _vergrendel_plek(ruimte: str, map: str | None) -> None:
 
 def _vergrendel_bestand(ruimte: str, map: str | None, naam: str):
 	"""Het actieve bestand met deze naam op deze plek, met een slot op zijn regel (`name`, `huidige_versie` uit een
-	vergrendelende lezing), of None. Vraag eerst `_vergrendel_plek`. Is het bestand tussen het zoeken en het slot
-	verplaatst, hernoemd of verwijderd, dan wordt opnieuw gezocht."""
+	vergrendelende lezing), of None. De zoekactie is vers onder READ COMMITTED (`_eigen_transactie`). Is het bestand
+	tussen het zoeken en het slot verplaatst, hernoemd of verwijderd, dan wordt opnieuw gezocht."""
 	for _poging in range(3):
 		bestaand = _actief_bestand(ruimte, map, naam)
 		if not bestaand:
@@ -564,45 +566,57 @@ def _registreer(info: dict) -> dict:
 	regel voor de gewone upload, voor kleine bestanden in één verzoek (`upload_klein`), voor kopiëren en voor het
 	dossier.
 
-	Vastleggen gebeurt onder een slot: eerst op de plek (de map, of de ruimte voor het hoofdniveau), dan op de regel
-	van het bestand, dan op zijn slot (vergrendeling). Die volgorde is vast, zodat twee aanvragen niet op elkaar
-	blijven wachten. Twee gelijktijdige uploads naar dezelfde plek wachten zo op elkaar; de tweede ziet wat de eerste
-	vastlegde, als hij in een eigen transactie loopt (`_eigen_transactie`, zoals `upload_klaar` en `upload_klein`).
-	Uitkomst: één nieuwe versie en een conflictkopie, nooit twee versies met hetzelfde volgnummer of twee actieve
-	bestanden met dezelfde naam.
+	Vastleggen gebeurt onder sloten, in een vaste volgorde: eerst de regel van het bestaande bestand (een nieuwe versie
+	ervan wacht tot een ander met dat bestand klaar is), dan zijn vergrendeling, en alleen als er een nieuw bestand of
+	een conflictkopie komt, als laatste de plek (de map, of de ruimte voor het hoofdniveau). Na het slot op de plek
+	wordt opnieuw gekeken of de naam intussen bestaat. Niemand vraagt eerst de plek en dan een bestand, zodat twee
+	aanvragen niet op elkaar blijven wachten; en een gewone nieuwe versie wacht niet op aanvragen die mappen maken.
+	De tweede van twee gelijktijdige uploads ziet zo wat de eerste vastlegde, als hij in een eigen transactie loopt
+	(`_eigen_transactie`, zoals `upload_klaar` en `upload_klein`). Uitkomst: één nieuwe versie en een conflictkopie,
+	nooit twee versies met hetzelfde volgnummer of twee actieve bestanden met dezelfde naam.
 
 	`info["bij_conflict"]`: "kopie" (standaard) of "weiger" (zie `_weiger_bij_conflict`). `info["samengevoegd_uit"]`
 	(`{basis, hun}`, al gecontroleerd op vorm): beide versies moeten bestaan; het komt alleen op een nieuwe versie van
 	hetzelfde bestand, niet op een conflictkopie of een nieuw bestand."""
 	ruimte, map, naam = info["ruimte"], info["map"], info["naam"]
 	basis_versie = info.get("basis_versie")
-	samengevoegd = info.get("samengevoegd_uit")
-	_vergrendel_plek(ruimte, map)
+	weigeren = info.get("bij_conflict") == "weiger"
 	bestaand = _vergrendel_bestand(ruimte, map, naam)
-	conflict = False
-	slot = _actief_slot(bestaand.name, for_update=True) if bestaand else None
-	slot_van_ander = bool(slot and slot.gebruiker != frappe.session.user)
-	if bestaand and samengevoegd:
-		_controleer_samenvoeging(bestaand.name, samengevoegd)
-	if bestaand and not slot_van_ander and basis_versie is not None and basis_versie == cint(bestaand.huidige_versie):
-		doc = frappe.get_doc("Opslagbestand", bestaand.name, for_update=True)
-		soort = "gewijzigd"
-	else:
-		if bestaand and info.get("bij_conflict") == "weiger":
+	conflict = bool(bestaand)
+	if bestaand:
+		slot = _actief_slot(bestaand.name, for_update=True)
+		if info.get("samengevoegd_uit"):
+			_controleer_samenvoeging(bestaand.name, info["samengevoegd_uit"])
+		slot_van_ander = bool(slot and slot.gebruiker != frappe.session.user)
+		if not slot_van_ander and basis_versie is not None and basis_versie == cint(bestaand.huidige_versie):
+			doc = frappe.get_doc("Opslagbestand", bestaand.name, for_update=True)
+			return _nieuwe_versie(info, doc, "gewijzigd", info.get("samengevoegd_uit"), conflict=False)
+		if weigeren:
 			_weiger_bij_conflict(bestaand, slot, basis_versie)
-		if bestaand:
-			conflict = True
-			naam = _conflictnaam(ruimte, map, naam)
-		else:
-			# Een nieuw bestand moet een geldige naam hebben (een bestaand bestand met een oude, ongeldige naam mag
-			# een nieuwe versie krijgen, maar kan tussen het begin en het eind van de upload verdwenen zijn).
-			_controleer_naam(naam)
-		samengevoegd = None
-		doc = frappe.get_doc(
-			{"doctype": "Opslagbestand", "ruimte": ruimte, "map": map, "naam": naam, "huidige_versie": 0}
-		).insert(ignore_permissions=True)
-		soort = "nieuw"
+	# Er komt een nieuw bestand: met deze naam, of een conflictkopie.
+	_vergrendel_plek(ruimte, map)
+	if not conflict:
+		# Intussen door een ander vastgelegd (die had de plek, en is nu klaar)? Dan is dit een conflict.
+		ander = _actief_bestand(ruimte, map, naam)
+		if ander and weigeren:
+			_weiger_bij_conflict(ander, _actief_slot(ander.name), basis_versie)
+		conflict = bool(ander)
+	if conflict:
+		naam = _conflictnaam(ruimte, map, naam)
+	else:
+		# Een nieuw bestand moet een geldige naam hebben (een bestaand bestand met een oude, ongeldige naam mag
+		# een nieuwe versie krijgen, maar kan tussen het begin en het eind van de upload verdwenen zijn).
+		_controleer_naam(naam)
+	doc = frappe.get_doc(
+		{"doctype": "Opslagbestand", "ruimte": ruimte, "map": map, "naam": naam, "huidige_versie": 0}
+	).insert(ignore_permissions=True)
+	return _nieuwe_versie(info, doc, "nieuw", None, conflict=conflict)
 
+
+def _nieuwe_versie(info: dict, doc, soort: str, samengevoegd: dict | None, conflict: bool) -> dict:
+	"""De volgende versie van `doc` (al vergrendeld, of net aangemaakt) met de inhoud uit `info`, en de regel in de
+	wijzigingenlijst."""
+	ruimte = info["ruimte"]
 	volgnummer = cint(doc.huidige_versie) + 1
 	frappe.get_doc(
 		{
