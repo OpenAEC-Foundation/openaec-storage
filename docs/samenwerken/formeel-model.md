@@ -1,13 +1,14 @@
 # Het samenwerkprotocol, formeel nagegaan
 
-Stand: 5 november 2026. Voor: Ethan. Over: de sync tussen de desktop-app en de SuperCloud-server.
+Stand: 5 november 2026, na review ronde 1. Voor: Ethan. Over: de sync tussen de desktop-app en de SuperCloud-server.
 
 ## In het kort
 
 Ik heb het samenwerkprotocol nagebouwd als een wiskundig model (TLA+). Een programma (de model checker TLC) liep
 daarna alle volgordes af waarin clients, server en netwerk kunnen handelen, binnen vaste grenzen. Dat vond vier
 fouten die nog niet bekend waren, en bevestigde dat de bekende fouten echt zijn en dat de geplande fixes ze oplossen.
-De technische kant (bronnen, aannames, hoe je het herhaalt) staat in [`formeel/README.md`](formeel/README.md).
+Een tweede model (Sol) las het model en de code na; zijn bevindingen zijn verwerkt. De technische kant (bronnen,
+aannames, hoe je het herhaalt) staat in [`formeel/README.md`](formeel/README.md).
 
 ## Wat is een formeel model, en wat zegt het?
 
@@ -15,10 +16,11 @@ Een test probeert één volgorde van gebeurtenissen. Een model checker probeert 
 slaan allebei op, en bij Piet valt het netwerk weg. Een test kiest één moment voor die storing. TLC probeert elk
 moment: vóór het verzoek, na het verzoek maar vóór het antwoord, midden in een ronde van een andere client.
 
-Het model is een vereenvoudiging van de code. Wat TLC vindt, is dus een fout in het model. Elke fout hieronder heb ik
-daarna in de echte code nagelopen. Wat TLC níet vindt, geldt alleen binnen de grenzen van de run (bijvoorbeeld 2 of 3
-clients, 1 of 2 bestanden, hoogstens 2 netwerkstoringen). Fouten die pas bij grotere aantallen optreden, ziet TLC
-niet.
+Het model is een vereenvoudiging van de code. Wat TLC vindt, is dus eerst een fout in het model. Elke fout hieronder
+is daarna in de echte code nagelopen, door mij en door de reviewer. Wat TLC níet vindt, geldt alleen binnen de
+grenzen van de run (bijvoorbeeld 2 of 3 clients, 1 of 2 bestanden, hoogstens 1 netwerkstoring) en alleen voor wat
+het model nabootst. Een groene run is dus geen bewijs dat de code klopt; een rode run met een verhaal dat in de code
+terug te vinden is, is wel een echte fout.
 
 ## Wat is nagegaan
 
@@ -46,18 +48,21 @@ Daarnaast is er een bewijsschets voor het samenvoegen van IFC-bestanden: [`forme
 - **De wijzigingenlijst met storage-PR #16.** Geen enkele volgorde laat een client een wijziging missen. En een
   client die blijft vragen, krijgt uiteindelijk elke wijziging die voor hem is. TLC liep 193.723 toestanden af (3
   gelijktijdige schrijvers met elk 1 regel, 2 lezers, 2 ruimtes; 39 minuten) en 643.565 toestanden (2 schrijvers met
-  elk 2 regels en een savepoint; 42 minuten). Als ik de belangrijkste stap van de fix weghaal, vindt
-  TLC meteen een fout. Dat laat zien dat het model de fix echt meet.
+  elk 2 regels en een savepoint; 42 minuten). Als ik de belangrijkste stap van de fix weghaal, vindt TLC meteen een
+  fout. Dat laat zien dat het model de fix echt meet.
 - **Uploaden met storage-PR #9, als de client de opslaan-lus gebruikt.** Geen dubbele actieve bestanden, geen stille
   overschrijving, geen verloren inhoud (42.920 toestanden), zolang S3 een tweede "klaar" voor dezelfde upload weigert.
-- **Uitchecken, met een kleine aanpassing** (zie fout 1). Met die aanpassing: geen fout in 5.969 toestanden.
-- **De desktop-sync van stap 5a en 5b, met één aanpassing** (zie fout 2): geen verloren werk (5a: 81.520, 5b:
-  88.308 toestanden, 2 clients, 1 bestand).
-- **De bekende fouten op main bestaan echt**, en de geplande PR's lossen ze op in het model: de wijzigingenlijst die
-  regels overslaat (PR #16), twee bestanden met dezelfde naam en stil overschrijven bij een upload (storage-PR #9),
-  en een download die een net opgeslagen bestand overschrijft (desktop-PR #8).
+- **Uitchecken, met een kleine aanpassing** (zie fout 1). (Aantallen volgen; de run loopt opnieuw na de review.)
+- **De desktop-sync van stap 5a en 5b, met één aanpassing** (zie fout 2). (Aantallen volgen; de runs lopen opnieuw
+  na de review.)
+- **De bekende fouten op main bestaan echt**, en de geplande PR's lossen ze op: de wijzigingenlijst die regels
+  overslaat (PR #16), twee actieve bestanden met dezelfde naam (storage-PR #9), en een download die een net
+  opgeslagen bestand overschrijft (desktop-PR #8).
 
 ## De fouten, als verhaal
+
+De reviewer (Sol) deelt alle vier nieuwe fouten in als **BLOKKEERT**: er kan werk stil verloren gaan, of een planner
+loopt er in gewoon werk tegenaan.
 
 ### Fout 1. Twee mensen kunnen tegelijk een bestand uitchecken
 
@@ -68,27 +73,33 @@ allebei "vergrendeld". Anna denkt dat ze het bestand alleen heeft, maar het slot
 
 - Waar: `vergrendel` in `openaec_storage/api.py` (main en storage-PR #9, r. 1455-1479). De controle leest zonder slot
   op de regel; daarna wist hij alle sloten en voegt hij er een in.
-- Bij een andere database-instelling (`innodb_snapshot_isolation`) gaat het iets anders mis: dan krijgt Piet een
-  fout, maar een upload van een derde kan een versie vastleggen terwijl Anna het slot net heeft.
+- Bij een andere database-instelling (`innodb_snapshot_isolation`, standaard aan vanaf MariaDB 11.6.2) gaat het iets
+  anders mis: dan krijgt Piet een fout, maar een upload van een derde kan een versie vastleggen terwijl Anna het slot
+  net heeft. Welke instelling de server heeft, is niet nagegaan.
 - Fix: `vergrendel` en `ontgrendel` in een eigen transactie, en eerst de bestandsregel op slot zetten (`FOR UPDATE`),
-  net als de upload dat al doet. Met die fix vindt TLC geen fout meer.
-- Model: `Slot.tla`, runs `Slot_RR_nu`, `Slot_RC_nu`, `Slot_RR_SI_nu` (fout) en `Slot_RR_fix`, `Slot_RC_fix` (geen
-  fout).
+  net als de upload dat al doet; daarna het slot opnieuw lezen. Getoetst tegen vergrendelen, ontgrendelen, verlopen,
+  forceren en uploaden; niet tegen verwijderen of verplaatsen.
+- Model: `Slot.tla`. In de eerste versie kon een slot niet verlopen (een fout in het model, gevonden door de
+  reviewer). Dat is hersteld; de runs lopen opnieuw.
 
 ### Fout 2. Een verwijdering wist het werk van een ander
 
-Piet ruimt zijn map op en verwijdert `fundering.ifc`. Hij kende versie 1. Intussen slaat Anna een wijziging op;
-versie 2 staat op de server. Piets sync-ronde ziet: lokaal weg, en de laatst bekende versie was 1. De client vraagt
-de server het bestand te verwijderen. De server vraagt niet welke versie Piet bedoelde, en zet versie 2 in de
-prullenbak. Daarna ziet Anna's sync: het bestand is weg op de server, en lokaal is het niet veranderd sinds versie 2.
-Haar client verwijdert ook haar lokale kopie. Anna's werk staat nu alleen nog in de prullenbak. Niemand krijgt een
-melding.
+Piets sync-ronde begint. De lijst van de server toont `fundering.ifc` op versie 1, en Piet heeft het lokaal net
+verwijderd. Zijn client besluit: verwijder het ook op de server. Op dat moment slaat Anna een wijziging op; versie 2
+komt op de server. Dan stuurt Piets client het verwijderverzoek. De server vraagt niet welke versie Piet bedoelde, en
+zet het bestand, met Anna's versie 2, in de prullenbak. Daarna ziet Anna's sync: het bestand is weg op de server, en
+lokaal is het niet veranderd sinds versie 2. Haar client verwijdert ook haar lokale kopie. Anna's werk staat nu alleen
+nog in de prullenbak. Niemand krijgt een melding.
 
+- Het venster is de tijd tussen Piets lijst en zijn verwijderverzoek. Ziet Piets lijst al versie 2, dan haalt zijn
+  client het bestand terug in plaats van het te verwijderen. In de code komen alle verwijderingen aan het eind van
+  de ronde, na alle uploads en downloads; het venster kan dus lang zijn.
 - Waar: desktop `motor.rs` (main r. 660-669 en r. 1008-1013, en net zo in 5a en 5b): `verwijder(bestand)` zonder
   versie. Server: `verwijder` in storage-PR #9 (r. 874-885) heeft geen basis.
 - Fix: de client stuurt de versie mee die hij verwijdert, en de server weigert als dat niet de huidige versie is. De
-  client haalt dan de nieuwe versie op. Met die fix vindt TLC geen fout (stap 5a en 5b).
-- Model: `SyncClient.tla`, runs `Sync_5a_k2p1`, `Sync_5b_k2p1` (fout) en `Sync_5a_k2p1_fix`, `Sync_5b_k2p1_fix`.
+  vergelijking en het verwijderen moeten onder hetzelfde slot op de bestandsregel gebeuren; een losse controle
+  vooraf verplaatst de race alleen. Weigert de server, dan haalt de client de nieuwe versie op.
+- Model: `SyncClient.tla`, runs `Sync_5a_k2p1`, `Sync_5b_k2p1` (fout) en `*_fix` (met de fix).
 
 ### Fout 3. Een upload met alleen een versienummer kan het verkeerde bestand overschrijven
 
@@ -100,21 +111,20 @@ legt Anna's inhoud vast als versie 2. Er komt geen conflictkopie. Piets bestand 
 niemand merkt dat het overschreven is.
 
 - Waar: storage-PR #9 kan het wel goed doen: hij vergelijkt het bestand als de client `basis_bestand` meestuurt. De
-  desktop stuurt dat alleen in de opslaan-lus voor IFC (5b, `api.rs` r. 741-753). Een gewone upload stuurt alleen
-  het nummer (5b `motor.rs` r. 1709-1712), op main, in 5a en in 5b. Voor IFC met samenvoegen kijkt 5b wel naar het
-  bestand (r. 910); daar komt een conflictkopie.
-- Hoe vaak: het vraagt een bestand dat vervangen wordt (verwijderen en opnieuw zetten) terwijl een ander er nog
-  lokaal aan werkt, en hetzelfde versienummer. Een nieuw bestand begint altijd bij versie 1, dus dat laatste is niet
-  zeldzaam.
+  desktop stuurt dat alleen in de opslaan-lus voor IFC (5b, `api.rs` r. 741-753). Een gewone upload, een kleine
+  upload en het inleveren van een bron sturen alleen het nummer (5b `motor.rs` r. 1709-1712), op main, in 5a en in
+  5b. Voor IFC met samenvoegen kijkt 5b wel naar het bestand (r. 910); daar komt een conflictkopie.
+- Hoe vaak: een bestand vervangen terwijl een ander er nog offline aan werkt, is gewoon werk. Versie 1 tegenover
+  versie 1 is genoeg, en een nieuw bestand begint altijd bij versie 1.
 - Fix: de desktop stuurt bij elke upload `basis_bestand` mee als de server dat kent.
-- Model: `UploadServer.tla`, run `UploadServer_pr9_voltooi_eenmalig`.
+- Model: `UploadServer.tla`, run `UploadServer_pr9_voltooi_eenmalig`; in de sync: `Sync_5b_nietifc_a3`.
 
 ### Fout 4. Een herhaald "klaar" kan de inhoud van een vastgelegde versie wissen
 
 Anna's client stuurt "klaar" voor een upload. De server legt de nieuwe versie vast. Net daarna, vóór de server het
 uploadbewijs (het token) heeft gewist, valt de worker uit. Anna's client krijgt geen antwoord en stuurt "klaar"
-opnieuw, met hetzelfde token. Op S3-opslag die een tweede "klaar" ook als gelukt meldt (Ceph RGW wel; AWS S3 en MinIO
-waarschijnlijk niet), loopt de server de upload nog eens af. Nu is Anna's eigen versie de huidige, dus haar basis is
+opnieuw, met hetzelfde token. Op S3-opslag die een tweede "klaar" ook als gelukt meldt (Ceph RGW doet dat; AWS S3 en
+MinIO geven een fout), loopt de server de upload nog eens af. Nu is Anna's eigen versie de huidige, dus haar basis is
 verouderd. Bij "weiger" ruimt de server de upload op en wist hij het S3-object: dat is de inhoud van de versie die al
 vastligt. Bij "conflictkopie" wijzen twee versies naar hetzelfde object.
 
@@ -122,9 +132,20 @@ vastligt. Bij "conflictkopie" wijzen twee versies naar hetzelfde object.
   opruimen kijkt niet of een versie het object al gebruikt.
 - De desktop-sync stuurt "klaar" niet twee keer met hetzelfde token. Andere clients mogen dat wel; het commentaar bij
   `een_afronding` gaat daarvan uit.
-- Fix: bij een tweede "klaar" eerst kijken of een versie dit S3-object al heeft, en dan die versie teruggeven. Of het
-  token wissen in dezelfde stap als de commit.
+- Fix: bij een tweede "klaar" eerst kijken of een versie dit S3-object al heeft, en dan die versie teruggeven. En:
+  ruim nooit een sleutel op die een versieregel heeft.
 - Model: `UploadServer.tla`, runs `UploadServer_pr9_inhoud` en `UploadServer_pr9_lus_voltooi_herhaalbaar`.
+
+### Kleinere bevinding (VERVOLG)
+
+**Een conflictkopie van een nieuw bestand gaat de volgende ronde naar de prullenbak** (5a en 5b). Anna en Piet maken
+tegelijk een nieuw `notitie.ifc`. Anna's upload is eerst; Piets upload wordt een conflictkopie. Piets client onthoudt
+die kopie in de toestand, maar zet haar niet lokaal neer (zijn eigen bestand blijft op zijn plek). De volgende ronde
+ziet de client: de kopie staat in de toestand, op de server, maar niet lokaal. Hij verwijdert haar op de server. In
+dezelfde ronde wordt Piets bestand nog eens geüpload, als tweede conflictkopie, en die komt wel lokaal. Er gaat niets
+verloren, maar er staat een kopie in de prullenbak die niemand weggooide. Waar: 5b `motor.rs` `na_upload`, de tak
+zonder serverbestand (r. 746-750), en `onthoud_als`. Op main faalt hier `onthoud`; dan komt de kopie de volgende ronde
+gewoon lokaal.
 
 ### Bekende fouten, bevestigd
 
@@ -132,36 +153,50 @@ vastligt. Bij "conflictkopie" wijzen twee versies naar hetzelfde object.
   nog. Schrijver 2 voegt er een toe en is eerder klaar. Een client leest de lijst, krijgt de wijziging van schrijver
   2 en zet zijn cursor daarop. Dan is schrijver 1 klaar. Zijn wijziging heeft een lager nummer dan de cursor; de
   client krijgt haar nooit. Storage-PR #16 lost dit op (zie "Wat klopt").
-- **Main: twee bestanden met dezelfde naam**, en een upload op een oude basis die stil overschrijft. Storage-PR #9
-  lost het op.
-- **Main-desktop: een download overschrijft een net opgeslagen bestand.** Desktop-PR #8 lost het op.
+- **Main: twee actieve bestanden met dezelfde naam.** Twee uploads lezen allebei "hier staat nog niets" en maken
+  allebei een bestand. Storage-PR #9 lost het op. Een stille overschrijving op een oude basis kan op main alleen onder
+  READ COMMITTED; onder de standaard (REPEATABLE READ) geeft Frappe dan een fout (`TimestampMismatch`).
+- **Main-desktop: een download overschrijft een net opgeslagen bestand, het kenmerk wordt na de upload gemeten, en
+  een lokale verwijdering controleert niet opnieuw** (main `lib.rs` r. 430, `motor.rs` r. 572 en r. 658). Desktop-PR
+  #8 lost alle drie op.
 
 ## Samenvoegen van IFC
 
-De bibliotheek voegt samen per "register": per object, per eigenschap, per lid van een verzameling. Per register is
-de regel eenvoudig: wie iets veranderde, wint; veranderden beide het anders, dan is het een conflict. Voor die regel
-heb ik bewezen dat hij geen wijziging stil laat vallen, dat de volgorde van ons en hun niet uitmaakt, en dat nog eens
-samenvoegen niets verandert. De opslaan-lus (opnieuw samenvoegen na een weigering) geeft hetzelfde als in één keer,
-of is strenger.
+De bibliotheek voegt samen per "register": per object, per eigenschap, per lid van een verzameling. Er zijn drie
+soorten registers, elk met een eigen regel:
+
+- **Gewone registers** (het meeste): wie iets veranderde, wint; veranderden beide het anders, dan is het een
+  conflict. Voor die regel geldt: geen wijziging valt stil weg, de volgorde van ons en hun maakt niet uit, en nog eens
+  samenvoegen verandert niets. De opslaan-lus geeft hetzelfde als in één keer, of is strenger.
+- **Aantallen in een BAG**: de aantallen worden opgeteld. Hier geeft de opslaan-lus soms een ander aantal dan in één
+  keer samenvoegen (één kopie van een element meer of minder). Er gaat geen element verloren.
+- **Vluchtige velden** (tijdstempels, HEADER): veranderden beide kanten, dan wint ons, zonder conflict. Zo bedoeld.
 
 Of dat ook voor echte IFC-bestanden geldt, hangt af van drie voorwaarden: hetzelfde ding moet in elke versie
 hetzelfde register krijgen, het geschreven bestand moet zijn wat het plan zegt, en de STEP-nummering mag niet
-meetellen. Die voorwaarden toetsen property-based tests op de bibliotheek (eigen draft-PR op de branch van
-desktop-PR #7). De uitkomst volgt hieronder zodra de tests klaar zijn.
+meetellen. Die voorwaarden zijn niet bewezen; property-based tests toetsen ze (eigen draft-PR op de branch van
+desktop-PR #7). De uitkomst volgt zodra de tests klaar zijn.
 
 ## Aannames: wat het model niet ziet
 
-- **Grenzen.** 2 of 3 clients, 1 of 2 bestanden, een paar bewerkingen en hoogstens 2 netwerkstoringen per run.
+- **Grenzen.** 2 of 3 clients, 1 of 2 bestanden, een paar bewerkingen, hoogstens 1 netwerkstoring en 1 verwijdering
+  per run, en een beperkt aantal conflictkopieën.
 - **Inhoud als lijst van bewerkingen.** Elke keer opslaan voegt een bewerking toe. Zo is "verlies" eenvoudig te
   zien: een bewerking die nergens meer staat.
-- **Samenvoegen is een vereniging of een conflict.** Het model kijkt niet in IFC; dat doet de bewijsschets.
+- **Samenvoegen is een vereniging of een conflict.** Dat klopt voor gewone registers, niet precies voor vluchtige
+  velden en aantallen (zie hierboven).
 - **Het kenmerk is de inhoud.** De echte client vergelijkt grootte en wijzigingstijd. Twee versies met dezelfde
   grootte en tijd ziet de echte client als gelijk; het model niet.
+- **Een upload leest het bestand in één keer.** De echte client leest eerst de hashes en later de delen. Opslaan
+  daartussen is niet nagegaan.
 - **De client crasht niet** midden in een ronde. Het netwerk wel.
 - **Geen hernoemen of verplaatsen.** Elk pad staat los.
-- **De database werkt zoals MariaDB** bij de standaard-isolatie (REPEATABLE READ), en S3 zoals beschreven bij fout 4.
+- **Conflictkopieën** synct in het model alleen de client die ze maakte; de anderen halen ze in het echt alleen op.
+- **De database werkt zoals MariaDB** bij REPEATABLE READ (en apart nagegaan: READ COMMITTED en
+  `innodb_snapshot_isolation`). S3 zoals beschreven bij fout 4.
 - **Een programma dat het bestand open houdt** (en bij opslaan zijn oude kopie terugschrijft) staat standaard uit.
-  Het ontwerp noemt dat al een grens die blijft.
+  Het ontwerp noemt dat al een grens die blijft. Een programma dat via een open bestand in de bron schrijft, is apart
+  nagegaan (`OpenBestand`); de controle van de client op open processen niet.
 
 ## De runs
 
@@ -169,18 +204,16 @@ desktop-PR #7). De uitkomst volgt hieronder zodra de tests klaar zijn.
 |---|---|---|
 | Wijzigingenlijst, main | 6.648 | fout: slaat over |
 | Wijzigingenlijst, PR #16 | 193.723 en 643.565 | geen fout, ook levend |
-| Uitchecken, nu | 130-352 | fout 1 |
-| Uitchecken, met fix | 5.969 | geen fout |
 | Upload, main | 312 | twee bestanden met dezelfde naam |
 | Upload, PR #9, opslaan-lus | 42.920 | geen fout |
 | Upload, PR #9, alleen nummer | 5.449 | fout 3 |
 | Upload, PR #9, herhaald klaar | 65-1.722 | fout 4 |
-| Sync 5a / 5b, 2 clients | volgt | fout 2 |
-| Sync 5a / 5b, met fix | 81.520 / 88.308 | geen fout |
+| Uitchecken, nu en met fix | volgt | |
+| Sync, main / 5a / 5b | volgt | |
 
 Een fout wordt meestal snel gevonden; dan stopt TLC. Daarom zijn die getallen klein. Alle runs en logboeken staan in
 [`formeel/runs/`](formeel/runs/).
 
 ## Open vragen
 
-(volgt na de review)
+(volgt)

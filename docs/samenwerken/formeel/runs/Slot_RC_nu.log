@@ -1,14 +1,14 @@
 TLC2 Version 2026.11.03.180953 (rev: 309e489)
-Running breadth-first search Model-Checking with fp 118 and seed 3142337748881777756 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 2764653] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 38 and seed 1147050760587572107 with 1 worker on 8 cores with 455MB heap and 64MB offheap memory [pid: 3141937] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
 Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/MCSlot.tla
 Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/Slot.tla
-Parsing file /tmp/tlc-17460432409855052484/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
-Parsing file /tmp/tlc-17460432409855052484/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
-Parsing file /tmp/tlc-17460432409855052484/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
-Parsing file /tmp/tlc-17460432409855052484/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
-Parsing file /tmp/tlc-17460432409855052484/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
-Parsing file /tmp/tlc-17460432409855052484/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
-Parsing file /tmp/tlc-17460432409855052484/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-6048869329724897332/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-6048869329724897332/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-6048869329724897332/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-6048869329724897332/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-6048869329724897332/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-6048869329724897332/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-6048869329724897332/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
 Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
@@ -22,14 +22,9 @@ Linting of module Slot
 Linting of module TLCExt
 Linting of module _TLCTrace
 Linting of module MCSlot
-Starting... (2026-11-05 14:27:50)
+Starting... (2026-11-05 16:20:48)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-11-05 14:27:51.
-Warning: The variable verlopen was changed while it is specified as UNCHANGED at
-line 220, col 27 to line 220, col 34 of module Slot
-(Use the -nowarning option to disable this warning.)
-Warning: The variable verlopen was changed while it is specified as UNCHANGED at
-line 220, col 27 to line 220, col 34 of module Slot
+Finished computing initial states: 1 distinct state generated at 2026-11-05 16:20:49.
 Error: Invariant GeenDiefstal is violated.
 Error: The behavior up to this point is:
 State 1: <Initial predicate>
@@ -44,7 +39,7 @@ State 1: <Initial predicate>
   piet |-> [soort |-> "geen", fase |-> "geen", snap |-> {}] ]
 /\ rijslot = Geen
 
-State 2: <Begin("anna","vergrendel") line 82, col 5 to line 86, col 81 of module Slot>
+State 2: <Begin("anna","vergrendel") line 84, col 5 to line 88, col 81 of module Slot>
 /\ rijen = {}
 /\ onderSlot = {}
 /\ verlopen = {}
@@ -56,7 +51,7 @@ State 2: <Begin("anna","vergrendel") line 82, col 5 to line 86, col 81 of module
   piet |-> [soort |-> "geen", fase |-> "geen", snap |-> {}] ]
 /\ rijslot = Geen
 
-State 3: <Begin("piet","vergrendel") line 82, col 5 to line 86, col 81 of module Slot>
+State 3: <Begin("piet","vergrendel") line 84, col 5 to line 88, col 81 of module Slot>
 /\ rijen = {}
 /\ onderSlot = {}
 /\ verlopen = {}
@@ -68,7 +63,7 @@ State 3: <Begin("piet","vergrendel") line 82, col 5 to line 86, col 81 of module
   piet |-> [soort |-> "vergrendel", fase |-> "controleer", snap |-> {}] ]
 /\ rijslot = Geen
 
-State 4: <VergrendelControleer("anna") line 102, col 5 to line 107, col 89 of module Slot>
+State 4: <VergrendelControleer("anna") line 104, col 5 to line 109, col 89 of module Slot>
 /\ rijen = {}
 /\ onderSlot = {}
 /\ verlopen = {}
@@ -80,7 +75,7 @@ State 4: <VergrendelControleer("anna") line 102, col 5 to line 107, col 89 of mo
   piet |-> [soort |-> "vergrendel", fase |-> "controleer", snap |-> {}] ]
 /\ rijslot = Geen
 
-State 5: <VergrendelControleer("piet") line 102, col 5 to line 107, col 89 of module Slot>
+State 5: <VergrendelControleer("piet") line 104, col 5 to line 109, col 89 of module Slot>
 /\ rijen = {}
 /\ onderSlot = {}
 /\ verlopen = {}
@@ -92,7 +87,7 @@ State 5: <VergrendelControleer("piet") line 102, col 5 to line 107, col 89 of mo
   piet |-> [soort |-> "vergrendel", fase |-> "schrijf", snap |-> {}] ]
 /\ rijslot = Geen
 
-State 6: <VergrendelSchrijf("anna") line 111, col 5 to line 122, col 57 of module Slot>
+State 6: <VergrendelSchrijf("anna") line 113, col 5 to line 124, col 57 of module Slot>
 /\ rijen = {[id |-> 1, g |-> "anna"]}
 /\ onderSlot = {}
 /\ verlopen = {}
@@ -104,7 +99,7 @@ State 6: <VergrendelSchrijf("anna") line 111, col 5 to line 122, col 57 of modul
   piet |-> [soort |-> "vergrendel", fase |-> "schrijf", snap |-> {}] ]
 /\ rijslot = Geen
 
-State 7: <VergrendelSchrijf("piet") line 111, col 5 to line 122, col 57 of module Slot>
+State 7: <VergrendelSchrijf("piet") line 113, col 5 to line 124, col 57 of module Slot>
 /\ rijen = {[id |-> 2, g |-> "piet"]}
 /\ onderSlot = {}
 /\ verlopen = {}
@@ -116,8 +111,8 @@ State 7: <VergrendelSchrijf("piet") line 111, col 5 to line 122, col 57 of modul
   piet |-> [soort |-> "geen", fase |-> "geen", snap |-> {}] ]
 /\ rijslot = Geen
 
-280 states generated, 189 distinct states found, 108 states left on queue.
+422 states generated, 265 distinct states found, 155 states left on queue.
 The depth of the complete state graph search is 7.
-Finished in 01s at (2026-11-05 14:27:51)
-Trace exploration spec path: ./MCSlot_TTrace_1793885270.tla
+Finished in 01s at (2026-11-05 16:20:49)
+Trace exploration spec path: ./MCSlot_TTrace_1793892048.tla
 EXIT:12

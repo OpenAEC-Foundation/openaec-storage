@@ -54,7 +54,9 @@ VARIABLES
     rijslot,    \* slot op de regel van het bestand: Geen of een gebruiker (alleen _registreer, of vergrendel met Fix)
     vz,         \* [Gebruikers -> lopend verzoek]
     aantal,     \* [Gebruikers -> Nat]: verzoeken tot nu toe
-    houdt,      \* [Gebruikers -> BOOLEAN]: de client kreeg "vergrendeld" en weet niet van een einde
+    houdt,      \* [Gebruikers -> BOOLEAN]: de client kreeg "vergrendeld", en zijn slot eindigde niet rechtmatig
+                \* (zelf ontgrendeld, verlopen, of door een beheerder opgeheven). Of de client dat einde al
+                \* hoorde, telt niet mee: dat is een melding, geen deel van dit model.
     gestolen,   \* geldige sloten die een verzoek van een ánder wiste (geen beheerder, niet verlopen)
     onderSlot   \* nieuwe versies die vastgelegd werden terwijl een ander een geldig slot had
 
@@ -205,19 +207,20 @@ UploadSchrijf(u) ==
 (* Beheerder en tijd                                                       *)
 (***************************************************************************)
 
-\* forceer_ontgrendel: mag, en de client hoort het via de wijzigingenlijst.
+\* forceer_ontgrendel: mag. Het einde is rechtmatig, dus houdt wordt FALSE (de client hoort het later
+\* via de wijzigingenlijst; die vertraging zit niet in het model).
 Forceer ==
     /\ rijen # {}
     /\ rijen' = {}
     /\ houdt' = [u \in Gebruikers |-> FALSE]
     /\ UNCHANGED <<verlopen, volgId, rijslot, vz, aantal, gestolen, onderSlot>>
 
-\* Een slot verloopt na 8 uur; de client weet dat ook.
+\* Een slot verloopt na 8 uur: een rechtmatig einde.
 Verloop(r) ==
     /\ r \in Geldig(rijen)
     /\ verlopen' = verlopen \cup {r.id}
     /\ houdt' = [houdt EXCEPT ![r.g] = FALSE]
-    /\ UNCHANGED <<rijen, verlopen, volgId, rijslot, vz, aantal, gestolen, onderSlot>>
+    /\ UNCHANGED <<rijen, volgId, rijslot, vz, aantal, gestolen, onderSlot>>
 
 Next ==
     \/ \E u \in Gebruikers, s \in {"vergrendel", "ontgrendel", "upload"} : Begin(u, s)
@@ -240,7 +243,8 @@ EenSlotInDatabase == Cardinality(Geldig(rijen)) <= 1
 \* L2. Een geldig slot verdwijnt alleen door de houder zelf, door verlopen of door een beheerder.
 GeenDiefstal == gestolen = {}
 
-\* L3. Nooit twee clients die allebei "vergrendeld" kregen en niets van een einde weten.
+\* L3. Nooit twee clients die allebei "vergrendeld" kregen, terwijl geen van beide sloten rechtmatig eindigde.
+\* Dit zegt niets over wat een client op een moment denkt: een melding van een einde kan onderweg zijn.
 EenHouder == \A u, v \in Gebruikers : (u # v) => ~(houdt[u] /\ houdt[v])
 
 \* L4. Terwijl iemand een geldig slot heeft, legt een ander geen nieuwe versie vast.
