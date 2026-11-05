@@ -1,0 +1,67 @@
+TLC2 Version 2026.11.03.180953 (rev: 309e489)
+Running breadth-first search Model-Checking with fp 18 and seed -5221159287519136719 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 2933938] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/MCWijzigingenlijst.tla
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/Wijzigingenlijst.tla
+Parsing file /tmp/tlc-3742795001526457044/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-3742795001526457044/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-3742795001526457044/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-3742795001526457044/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-3742795001526457044/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-3742795001526457044/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-3742795001526457044/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Wijzigingenlijst
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MCWijzigingenlijst
+Linting of module Wijzigingenlijst
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MCWijzigingenlijst
+Starting... (2026-11-05 14:46:39)
+Implied-temporal checking--satisfiability problem has 8 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-05 14:46:44.
+Error: Invariant CursorOnderTeller is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {}, l2 |-> {}]
+/\ cursor = [l1 |-> 0, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "nieuw", w2 |-> "nieuw"]
+/\ rij = <<>>
+
+State 2: <Voeg("w1") line 92, col 5 to line 97, col 51 of module Wijzigingenlijst>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {}, l2 |-> {}]
+/\ cursor = [l1 |-> 0, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "open", w2 |-> "nieuw"]
+/\ rij = <<[w |-> "w1", status |-> "open", ruimte |-> "r1", deling |-> FALSE, cn |-> 0]>>
+
+State 3: <Commit("w1") line 101, col 5 to line 105, col 51 of module Wijzigingenlijst>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {}, l2 |-> {}]
+/\ cursor = [l1 |-> 0, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "vast", w2 |-> "nieuw"]
+/\ rij = <<[w |-> "w1", status |-> "vast", ruimte |-> "r1", deling |-> FALSE, cn |-> 0]>>
+
+State 4: <LeesZonderCommit("l1") line 171, col 5 to line 179, col 36 of module Wijzigingenlijst>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {1}, l2 |-> {}]
+/\ cursor = [l1 |-> 1, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "vast", w2 |-> "nieuw"]
+/\ rij = <<[w |-> "w1", status |-> "vast", ruimte |-> "r1", deling |-> FALSE, cn |-> 0]>>
+
+342 states generated, 263 distinct states found, 233 states left on queue.
+The depth of the complete state graph search is 4.
+Finished in 06s at (2026-11-05 14:46:44)
+Trace exploration spec path: ./MCWijzigingenlijst_TTrace_1793886397.tla
+EXIT:12

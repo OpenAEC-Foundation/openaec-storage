@@ -1,0 +1,106 @@
+TLC2 Version 2026.11.03.180953 (rev: 309e489)
+Running breadth-first search Model-Checking with fp 89 and seed -6318413696454543287 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 2933331] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/MCWijzigingenlijst.tla
+Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/Wijzigingenlijst.tla
+Parsing file /tmp/tlc-6932678130484587503/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-6932678130484587503/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-6932678130484587503/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-6932678130484587503/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-6932678130484587503/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-6932678130484587503/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-6932678130484587503/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Wijzigingenlijst
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MCWijzigingenlijst
+Linting of module Wijzigingenlijst
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MCWijzigingenlijst
+Starting... (2026-11-05 14:46:24)
+Implied-temporal checking--satisfiability problem has 8 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-05 14:46:25.
+Checking 8 branches of temporal properties for the current state space with 47384 total distinct states at (2026-11-05 14:46:28)
+Finished checking temporal properties in 00s at 2026-11-05 14:46:28
+Progress(6) at 2026-11-05 14:46:28: 10.060 states generated (10.060 s/min), 5.923 distinct states found (5.923 ds/min), 5.004 states left on queue.
+Error: Invariant GeenOverslaan is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {}, l2 |-> {}]
+/\ cursor = [l1 |-> 0, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "nieuw", w2 |-> "nieuw"]
+/\ rij = <<>>
+
+State 2: <Voeg("w1") line 92, col 5 to line 97, col 51 of module Wijzigingenlijst>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {}, l2 |-> {}]
+/\ cursor = [l1 |-> 0, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "open", w2 |-> "nieuw"]
+/\ rij = <<[w |-> "w1", status |-> "open", ruimte |-> "r1", deling |-> FALSE, cn |-> 0]>>
+
+State 3: <Voeg("w2") line 92, col 5 to line 97, col 51 of module Wijzigingenlijst>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {}, l2 |-> {}]
+/\ cursor = [l1 |-> 0, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "open", w2 |-> "open"]
+/\ rij = << [w |-> "w1", status |-> "open", ruimte |-> "r1", deling |-> FALSE, cn |-> 0],
+   [ w |-> "w2",
+     status |-> "open",
+     ruimte |-> "r1",
+     deling |-> FALSE,
+     cn |-> 0 ] >>
+
+State 4: <Commit("w2") line 101, col 5 to line 105, col 51 of module Wijzigingenlijst>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {}, l2 |-> {}]
+/\ cursor = [l1 |-> 0, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "open", w2 |-> "vast"]
+/\ rij = << [w |-> "w1", status |-> "open", ruimte |-> "r1", deling |-> FALSE, cn |-> 0],
+   [ w |-> "w2",
+     status |-> "vast",
+     ruimte |-> "r1",
+     deling |-> FALSE,
+     cn |-> 0 ] >>
+
+State 5: <LeesMain("l1") line 152, col 5 to line 157, col 36 of module Wijzigingenlijst>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {2}, l2 |-> {}]
+/\ cursor = [l1 |-> 2, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "open", w2 |-> "vast"]
+/\ rij = << [w |-> "w1", status |-> "open", ruimte |-> "r1", deling |-> FALSE, cn |-> 0],
+   [ w |-> "w2",
+     status |-> "vast",
+     ruimte |-> "r1",
+     deling |-> FALSE,
+     cn |-> 0 ] >>
+
+State 6: <Commit("w1") line 101, col 5 to line 105, col 51 of module Wijzigingenlijst>
+/\ dubbel = [l1 |-> FALSE, l2 |-> FALSE]
+/\ gezien = [l1 |-> {2}, l2 |-> {}]
+/\ cursor = [l1 |-> 2, l2 |-> 0]
+/\ teller = 0
+/\ tx = [w1 |-> "vast", w2 |-> "vast"]
+/\ rij = << [w |-> "w1", status |-> "vast", ruimte |-> "r1", deling |-> FALSE, cn |-> 0],
+   [ w |-> "w2",
+     status |-> "vast",
+     ruimte |-> "r1",
+     deling |-> FALSE,
+     cn |-> 0 ] >>
+
+12390 states generated, 7150 distinct states found, 5977 states left on queue.
+The depth of the complete state graph search is 6.
+Finished in 05s at (2026-11-05 14:46:29)
+Trace exploration spec path: ./MCWijzigingenlijst_TTrace_1793886383.tla
+EXIT:12

@@ -53,9 +53,16 @@ CONSTANTS
     Fixes,          \* voorgestelde reparaties die aan staan (zie het rapport), deelverzameling van FixNamen
     Geen
 
-\* "verwijder_basis": verwijder(bestand, basis): de server weigert als de huidige versie niet de basis is.
-FixNamen == {"verwijder_basis"}
+\* "verwijder_basis" : verwijder(bestand, basis): de server weigert als de huidige versie niet de basis is.
+\* "upload_bestand"  : een gewone upload stuurt ook basis_bestand mee: een ander bestand op de plek geeft een
+\*                     conflictkopie, geen nieuwe versie (PR #9 kent dit al; de motor stuurt het nog niet).
+\* "kenmerk_voor"    : (alleen voor main) het kenmerk van vóór de upload, zoals PR #8 (5a).
+\* "veilig_vervangen": (alleen voor main) vervangen en verwijderen via de bron, zoals PR #8 (5a).
+FixNamen == {"verwijder_basis", "upload_bestand", "kenmerk_voor", "veilig_vervangen"}
 ASSUME Fixes \subseteq FixNamen
+
+KenmerkVoor == Client \in {"5a", "5b"} \/ "kenmerk_voor" \in Fixes
+VeiligVervangen == Client \in {"5a", "5b"} \/ "veilig_vervangen" \in Fixes
 
 ASSUME Client \in {"main", "5a", "5b"}
 
@@ -86,7 +93,7 @@ Atomen == 1..MaxAtomen
 Inhoud == SUBSET Atomen
 
 RustR == [pc |-> "rust", sv |-> Geen, pl |-> Geen, tmp |-> Geen, ons |-> Geen, inh |-> Geen,
-          basis |-> Geen, n |-> 0, van |-> 0]
+          basis |-> Geen, bb |-> Geen, n |-> 0, van |-> 0]
 
 Init ==
     /\ actief = [p \in Paden |-> Geen]
@@ -132,14 +139,16 @@ NieuwId == IF VrijId = {} THEN Geen ELSE CHOOSE b \in VrijId : TRUE
 
 \* Een gewone upload (bij_conflict=kopie) met basis op nummer. Resultaat: [soort, b, v].
 \* soort: "versie" (nieuwe versie van het bestand op de plek), "kopie" (conflictkopie), "nieuw" (nieuw bestand).
-UploadUitkomst(p, basisNr) ==
+UploadUitkomst(p, basisNr, basisB) ==
     IF actief[p] # Geen
-       THEN IF basisNr # Geen /\ basisNr = Huidig(actief[p]) THEN "versie" ELSE "kopie"
+       THEN IF /\ basisNr # Geen /\ basisNr = Huidig(actief[p])
+               /\ ("upload_bestand" \in Fixes => basisB = actief[p])
+            THEN "versie" ELSE "kopie"
        ELSE "nieuw"
 
 \* De servertoestand na een gewone upload van `inh` op pad p; b is het nieuwe id als er een nieuw bestand komt.
-ServerUpload(p, basisNr, inh, nieuwId) ==
-    LET s == UploadUitkomst(p, basisNr) IN
+ServerUpload(p, basisNr, basisB, inh, nieuwId) ==
+    LET s == UploadUitkomst(p, basisNr, basisB) IN
     CASE s = "versie" -> /\ versies' = [versies EXCEPT ![actief[p]] = Append(@, inh)]
                          /\ UNCHANGED <<actief, gebruikt, opKopie>>
       [] s = "kopie"  -> /\ opKopie' = opKopie \cup inh
@@ -149,8 +158,8 @@ ServerUpload(p, basisNr, inh, nieuwId) ==
                          /\ gebruikt' = gebruikt \cup {nieuwId}
                          /\ UNCHANGED opKopie
 
-UploadResultaat(p, basisNr, nieuwId) ==
-    LET s == UploadUitkomst(p, basisNr) IN
+UploadResultaat(p, basisNr, basisB, nieuwId) ==
+    LET s == UploadUitkomst(p, basisNr, basisB) IN
     CASE s = "versie" -> [soort |-> s, b |-> actief[p], v |-> Huidig(actief[p]) + 1]
       [] s = "kopie"  -> [soort |-> s, b |-> Geen, v |-> 0]
       [] s = "nieuw"  -> [soort |-> s, b |-> nieuwId, v |-> 1]
@@ -226,6 +235,7 @@ Beslis(c, p) ==
                           IF k # Geen /\ ~sg THEN "verwijder_server" ELSE "download"
                      [] OTHER -> "vergeet"
            basisNr == IF sv = Geen \/ k = Geen THEN Geen ELSE Basis(k)
+           basisB == IF sv = Geen \/ k = Geen THEN Geen ELSE k.b
        IN CASE taak = "onthoud" ->
                  /\ mem' = Zet(mem, c, p, [b |-> sv.b, v |-> sv.v, k |-> sk, afg |-> Geen])
                  /\ ZetR(c, p, [r[c][p] EXCEPT !.pc = "einde"])
@@ -233,7 +243,7 @@ Beslis(c, p) ==
                  /\ mem' = Zet(mem, c, p, Geen)
                  /\ ZetR(c, p, [r[c][p] EXCEPT !.pc = "einde"])
             [] OTHER ->
-                 /\ ZetR(c, p, [r[c][p] EXCEPT !.pc = taak, !.basis = basisNr])
+                 /\ ZetR(c, p, [r[c][p] EXCEPT !.pc = taak, !.basis = basisNr, !.bb = basisB])
                  /\ UNCHANGED mem
     /\ UNCHANGED <<actief, versies, gebruikt, prul, opKopie, lok, buf, bekend, bron, elders, volgend, gewist, nVerwijder, nStoring>>
 
@@ -253,13 +263,13 @@ UploadLees(c, p) ==
 UploadStuur(c, p) ==
     /\ r[c][p].pc = "upload_stuur"
     /\ \E u \in Uitkomsten : LET id == NieuwId IN
-         /\ (UploadUitkomst(p, r[c][p].basis) = "nieuw" => id # Geen)
+         /\ (UploadUitkomst(p, r[c][p].basis, r[c][p].bb) = "nieuw" => id # Geen)
          /\ Storing(u)
          /\ IF u = "verzoek_weg"
                THEN UNCHANGED <<actief, versies, gebruikt, opKopie>>
-               ELSE ServerUpload(p, r[c][p].basis, r[c][p].pl, id)
+               ELSE ServerUpload(p, r[c][p].basis, r[c][p].bb, r[c][p].pl, id)
          /\ IF u = "ok"
-               THEN ZetR(c, p, [r[c][p] EXCEPT !.pc = "na_upload", !.tmp = UploadResultaat(p, r[c][p].basis, id)])
+               THEN ZetR(c, p, [r[c][p] EXCEPT !.pc = "na_upload", !.tmp = UploadResultaat(p, r[c][p].basis, r[c][p].bb, id)])
                ELSE ZetR(c, p, [r[c][p] EXCEPT !.pc = "einde"])
     /\ UNCHANGED <<prul, lok, buf, bekend, mem, bron, elders, volgend, gewist, nVerwijder>>
 
@@ -275,7 +285,7 @@ NaUpload(c, p) ==
                /\ UNCHANGED mem
           ELSE \* main: het kenmerk van nu; 5a/5b: het kenmerk van vlak vóór de upload (verstuurd)
                /\ mem' = Zet(mem, c, p, [b |-> res.b, v |-> res.v, afg |-> Geen,
-                                         k |-> IF Client = "main" THEN lok[c][p] ELSE r[c][p].pl])
+                                         k |-> IF KenmerkVoor THEN r[c][p].pl ELSE lok[c][p]])
                /\ ZetR(c, p, [r[c][p] EXCEPT !.pc = "einde"])
                /\ UNCHANGED <<lok, elders>>
     /\ UNCHANGED <<actief, versies, gebruikt, prul, opKopie, buf, bekend, bron, volgend, gewist, nVerwijder, nStoring>>
@@ -296,7 +306,7 @@ DownloadHaal(c, p) ==
 
 \* main: rename van het tijdelijke bestand over het pad; wat er nu staat, is weg.
 DownloadPlaatsMain(c, p) ==
-    /\ Client = "main"
+    /\ ~VeiligVervangen
     /\ r[c][p].pc = "download_plaats"
     /\ lok' = Zet(lok, c, p, r[c][p].tmp)
     /\ mem' = Zet(mem, c, p, [b |-> r[c][p].sv.b, v |-> r[c][p].sv.v, k |-> r[c][p].tmp, afg |-> Geen])
@@ -314,12 +324,13 @@ VerplaatsNaarBron(c, p, soort, volgende) ==
                   THEN UNCHANGED <<lok, bron>>
                   ELSE /\ bron' = Zet(bron, c, p, [inhoud |-> lok[c][p], soort |-> soort,
                                                    verwacht |-> IF mem[c][p] = Geen THEN Geen ELSE mem[c][p].k,
-                                                   basis |-> IF mem[c][p] = Geen THEN Geen ELSE Basis(mem[c][p])])
+                                                   basis |-> IF mem[c][p] = Geen THEN Geen ELSE Basis(mem[c][p]),
+                                                   bb |-> IF mem[c][p] = Geen THEN Geen ELSE mem[c][p].b])
                        /\ lok' = Zet(lok, c, p, Geen)
             /\ ZetR(c, p, [r[c][p] EXCEPT !.pc = volgende])
 
 DownloadVerplaats(c, p) ==
-    /\ Client \in {"5a", "5b"}
+    /\ VeiligVervangen
     /\ r[c][p].pc = "download_plaats"
     /\ VerplaatsNaarBron(c, p, "vervang", "download_zet")
     /\ UNCHANGED <<actief, versies, gebruikt, prul, opKopie, buf, bekend, mem, elders, volgend, gewist, nVerwijder, nStoring>>
@@ -340,7 +351,7 @@ DownloadZet(c, p) ==
 
 \* Op de server verwijderd en lokaal ongewijzigd. main: remove_file zonder nieuwe controle.
 VerwijderLokaalMain(c, p) ==
-    /\ Client = "main"
+    /\ ~VeiligVervangen
     /\ r[c][p].pc = "verwijder_lokaal"
     /\ lok' = Zet(lok, c, p, Geen)
     /\ mem' = Zet(mem, c, p, Geen)
@@ -349,7 +360,7 @@ VerwijderLokaalMain(c, p) ==
 
 \* 5a/5b: via de bron; de toestand vergeet het pad.
 VerwijderLokaalVeilig(c, p) ==
-    /\ Client \in {"5a", "5b"}
+    /\ VeiligVervangen
     /\ r[c][p].pc = "verwijder_lokaal"
     /\ VerplaatsNaarBron(c, p, "verwijder", "einde")
     /\ mem' = Zet(mem, c, p, Geen)
@@ -451,7 +462,7 @@ AlsKopie(c, p) ==
     /\ r[c][p].pc = "als_kopie"
     /\ IF lok[c][p] = Geen
           THEN ZetR(c, p, [r[c][p] EXCEPT !.pc = "einde"])
-          ELSE ZetR(c, p, [r[c][p] EXCEPT !.pc = "upload_stuur", !.pl = lok[c][p], !.basis = Geen])
+          ELSE ZetR(c, p, [r[c][p] EXCEPT !.pc = "upload_stuur", !.pl = lok[c][p], !.basis = Geen, !.bb = Geen])
     /\ UNCHANGED <<actief, versies, gebruikt, prul, opKopie, lok, buf, bekend, mem, bron, elders, volgend, gewist, nVerwijder, nStoring>>
 
 (***************************************************************************)
@@ -475,13 +486,14 @@ Einde(c, p) ==
                  /\ bron' = Zet(bron, c, p, Geen)
                  /\ UNCHANGED <<actief, versies, gebruikt, opKopie, elders, nStoring>>
             [] OTHER ->                                         \* lever_in(): naar de server
-                 LET basis == IF bb.soort = "verwijder" THEN Geen ELSE bb.basis IN
+                 LET basis == IF bb.soort = "verwijder" THEN Geen ELSE bb.basis
+                     basisB == IF bb.soort = "verwijder" THEN Geen ELSE bb.bb IN
                  \E u \in Uitkomsten :
-                    /\ (UploadUitkomst(p, basis) = "nieuw" => id # Geen)
+                    /\ (UploadUitkomst(p, basis, basisB) = "nieuw" => id # Geen)
                     /\ Storing(u)
                     /\ IF u = "verzoek_weg"
                           THEN UNCHANGED <<actief, versies, gebruikt, opKopie>>
-                          ELSE ServerUpload(p, basis, bb.inhoud, id)
+                          ELSE ServerUpload(p, basis, basisB, bb.inhoud, id)
                     /\ IF u = "ok"
                           THEN /\ bron' = Zet(bron, c, p, Geen)
                                /\ elders' = elders \cup bb.inhoud     \* en lokaal naast het bestand
