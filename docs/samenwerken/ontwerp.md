@@ -232,7 +232,7 @@ Nu schrijft elke handeling zelf een regel in de wijzigingenlijst (`_log`). Voors
 **dezelfde transactie** als de handeling, zoals `_log` nu. Zo bestaat er nooit een versie zonder regel, of een regel
 zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
 
-1. een push via `frappe.publish_realtime` naar de **persoonlijke kamer** (`user=…`) van elke gebruiker die het
+1. een push via `frappe.publish_realtime` naar de **persoonlijke kamer** (`room=`, zie hieronder) van elke gebruiker die het
    bestand **op dat moment** mag lezen. De server bepaalt dat bij elke aflevering opnieuw (rol, deling, deellink,
    gearchiveerde ruimte, `buiten_deling`). Een kamer per bestand of per ruimte gebruikt het ontwerp niet: Frappe
    controleert het recht daar alleen bij het abonneren, en een ingetrokken deling haalt niemand uit de kamer (review
@@ -251,24 +251,42 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
    - **Bij de bron.** De DocTypes van de opslag veranderen alleen via de API van openaec-storage. De controller
      weigert elke andere schrijfroute (formulier in de desk, bulkbewerking, Kanban, data-import, `frappe.client`,
      `/api/resource`), zoals §5.14 vraagt; alleen patches en de beheerder van de site gaan eromheen. Een
-     standaardroute komt dus niet tot opslaan, en dus niet tot publiceren. Ook een `Kanban Board`, `ToDo`, `Comment`
-     of Frappe-`DocShare` met een DocType van de opslag als referentie weigert de opslag (één functie in
-     `doc_events`, bij `validate`). De opslag gebruikt die vier zelf niet: delen gaat via de eigen rechten (§5.14).
-   - **In de eigen API.** De controllers hebben een lege `notify_update`: opslaan via de eigen API publiceert niets
-     van Frappe zelf. `gebeurtenis` geeft de kamer zelf op (`room=` de persoonlijke kamer), niet `user=`: met een
+     standaardroute komt dus niet tot opslaan, en dus niet tot publiceren. Maar Frappe reageert bij elk opslaan
+     ook zelf, ook via de eigen API en los van `notify_update`: `Document.run_method` draait meldingsregels
+     (`Notification`), `Webhook`s, `Server Script`s bij een DocType-gebeurtenis en automatiseringen (`Automation
+     Flow`) (`frappe/model/document.py` r. 1531–1534). Een meldingsregel op `Opslagbestand` met de maker als
+     ontvanger geeft zo een `Notification Log` aan Anna, ook nadat zij haar leesrecht verloor (review Sol, ronde
+     4). Daarom bestaat er geen configuratie die op een DocType van de opslag reageert of ernaar verwijst: de opslag
+     weigert `Notification`, `Webhook`, `Server Script` (DocType-gebeurtenis), `Automation Flow`, `Assignment Rule`,
+     `Auto Repeat`, `Workflow`, `Kanban Board`, `ToDo`, `Comment` en Frappe-`DocShare` met een DocType van de opslag
+     als doel. Dat is één functie in `doc_events`, bij `validate`, met per soort het veld dat naar de DocType wijst.
+     De patch bij de invoering zet bestaande regels van die soorten voor de opslag uit (een Frappe-`DocShare`
+     verwijdert hij) en logt elke regel. De DocTypes met bestanden, versies en samenwerkgegevens houden
+     `track_changes` uit (zo staan ze nu); dan maakt Frappe er geen `Version` en geen `Document Follow` voor
+     (`frappe/desk/form/document_follow.py` r. 54). De opslag gebruikt geen van deze soorten zelf: delen gaat via de
+     eigen rechten (§5.14), opmerkingen via `Opslagopmerking` (K6), meldingen via `gebeurtenis` (§5.10). De lijst
+     volgt Frappe zoals in de bench; welke soorten de kern heeft, staat bij A2.
+   - **In de eigen API.** De controllers hebben een lege `notify_update`: opslaan via de eigen API geeft geen
+     `doc_update` en geen `list_update`. De andere reacties van Frappe zijn dicht omdat er geen configuratie voor
+     bestaat (hierboven). `gebeurtenis` geeft de kamer zelf op (`room=` de persoonlijke kamer), niet `user=`: met een
      `task_id` in de context kiest `publish_realtime` anders de kamer van de taak (`frappe/realtime/__init__.py`
      r. 66–73).
    - **Bij abonneren**, als tweede slot. De realtimeserver vraagt bij `doc_subscribe`, `doc_open` en
      `doctype_subscribe` de controle `frappe.realtime.has_permission`. Die vervangt openaec-storage via
      `override_whitelisted_methods` in `hooks.py`: voor een DocType van openaec-storage antwoordt hij altijd nee, voor
      elke andere DocType roept hij de gewone controle aan (Sol bevestigde in ronde 3 dat dit werkt voor de aanroep
-     van de realtimeserver).
+     van de realtimeserver). Een weigering haalt niemand uit een kamer waar hij al in zat, en `doc_close` stuurt
+     `doc_viewers` zonder controle (`frappe/realtime/handlers.py` r. 103). Daarom herstart de invoering de
+     realtimeserver: alle verbindingen beginnen opnieuw, en niemand zit daarna nog in een kamer van de opslag.
 
    Een formulier in de desk krijgt voor deze DocTypes dus geen live bijwerking; dat is goed zo. Bewijs: een
    ontvanger zonder recht zit in elke soort kamer (site, taak, document, DocType, open formulier). Na een handeling
    via elke standaardroute (die geweigerd wordt) en via de eigen API ontvangt hij niets over het document; een lezer
-   ontvangt alleen in zijn persoonlijke kamer. Dit hangt af van A2 (§9): welke realtimeserver de kern draait en welke
-   controle die bij abonneren vraagt;
+   ontvangt alleen in zijn persoonlijke kamer. Ook in de proef: een meldingsregel op `Opslagbestand` met de maker als
+   ontvanger, gemaakt vóór de invoering; na de invoering en een upload van Piet krijgt Anna (geen leesrecht meer)
+   geen `Notification Log`. En per soort configuratie hierboven: aanmaken met een opslag-DocType als doel wordt
+   geweigerd. Dit hangt af van A2 (§9): welke realtimeserver de kern draait, welke controle die bij abonneren vraagt,
+   en welke soorten configuratie op een document reageren;
 2. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
    app houdt de handeling niet tegen;
 3. meldingen aan de volgers (§5.10), gebundeld.
@@ -852,7 +870,7 @@ is.
 | # | Aanname, zo klein mogelijk | Keuzes die ervan afhangen | Eerst lezen in de kern |
 |---|---|---|---|
 | A1 | De inhoud en de versies van een bestand in een ruimte staan alleen in openaec-storage (`Bestandsversie` + S3), en niets schrijft er buiten de API van openaec-storage om | §5.3, §5.4 (de wijzigingenlijst als enige bron), stap 4 en 4b, K3 | Welke app de DocTypes voor bestanden en versies bezit; of de kern zelf naar S3 of naar `tabBestandsversie` schrijft (zoek in de code op `Bestandsversie`, `s3`, `boto3`) |
-| A2 | Een ingelogde client kan één realtime-kanaal per site volgen, en de realtimeserver vraagt bij abonneren `frappe.realtime.has_permission` | §5.4 (push, geen gedeelde kamers), §5.8, §5.10, §5.14 | De Procfile of compose van de kern (draait `socketio`, en welke versie: de Node-server of die in Python?), welke controle die bij abonneren vraagt, de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
+| A2 | Een ingelogde client kan één realtime-kanaal per site volgen, de realtimeserver vraagt bij abonneren `frappe.realtime.has_permission`, en de Frappe van de kern kent dezelfde soorten configuratie die op een document reageert als de bench (§5.4) | §5.4 (push, geen gedeelde kamers), §5.8, §5.10, §5.14 | De Procfile of compose van de kern (draait `socketio`, en welke versie: de Node-server of die in Python?), welke controle die bij abonneren vraagt, de Frappe-versie en welke DocTypes in de kern op `run_method` van een document reageren (`Notification`, `Webhook`, `Automation Flow` …), de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
 | A3 | De kern heeft nog geen eigen DocTypes voor opmerkingen, meldingen of activiteit op bestanden | §5.9, §5.10, K6 | De lijst van DocTypes in de kern (alle `doctype/*/*.json`) en waar `Notification Log` wordt gebruikt |
 | A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling) | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4) | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, en of de kern `DocShare` gebruikt |
 | A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis | §5.5 (de basis), `bij_conflict` | Dat document, §6 |
