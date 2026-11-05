@@ -198,7 +198,7 @@ onderlaag iets anders doet dan verwacht.
 | F1 | Samenvoegen als twee mensen tegelijk een IFC-bestand wijzigen (model of planning) | Tegelijk bewerken alleen voor .docx, .pptx en .xlsx [M1]. Bij een conflict met een ander soort bestand: "OneDrive automatically keeps both versions", en de kopie krijgt de naam van het apparaat [M5] | Three-way samenvoegen per object: `voeg_samen` in `crates/openaec-samenvoegen/src/samenvoegen.rs` (desktop-PR #7, draft) | Twee opslagen vanaf dezelfde versie die elk een ander object wijzigen, geven één versie met beide wijzigingen en geen conflictkopie. Het verschil met de basis noemt precies die twee objecten | Bibliotheek: scenario 01 (planning) en 02 (model); tests `verschillende_objecten_op_echte_bestanden` en `taakdatum_en_taaknaam_in_een_planning` (proef 06) | **beter** (bibliotheek) |
 | F2 | Hetzelfde, langs de echte weg: desktop-app naar openaec-storage | Als F1 | De opslaan-lus `sla_op` achter de trait `Opslag` (`src/samenwerken.rs`, PR #7). De server moet "schrijf alleen als de basis klopt" kennen (`bij_conflict=weiger`, storage-PR #9, een voorstel). De koppeling in de desktop-sync is stap 5 (§7) | Als F1, met twee desktop-apps tegen een echte openaec-storage | Alleen tegen een opslag in het geheugen: de 8 tests van de lus (proef 06). Geen proef tegen de server | **nog niet gebouwd** |
 | F3 | Live samen typen in Word, Excel en PowerPoint | Excel: "you can see each other's changes quickly—in a matter of seconds" [M2]. Word: "you'll see their presence and the changes they're making" [M4] | Geen. Een .docx is voor ons een gewoon bestand; bij gelijktijdig opslaan komt er een conflictkopie (`_conflictnaam`, `api.py` r. 99). Live samen bewerken staat in §5.11 | — | — | **nog niet gebouwd** |
-| F4 | Hoe snel de wijziging van de een bij de ander is | Excel: "AutoSave lets them see your changes in just a matter of seconds" [M2]. AutoSave slaat op "every few seconds" [M3] | Geen push (§2): de desktop-sync vraagt elke 30 s de wijzigingenlijst (`bewaking.rs` r. 19-21). Samenvoegen zelf is gemeten. Grens: bestanden kleiner dan 4 GiB; geheugen ongeveer 20 keer de grootte (README van PR #7) | De tijd van `voeg-samen` | Bibliotheek: 0,16 tot 0,20 s op de planning van 482 kB (scenario 01, 04, 05); 0,03 s op het model van 93 kB (02); 9,7 s en 1,9 GB op drie bestanden van 92 MB (README van PR #7) | **meting**. De ander hoort het pas bij zijn volgende ronde, tot 30 s later. Push is ontworpen (§5.4), niet gebouwd |
+| F4 | Hoe snel de wijziging van de een bij de ander is | Excel: "AutoSave lets them see your changes in just a matter of seconds" [M2]. AutoSave slaat op "every few seconds" [M3] | Geen push (§2): de desktop-sync vraagt elke 30 s de wijzigingenlijst (`bewaking.rs` r. 19-21). Samenvoegen zelf is gemeten. Grens: bestanden kleiner dan 4 GiB; geheugen ongeveer 20 keer de grootte (README van PR #7) | De tijd van `voeg-samen` | Bibliotheek: 0,17 tot 0,24 s op de planning van 482 kB (scenario 01, 04, 05); 0,03 s op het model van 93 kB (02), op aia terwijl de machine zwaar belast was; 9,7 s en 1,9 GB op drie bestanden van 92 MB (README van PR #7) | **meting**. De ander hoort het pas bij zijn volgende ronde, tot 30 s later. Push is ontworpen (§5.4), niet gebouwd |
 | F5 | Conflict: beide wijzigen hetzelfde, elk anders | Excel: "the last change that is saved, either with the Save button or automatically with AutoSave, is the one that "wins."" [M2]. Word: "your edits conflict with edits from others", en daarna "Accept or reject each change." [M6]. Ander soort bestand: beide versies blijven, zonder uitleg wat botst [M5] | Geen nieuwe versie en geen keuze, maar een rapport per object en attribuut met de waarden van basis, ons en hun (`Samenvoeging.conflicten`, PR #7). De client maakt dan een conflictkopie, zoals openaec-storage nu doet | Er wordt niets stil overschreven of gekozen, en het rapport noemt het object, het attribuut en de drie waarden | Bibliotheek: scenario 03; test `hetzelfde_attribuut_anders_is_een_conflict` (proef 06). Server (main): `test_verouderde_basisversie_geeft_conflictkopie` (proef 08) | **beter** dan Excel en dan OneDrive bij een .ifc; **gelijk** aan Word |
 | F6 | Een conflict oplossen door per wijziging te kiezen | Word: "Accept or reject each change." [M6] | Het rapport per conflict is er; een scherm om te kiezen niet (§8) | — | — | **nog niet gebouwd** |
 | F7 | Offline werken en weer online komen | "When you go back online, you'll be notified of any changes that are available"; in Word op dezelfde alinea: "you'll get a pop-up message saying there's a conflict" [M1]. Word: "any pending changes will sync as soon as you're back online" [M24]. Ander soort bestand: beide versies blijven [M5] | Bibliotheek: samenvoegen met de basis van vóór het offline gaan. Desktop-sync: werkt offline door (§5.13); lokaal vervangen en verwijderen is veilig gemaakt in stap 5a (`crates/openaec-sync/src/vervang.rs`, desktop-PR #8, draft) | Na weer online staan de twee offline opslagen van Anna en de twee nieuwe versies van Piet in één versie. Het verschil met de basis noemt precies die vier taken | Bibliotheek: scenario 04. Desktop-sync: `tests/vervang.rs` van PR #8, o.a. `opslaan_tijdens_de_upload_gaat_niet_verloren` en `werk_in_een_verwijderde_bron_komt_ook_offline_terug`, groen op Linux, macOS en Windows (CI-run 42025843231 op `f0d144c`). De upload via de lus: F2 | **beter** (bibliotheek) |
@@ -215,7 +215,7 @@ onderlaag iets anders doet dan verwacht.
 | F18 | De hele opslag terugzetten naar een tijdstip | Microsoft 365-abonnees kunnen "roll back everything, reverting all changes that occurred on any files and folders, to any point in the last 30 days" [M16] | Geen, en niet ontworpen | — | — | **slechter** |
 | F19 | Delen met een persoon of als link | Links voor "Anyone", "People in <Your Organization>", "People with existing access" en "People you choose"; rechten "Can edit" en "Can view"; vervaldatum en wachtwoord alleen bij een "anyone link" [M17] | `deel` met een collega (`lezen`, `schrijven`, `beheren`) of als link met wachtwoord en vervaldatum (`api.py` r. 1001, `delen.py`) | Delen met lezen of schrijven geeft precies dat recht; een link met wachtwoord vraagt het wachtwoord; een verlopen of ingetrokken link werkt niet | Server (main): `test_deellink_met_wachtwoord`, `test_verlopen_of_ingetrokken_link_werkt_niet`, `test_deling_lezen_geeft_geen_schrijfrecht`, `test_deling_schrijven_geeft_uploadrecht_in_die_map` (proef 08) | **gelijk** |
 | F20 | Alleen laten beoordelen, of niet laten downloaden | "Can review limits people to leaving comments and making suggestions on the file." (voor Word); "Can't download prevents people from downloading the files or folders they have access to." [M17] | Geen. Ontworpen is alleen dat lezers opmerkingen mogen plaatsen (K7, hangt aan F10). Niet downloaden is niet ontworpen | — | — | **slechter** |
-| F21 | Uitchecken: een slot per bestand | "No one else can change the file, and no one else can see your changes, while you have it checked out." [M18]. "If you have permission, you can check a file back in that was checked out by someone else." [M19]. Verplicht uitchecken per bibliotheek kan, maar niet samen met tegelijk bewerken [M18] | `vergrendel`: 8 uur een slot (`SLOT_UREN`); een upload van een ander wordt een conflictkopie; verwijderen en verplaatsen weigert; alleen een beheerder breekt het slot open (`api.py` r. 948-997) | Met een slot kan een ander het bestand niet vervangen, verwijderen of verplaatsen, en alleen een beheerder breekt het slot open | Server (main): de 9 tests over het slot in `test_vergrendelen_delen.py` (proef 08) | **gelijk**. Anders: wij kennen geen verplicht uitchecken per map, en een slot vervalt na 8 uur |
+| F21 | Uitchecken: een slot per bestand | "No one else can change the file, and no one else can see your changes, while you have it checked out." [M18]. "If you have permission, you can check a file back in that was checked out by someone else." [M19]. Verplicht uitchecken per bibliotheek kan, maar niet samen met tegelijk bewerken [M18] | `vergrendel`: 8 uur een slot (`SLOT_UREN`); een upload van een ander wordt een conflictkopie; verwijderen en verplaatsen weigert; alleen een beheerder breekt het slot open (`api.py` r. 948-997) | Met een slot kan een ander het bestand niet vervangen, verwijderen of verplaatsen, en alleen een beheerder breekt het slot open | Server (main): de 10 tests over het slot in `test_vergrendelen_delen.py` (proef 08) | **gelijk**. Anders: wij kennen geen verplicht uitchecken per map, en een slot vervalt na 8 uur |
 | F22 | Uitchecken per object | Geen. Word vergrendelt wel de alinea waarin je werkt: "the paragraph you're working in is locked so that no one can overwrite what you're working on" [M1] | Ontworpen (§5.7). Niet gebouwd | — | — | **nog niet gebouwd** |
 | F23 | Activiteit per bestand | Het detailvenster toont "a snapshot of all activities and comments on any file" en "who has access to a file", bijvoorbeeld "renaming files or adding captions and descriptions" [M10] | Per ruimte: `wijzigingen(ruimte, sinds)` en `ruimtebeheer.activiteit`. Per bestand: `activiteit()` is ontworpen (§5.5), niet gebouwd | — | — | **nog niet gebouwd** |
 | F24 | Alleen de gewijzigde delen versturen | Differential sync voor .docx, .pptx en .xlsx; "For other file types, differential sync is available globally." De bron noemt geen blokgrootte [M22] | Blokken van 8 MiB met BLAKE3, vergeleken met het blok op dezelfde plek in de basisversie (`_herbruikbare_blokken`, `api.py` r. 308) | Hoeveel blokken van een model van 92 MB over het netwerk gaan, met en zonder samenvoegen | Server (main): `test_alleen_gewijzigd_blok_wordt_geupload` (proef 08). Bibliotheek: meting 07 | **meting**: METING_F24 |
@@ -272,7 +272,80 @@ Per "gelijk" en per "beter": het bewijs, en wat het niet bewijst. De proeven dra
 branch `samenvoegen/m365-scenario` met `scripts/scenario-m365/alles.sh`; de logs staan in
 `docs/samenwerken/scenario-m365/`.
 
-VOOR_SOL
+Elke controle in de scripts kan falen. Voorbeeld: geef de controle van scenario 01 het verschil tussen versie 12 en
+13 (alleen Anna) in plaats van 12 en 14. Dan stopt `ifc.py controleer` met "verschil klopt niet" en exitcode 1. Een
+bewerking die niet precies één plek raakt, stopt het script ook.
+
+**F1, beter (bibliotheek).** Criterium: twee opslagen vanaf versie 12 die elk een ander object wijzigen, geven één
+versie met beide wijzigingen en geen conflictkopie; het verschil met de basis noemt precies die twee objecten.
+M365: "Co-authoring is only supported on modern file formats including: .docx (Word), .pptx (PowerPoint), and .xlsx
+(Excel)." [M1] en "If a conflict occurred with a non-Office file type, OneDrive automatically keeps both versions."
+[M5]. Bewijs: `01-planning-samenvoegen.txt` (EXIT:0): Anna schuift een taak 2 weken op, Piet verlengt een andere taak;
+`voeg-samen` geeft exitcode 0; de controle eist dat het verschil 12→14 precies die twee taken noemt en 13→14 alleen
+die van Piet. `02-model-samenvoegen.txt` (EXIT:0): een wand schuift 250 mm, de vloer wordt REI60; het verschil 12→14
+noemt precies de wand en de eigenschappenset. Daarnaast `verschillende_objecten_op_echte_bestanden` en
+`taakdatum_en_taaknaam_in_een_planning` (`06-opslaan-lus.txt`). Niet bewezen: de weg langs de server (F2). Ook niet:
+hoe vaak het in echt werk zonder conflict lukt. Het script wijzigt de tekst zelf; OPS schuift bij een verschoven taak
+ook de opvolgers. Schuiven Anna en Piet taken met een gezamenlijke opvolger, dan wijzigen ze allebei die opvolger, en
+dat is een conflict (geen verlies, wel een conflictkopie).
+
+**F5, beter dan Excel en dan OneDrive bij een .ifc; gelijk aan Word.** Criterium: er wordt niets stil overschreven
+of gekozen, en het rapport noemt het object, het attribuut en de drie waarden. M365: Excel "In general, the last
+change that is saved, either with the Save button or automatically with AutoSave, is the one that "wins."" [M2]: de
+waarde van de eerste gaat dan stil verloren (afgeleid; de bron zegt ook "There are some exceptions to this"). Bij een
+ander soort bestand houdt OneDrive beide versies, zonder te zeggen wat botst [M5]. Word meldt het conflict en laat
+per wijziging kiezen [M6]: daar is het criterium ook gehaald, dus gelijk. Bewijs: `03-conflict-zelfde-eigenschap.txt`
+(EXIT:0): `voeg-samen` geeft exitcode 1, schrijft geen bestand, en het rapport noemt `HasProperties[FireRating]` met
+REI30 (basis), REI90 (Piet) en REI60 (Anna). De conflictkopie op de server: `test_verouderde_basisversie_geeft_conflictkopie`
+(`08-storage-tests.txt`). Niet bewezen: dat de desktop-sync na een conflict de conflictkopie met het rapport ernaast
+maakt (stap 5, F2).
+
+**F7, beter (bibliotheek), voor een .ifc.** Criterium: na weer online staan de twee offline opslagen van Anna en de
+twee nieuwe versies van Piet in één versie; het verschil met de basis noemt precies die vier taken. M365: bij een
+ander soort bestand "OneDrive automatically keeps both versions" [M5]. Voor Word zegt de bron alleen dat je een
+melding krijgt, en een conflict als je offline dezelfde alinea wijzigde [M1]; met Word vergelijkt deze regel dus
+niets. Bewijs: `04-offline.txt` (EXIT:0). Het lokale vervangen en verwijderen in de desktop-sync: `tests/vervang.rs`
+van PR #8, groen in CI op Linux, macOS en Windows. Niet bewezen: de upload na weer online langs de server (F2).
+
+**F8, beter (bibliotheek).** Criterium: het verschil noemt precies de gewijzigde objecten, met oud en nieuw per
+attribuut, en een bestand dat alleen opnieuw genummerd is, geeft geen verschil. M365: Word "shows the differences
+with revision marks" [M20]; Excel toont cellen en formules, niet "Chart, shape, and other object edits" [M21]. Voor
+IFC vond ik geen functie van Microsoft; dat ik niets vond, is geen bewijs dat er niets is. Bewijs: de logs 01, 02, 04
+en 05 (elke opslag "zoals OPS" nummert het bestand opnieuw, en het script eist dan een leeg verschil);
+`tests/verschil.rs` (28 tests). Niet bewezen: `verschil` op de server (§5.5, later).
+
+**F15, gelijk.** Criterium: na een tweede upload heeft het bestand twee versies, en de lijst toont ze allebei, voor
+elk soort bestand. M365: "Version history works with all file types, including Microsoft 365 files, PDFs, CAD files,
+photos, videos, and more." [M13]. Bewijs: `test_tweede_upload_op_huidige_versie_wordt_versie_2` (een .pdf) en
+`test_quotum_telt_alle_versies` (`08-storage-tests.txt`). Niet bewezen: een oude versie downloaden (`download(bestand,
+versie)` bestaat, maar er is geen test). Dat versies zonder grens blijven, volgt uit de code (geen code wist een
+versieregel, §5.5), niet uit een test.
+
+**F17, gelijk.** Criterium: een verwijderd bestand komt met herstel terug op zijn plek. M365: "For work or school
+accounts, you can restore files or folders deleted within the last 93 days" [M16]. Bewijs:
+`test_verwijderen_en_herstellen` (`08-storage-tests.txt`). Dat de prullenbak niet vanzelf leeg gaat, volgt uit
+`hooks.py` (de enige geplande taak is `overdracht.opruimen`, en die raakt alleen overdrachten), niet uit een test.
+
+**F19, gelijk.** Criterium: delen met lezen of schrijven geeft precies dat recht; een link met wachtwoord vraagt het
+wachtwoord; een verlopen of ingetrokken link werkt niet. M365: "Can edit", "Can view", en "Set expiration date lets
+you set a date for the link to expire" en "Set password lets you set a password to access the file" [M17]. Bewijs:
+`test_deling_lezen_geeft_geen_schrijfrecht`, `test_deling_schrijven_geeft_uploadrecht_in_die_map`,
+`test_deellink_met_wachtwoord` en `test_verlopen_of_ingetrokken_link_werkt_niet` (`08-storage-tests.txt`). Anders: M365
+kent ook een link voor de hele organisatie, en "Can review" en "Can't download" (F20, slechter).
+
+**F21, gelijk.** Criterium: met een slot kan een ander het bestand niet vervangen, verwijderen of verplaatsen, en
+alleen een beheerder breekt het slot open. M365: "No one else can change the file, and no one else can see your
+changes, while you have it checked out." [M18] en "If you have permission, you can check a file back in that was
+checked out by someone else." [M19]. Bewijs: `test_ander_kan_niet_vergrendelen_zolang_slot_geldt`,
+`test_ander_kan_vergrendeld_bestand_niet_verwijderen`, `test_ander_kan_map_met_vergrendeld_bestand_niet_verwijderen`,
+`test_ander_kan_vergrendeld_bestand_niet_verplaatsen`, `test_upload_door_ander_tijdens_slot_wordt_conflictkopie`,
+`test_alleen_beheerder_mag_slot_openbreken` en de andere slottests (`08-storage-tests.txt`). Anders: een upload van
+een ander wordt bij ons een conflictkopie (zijn werk blijft), bij M365 kan hij niet wijzigen. Wij kennen geen
+verplicht uitchecken per map, en een slot vervalt na 8 uur.
+
+**Wat dit hoofdstuk niet zegt.** "Beter" in de bibliotheek is nog geen "beter" voor een gebruiker: daarvoor moet de
+keten van F2 er zijn. Voor Word-, Excel- en PowerPoint-bestanden is onze onderlaag nu slechter dan M365 (F3, F6, F9).
+De rijen met "meting" (F4, F24, F25) zijn geen claim van gelijk of beter.
 
 ## 5. Architectuur
 
