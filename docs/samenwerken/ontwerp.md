@@ -262,6 +262,14 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
        (dat staat nu aan, maar niets leest die geschiedenis): dan maakt Frappe er geen `Version` voor, en volgt
        niemand er een automatisch na het aanmaken (`frappe/desk/form/document_follow.py` r. 54). Zo kan de
        weigering van `Document Follow` ook geen overdracht laten mislukken (review Sol, ronde 5).
+       Een Frappe-tag gaat langs een andere weg (review Sol, ronde 10). `add_tag` schrijft de kolom `_user_tags`
+       direct met `frappe.db.set_value`, zonder de controller van de opslag. Daarna maakt Frappe een `Tag Link`
+       met de titel van het document, dus de naam van het bestand (`frappe/desk/doctype/tag/tag.py` r. 106–171).
+       De lijst van `Tag Link` toont die titel aan iedereen die het DocType mag lezen, zonder de rechten van de
+       opslag (`tag_link.py` r. 35). En `get_tagged_docs` leest `_user_tags` direct, na alleen een controle op het
+       DocType (`tag.py` r. 59–63). De opslag sluit dit met dezelfde functie: hij weigert een `Tag Link` naar een
+       DocType van de opslag bij `validate`. Die fout stopt de hele aanvraag, dus Frappe draait de `set_value` van
+       `_user_tags` ook terug. Een eigen systeem voor tags komt er niet.
      - **Wat alleen een beheerder van de site kan** (`System Manager`, of `Script Manager` voor een `Server
        Script`): `Notification`, `Webhook`, `Server Script`, `Automation Flow`, `Assignment Rule`, `Milestone
        Tracker` en `Workflow`. Die rollen lezen nu al elke tabel van de site: `System Console` voert code uit met
@@ -286,9 +294,21 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
          huidige functies geven een beheerder alles (`rechten._conditie`, r. 183–189); dat vervalt. De API van de
          opslag leest met `frappe.get_all` en de eigen rechtencontrole, en merkt dit niet. Zo komt er geen rij
          van de opslag in een lijst, rapport, export, voorbereid rapport, automatisch rapport, grafiek of telling,
-         wie het ook start en waar Frappe de uitkomst ook bewaart. Wat het kost: een beheerder ziet de opslag
-         niet in de lijsten van de desk; hij gebruikt de API of `System Console`. En een Link-veld naar een
-         DocType van de opslag vindt niets meer (A4).
+         wie het ook start en waar Frappe de uitkomst ook bewaart. Dit geldt alleen zolang er geen Frappe-`DocShare`
+         op de opslag staat. Frappe voegt de gedeelde documenten ná de queryvoorwaarden toe, met `OR`
+         (`frappe/database/query.py` r. 1680–1684, `frappe/model/db_query.py` r. 1099–1101). De echte query wordt
+         dan `WHERE ((1=0) OR name IN ('F1'))`, en F1 staat weer in elk rapport (review Sol, ronde 10). Nieuwe
+         delingen weigert de opslag al (hierboven); de bestaande verwijdert de invoering (hieronder). Eén document
+         lezen blijft ook met een deling dicht: Frappe vraagt eerst de `has_permission`-haak, en die weigert
+         (`frappe/permissions.py` r. 239). Wat het kost: een beheerder ziet de opslag
+         niet in de lijsten van de desk; hij gebruikt de API of `System Console`. En het zoekveld van een Link-veld
+         naar een DocType van de opslag vindt niets meer. Een Link-veld is daarmee niet dicht. Vraagt een lijst of
+         rapport van een ander DocType een kolom van het gekoppelde opslagdocument op (bijv. `bestand.naam`), dan
+         geeft de nieuwe query-engine leeg, maar de oude engine van `reportview` de naam: die controleert bij een
+         koppeling alleen het leesrecht op het DocType, niet de haak (`frappe/model/db_query.py` r. 602–607,
+         review Sol, ronde 10). Hetzelfde geldt voor `fetch_from` en het opvragen van een titel. In de bench
+         verwijst geen DocType buiten de opslag naar de opslag. Of de kern dat doet, staat bij A4; zo ja, dan
+         sluit de opslag die routes gericht af.
        - **Een rapport met eigen SQL** (`Query Report`) leest de tabellen zonder die haak. Alleen `Script Manager`
          mag het maken (`frappe/core/doctype/report/report.py` r. 72–75), dus het valt onder de grens van het
          vertrouwen. Tegen vergissingen weigert de opslag bij `validate` een `Query Report` waarvan de query een
@@ -299,10 +319,16 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
          onderwerp (`api.py` `_meld_ontvanger`, r. 1614–1637); dat verandert. Zo geeft ook een rapport op
          `Notification Log` of `Email Queue` niets van de opslag door.
 
-       De invoering ruimt op wat er van vóór de invoering staat: de patch verwijdert alle `Prepared Report`s met
-       hun bijlagen, alle exportbestanden aan een `Report`, de meldingen en e-mails van de opslag met een naam
-       erin, en leegt de wachtrij (ook conversies en exports die nog wachten) voordat de werkers weer starten.
-       De patch logt wat hij verwijdert. `Auto Email Report` en `Prepared Report` hoeven daarna niet dicht: wat ze
+       De invoering ruimt op wat er van vóór de invoering staat. De patch verwijdert:
+       - alle `DocShare`s op een DocType van de opslag, ook die voor `everyone`;
+       - alle `Tag Link`s naar een DocType van de opslag, en hij maakt de kolom `_user_tags` in de tabellen van de
+         opslag leeg;
+       - alle `Prepared Report`s met hun bijlagen, en alle exportbestanden aan een `Report`;
+       - de meldingen en e-mails van de opslag met een naam erin.
+
+       Hij leegt ook de wachtrij (ook conversies en exports die nog wachten) voordat de werkers weer starten. De
+       patch logt wat hij verwijdert. De proef bij de invoering telt daarna nul `DocShare`s en nul `Tag Link`s
+       naar de opslag. `Auto Email Report` en `Prepared Report` hoeven daarna niet dicht: wat ze
        ook draaien, de opslag zit er niet in.
      - **Sjablonen.** Een sjabloon (Jinja) krijgt bij het renderen leestoegang tot elke tabel, zonder rechtencontrole:
          `frappe.db.get_all` met `ignore_permissions`, `frappe.db.get_value` en `frappe.db.sql` voor leesquery's
@@ -855,8 +881,12 @@ offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
 - Elke nieuwe DocType (opmerkingen, uitchecks, volgers, gebeurtenissen) krijgt dezelfde bescherming als versieregels:
   de controller weigert, niet alleen `has_permission`, want een Frappe-`DocShare` kan een weigering van
   `has_permission` overrulen. Per DocType zijn er negatieve proeven voor lezen, lijst en wijzigen langs de algemene
-  routes van Frappe (`/api/resource`, `frappe.client`), ook met een achtergebleven `DocShare` na het intrekken van de
-  opslagdeling.
+  routes van Frappe (`/api/resource`, `frappe.client`). Met een `DocShare` blijven lezen en wijzigen dicht (de haak
+  en de controller), maar een lijst niet: Frappe voegt een deling toe met `OR`, ook na `1=0` (§5.4, review Sol,
+  ronde 10). Daarom weigert de opslag nieuwe `DocShare`s op de opslag, en verwijdert de invoering de bestaande, ook
+  die voor `everyone`. De proef bij de invoering telt nul.
+- Frappe-tags op de opslag zijn dicht: de opslag weigert een `Tag Link` naar de opslag, en de invoering verwijdert
+  de bestaande en maakt `_user_tags` leeg (§5.4).
 - Realtime: een bericht over een opslagdocument komt alleen in de persoonlijke kamer van een lezer (§5.4, "Geen
   andere route": dicht bij de bron, in de eigen API en bij abonneren). Een negatieve proef per soort kamer (site,
   taak, document, DocType, open formulier) hoort bij stap 6.
@@ -864,8 +894,9 @@ offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
   data van de site; hij kan elke tabel lezen. Dat geldt ook voor elke rol die een sjabloon mag schrijven dat Frappe
   rendert: in de bench `Website Manager`, met ERPNext ook `Accounts User` en `Accounts Manager` (via `Auto Repeat`).
   Alles wat een andere gebruiker kan aanmaken of starten, valt binnen de bescherming (§5.4, "Bij de bron"). De
-  algemene query van Frappe geeft niemand rijen van de opslag, ook een beheerder niet; zo komt de opslag in geen
-  rapport, export of bewaarde uitkomst van Frappe.
+  algemene query van Frappe geeft niemand rijen van de opslag, ook een beheerder niet, zolang er geen `DocShare` op
+  de opslag staat (die verwijdert de invoering). Zo komt de opslag in geen rapport, export of bewaarde uitkomst van
+  Frappe.
 - Een deellink zonder account (soort `link`) kan geen opmerkingen plaatsen en ziet geen aanwezigheid: er is geen
   persoon om te tonen of te melden.
 - De samenvoegbibliotheek leest onbetrouwbare invoer. Ze mag nooit vastlopen of crashen op een kapot bestand, en ze
@@ -895,18 +926,21 @@ Wat dat voor dit ontwerp betekent:
   (IFC) is het voorstel op termijn: geen alleen-lezen voor de tweede, wel aanwezigheid (§5.8), en bij opslaan
   samenvoegen in de host in plaats van een kopie (issue #11). Voor DWG, PDF en andere soorten blijft het slot. Zie
   A12.
-- **Route A krijgt eerst alleen conflictkopieën, geen samenvoegen** (review Sol, ronde 7). Het antwoord van `save` is
-  `{id, name, version}`; niets zegt dat de host iets anders bewaarde dan de tool stuurde. Calc Studio neemt na `save`
-  de nieuwe `version` als basis, en houdt zijn eigen inhoud (`hostFileActions.ts` r. 70–86, commit `4e8ed38`). Na een
-  samengevoegde opslag zou de volgende opslag het werk van de ander dus wissen: de basis klopt, de inhoud mist het.
-  Opnieuw openen helpt niet altijd: werkte de gebruiker tijdens het opslaan verder, dan valt dat werk weg.
-  Route A blijft daarom bij conflictkopieën. Samenvoegen in route A krijgt een eigen ontwerp en review bij issue
-  #11, en volgt dan de opslaan-lus van de desktop-sync (§5.6 en §5.13). Wat er in elk geval in moet (reviews Sol,
-  rondes 7–9): een herkenbaar antwoord van `save`; één lopende opslag per document, en de volgende momentopname
-  pas na het verwerkte antwoord (Calc Studio stuurt nu twee overlappende `save`s met dezelfde `expectedVersion`);
-  de bewaarde momentopname S als basis voor werk dat tijdens het opslaan ontstond; en na een onzeker antwoord eerst
-  nagaan of de opslag gelukt is, nooit opnieuw vanaf de oude basis. Elk van die punten liet in een review werk
-  verdwijnen toen het ontbrak.
+- **Route A krijgt alleen conflictkopieën, geen samenvoegen** (reviews Sol, rondes 7–10). Het antwoord van `save` is
+  `{id, name, version}`, en Calc Studio neemt daarna de nieuwe `version` als basis, met zijn eigen inhoud
+  (`hostFileActions.ts` r. 70–86, commit `4e8ed38`). Na een samengevoegde opslag zou de volgende opslag het werk van
+  de ander dus wissen. Samenvoegen in route A krijgt een eigen ontwerp en review bij issue #11. Daarin moeten in elk
+  geval vier dingen; elk liet in een review werk verdwijnen toen het ontbrak:
+  1. een herkenbaar antwoord van `save`;
+  2. één lopende opslag per document, en de volgende momentopname pas na het verwerkte antwoord (Calc Studio stuurt
+     nu twee overlappende `save`s met dezelfde `expectedVersion`);
+  3. de bewaarde momentopname S als basis voor werk dat tijdens het opslaan ontstond;
+  4. na een onzeker antwoord eerst nagaan of de opslag gelukt is, nooit opnieuw vanaf de oude basis.
+
+  Het protocol met conflictkopieën zelf houdt stand. Sol voerde in ronde 10 de echte opslagfunctie van Calc Studio
+  uit tegen een nagebootste host die bij een verouderde basis een kopie maakt: acht volgordes van opslaan en
+  antwoord, en een verloren antwoord. Er ging geen inhoud verloren. Een laat antwoord kan Calc Studio wel naar een
+  oudere `version` terugzetten; dan geeft de volgende opslag een kopie. Dat bewijst het protocol, niet de host zelf.
 - **Aanwezigheid hoeft de tool niet te melden.** De host weet wanneer een tool een bestand opent (en of het
   alleen-lezen is) en wanneer het frame sluit; de host meldt zelf `meld_aanwezig` en `meld_weg` namens de gebruiker.
   Naar de tool toe heeft het contract al een gebeurtenis (`openaec-host-preferences`). Het voorstel is een tweede in
@@ -997,7 +1031,7 @@ is. Sinds 5 november is er één openbare bron over de kern: het contract tussen
 | A1 | De inhoud en de versies van een bestand in een ruimte staan alleen in openaec-storage (`Bestandsversie` + S3), en niets schrijft er buiten de API van openaec-storage om | §5.3, §5.4 (de wijzigingenlijst als enige bron), stap 4 en 4b, K3 | Welke app de DocTypes voor bestanden en versies bezit; of de kern zelf naar S3 of naar `tabBestandsversie` schrijft (zoek in de code op `Bestandsversie`, `s3`, `boto3`) |
 | A2 | Een ingelogde client kan één realtime-kanaal per site volgen, de realtimeserver vraagt bij abonneren `frappe.realtime.has_permission`, en de Frappe van de kern kent dezelfde soorten configuratie die op een document reageert als de bench (§5.4) | §5.4 (push, geen gedeelde kamers), §5.8, §5.10, §5.14 | De Procfile of compose van de kern (draait `socketio`, en welke versie: de Node-server of die in Python?), welke controle die bij abonneren vraagt, de Frappe-versie en welke DocTypes in de kern op `run_method` van een document reageren (`Notification`, `Webhook`, `Automation Flow` …), de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
 | A3 | De kern heeft nog geen eigen DocTypes voor opmerkingen, meldingen of activiteit op bestanden | §5.9, §5.10, K6 | De lijst van DocTypes in de kern (alle `doctype/*/*.json`) en waar `Notification Log` wordt gebruikt |
-| A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling), en alleen beheerders van de site hebben `System Manager` of `Script Manager` | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4), de grens van het vertrouwen in §5.4 | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, of de kern `DocShare` gebruikt, en wie in de kern `System Manager` of `Script Manager` krijgt. Ook: welke apps in de kern draaien (ERPNext?), welke rollen daar een sjabloon mogen schrijven (`Website Manager`, `Accounts User` …), en wie die rollen krijgt (§5.4, review Sol ronde 6). En of een DocType in de kern met een Link-veld naar een DocType van de opslag verwijst: de algemene query geeft daar geen rijen meer (§5.4, review Sol ronde 9) |
+| A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling), en alleen beheerders van de site hebben `System Manager` of `Script Manager` | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4), de grens van het vertrouwen in §5.4 | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, of de kern `DocShare` gebruikt, en wie in de kern `System Manager` of `Script Manager` krijgt. Ook: welke apps in de kern draaien (ERPNext?), welke rollen daar een sjabloon mogen schrijven (`Website Manager`, `Accounts User` …), en wie die rollen krijgt (§5.4, review Sol ronde 6). En of een DocType in de kern met een Link-veld naar een DocType van de opslag verwijst. Zo ja, dan zijn een gekoppelde kolom in een lijst of rapport, `fetch_from` en het opvragen van een titel leesroutes buiten de haak, en sluit de opslag die gericht af; een leeg zoekveld alleen bewijst niets (§5.4, reviews Sol rondes 9 en 10) |
 | A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis. Het hostcontract bevestigt de vorm: `save(bytes, {id, expectedVersion})`, en een conflict geeft een kopie (§5.15). Open is nog: is `version` daar het volgnummer of een id dat nooit terugkomt? | §5.5 (de basis), `bij_conflict`, §5.15 | Dat document, §6; en in `openaec_werkplek` wat de host als `version` teruggeeft en hoe hij `expectedVersion` aan storage doorgeeft |
 | A6 | Naast Frappe kan een los programma draaien (zoals de WebDAV-gateway van openaec-storage in een eigen container) | Handhaving op de server (§5.7 trede 2), `gewijzigd` bij opmerkingen (§5.9), samenvoegen op de server | De compose- of deployconfig van de kern: welke containers er zijn, en of er een plek is voor een hulpprogramma |
 | A7 | De `BIM Issue` van open-bim-platform en opmerkingen op bestanden mogen één systeem worden | §5.9, K6 | Of de kern al naar `BIM Issue` verwijst, en wie de eigenaar van dat DocType is |
