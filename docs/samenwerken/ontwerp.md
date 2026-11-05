@@ -405,6 +405,23 @@ zetten. De eigen invoer van ons heeft bij een geslaagde samenvoeging nooit als l
 desktop-sync bewaart die daarom lokaal (in `.openaec/`, de laatste paar per bestand) voordat hij het lokale bestand
 door het resultaat vervangt. Lukt samenvoegen niet, dan gaat ons als conflictkopie naar de server, zoals nu.
 
+**Terugzetten in de lokale map.** De gebruiker kan opnieuw opslaan terwijl de sync samenvoegt. Voorbeeld: de sync
+leest de planning met taak A op 2, de gebruiker zet A op 3 en slaat op, en de samengevoegde versie (met A op 2) komt
+op de server. Die versie mag de lokale A op 3 niet wegdrukken. Daarom:
+
+1. Samenvoegen werkt met een vaste momentopname S van het lokale bestand (inhoud en hash), bewaard in `.openaec/`.
+2. De sync overschrijft nooit een lokaal bestand. Hij verplaatst het eerst naar `.openaec/` (één rename) en
+   controleert daar of de inhoud nog S is. Zo ja, dan zet hij het resultaat op de lege plek, met een rename die
+   weigert als daar intussen weer een bestand staat. Zo nee, of als die rename weigert, dan zet hij het lokale
+   bestand terug (of laat hij het nieuwe staan) en blijft het resultaat alleen op de server.
+3. De sync registreert alleen wat hij echt verwerkte. Staat het resultaat lokaal, dan is de toestand "versie N, deze
+   inhoud". Bleef de nieuwere lokale versie staan, dan is de toestand "server op N, lokaal afgeleid van S". De volgende
+   ronde voegt dan samen met S als basis, het lokale bestand als ons en N als hun. N bevat S al, dus het verschil tussen
+   S en N is alleen het werk van de collega. Er ontstaat geen vals conflict met onze eigen tussenstand.
+4. Verplichte proef in stap 5: lezen, de gebruiker slaat opnieuw op, de upload slaagt, terugzetten. Daarna staan
+   zowel de wijziging van de collega als de laatste lokale wijziging in de volgende versie, en nergens is een lokaal
+   bestand verloren.
+
 **Wat het niet doet.** Geen geometrie begrijpen: een wand die aan beide kanten anders verplaatst is, is een conflict,
 ook als de plaatsingen elkaar niet raken. Geen .ifczip en .ifcxml (nog). Geen DWG of PDF: die blijven bij uitchecken
 per bestand.
