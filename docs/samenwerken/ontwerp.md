@@ -1057,15 +1057,21 @@ alleen. Geen client krijgt nog nieuwe regels (VERVOLG-punt van Sol op PR #16).
   (`FOR UPDATE NOWAIT`), veegt niet en leest meteen. Dat is veilig, want de regels van de andere veger krijgen een
   nummer boven elke uitgedeelde cursor. Pas doen als een meting wachten laat zien.
 
-**D4. Aanwezigheid en meldingen.** §5.8 stuurt bij elke wijziging de hele lijst van aanwezigen naar de kamer. Kijken
-300 mensen naar één bestand, dan is één wisseling 300 berichten met elk 300 namen: 90 000 regels. Bij één wisseling per
-seconde is dat 90 000 regels per seconde voor één bestand. Daarbij komen 10 HTTP-meldingen per seconde (300 / 30 s) via
-Frappe.
-- Opties: (a) zoals §5.8; (b) alleen de wijziging pushen (`{bestand, bij, weg}`), gebundeld per bestand over hoogstens
-  2 s; `aanwezig()` geeft de eerste 50 en het aantal; (c) de herhaalde melding over de realtime-verbinding in plaats van
-  HTTP.
-- Voorkeur (b): weinig werk, en de gebeurtenis `bestand.aanwezigheid` van §5.5 verandert voordat er iets gebouwd is.
-  (c) pas als A2 klopt.
+**D4. Push, aanwezigheid en meldingen.** §5.4 pusht naar de persoonlijke kamer van elke lezer, zonder inhoud. De
+server bepaalt de lezers bij elke aflevering opnieuw, en de client haalt de inhoud zelf op met een gewone aanroep. Per
+gebeurtenis kost dat dus N rechtencontroles, N berichten en N ophaalverzoeken, met N het aantal lezers. Rekenvoorbeeld
+(schatting): 300 lezers en één gebeurtenis per seconde geven 900 handelingen per seconde voor één ruimte. Bij
+aanwezigheid is het zwaarder: kijken 300 mensen naar één bestand, dan vraagt bij elke wisseling iedereen `aanwezig()`,
+met elk 300 namen. Bij één wisseling per seconde is dat 90 000 regels per seconde. Daarbij komen 10 HTTP-meldingen per
+seconde (300 / 30 s) van `meld_aanwezig`.
+- Opties: (a) zoals §5.4 en §5.8; (b) bundelen per gebruiker: hoogstens één push per gebruiker per 2 s ("er is iets
+  nieuws"), waarna de client één keer `wijzigingen` vanaf zijn cursor leest (de ronde op de wijzigingen van D1); bij
+  aanwezigheid hoogstens één push per bestand per 2 s, en `aanwezig()` geeft de eerste 50 en het aantal; (c) de
+  herhaalde melding van aanwezigheid over de realtime-verbinding in plaats van HTTP.
+- Voorkeur (b). De veiligheidsregel van §5.4 blijft: geen inhoud in de push, het recht bij de aflevering van de bundel
+  en opnieuw bij het ophalen. Kosten: een bundelstap na de commit, in de wachtrij (A10). (c) pas als A2 klopt.
+- Bewijs: de lastproef van P2 (`scripts/simulatie/last.py`) telt verzoeken per seconde bij 100 tot 300 clients; met
+  push erbij (pas na stap 6) telt hij ook de pushes en de ophaalverzoeken per gebruiker.
 - Meldingen: een bestand met 300 volgers en elke minuut een nieuwe versie geeft 300 Notification Logs per minuut
   (432 000 per dag). Voorkeur: automatisch volgen (§5.10, `bron: automatisch`) vervalt na 30 dagen zonder eigen
   handeling. Eén regel per gebeurtenis met een leescursor per gebruiker (zoals de wijzigingenlijst) is de optie voor
@@ -1078,7 +1084,8 @@ claims op het bestand wachten op één slot.
 - Opties: (a) zoals §5.3; (b) een eigen DocType met één regel per (bestand, GlobalId) en een unieke index: de database
   weigert de tweede claim zelf, zonder slot op het bestand; (c) een claim per groep (een verdieping met alles erin):
   klein, maar dan moet de server de boom van het model kennen (A6).
-- Voorkeur (b). Een claim wacht alleen op claims op dezelfde objecten, en het schaalt tot miljoenen regels. Een claim
+- Voorkeur (b). Een claim wacht alleen op claims op dezelfde objecten, en het schaalt tot miljoenen regels. De
+  DocType krijgt de bescherming van §5.14: de controller weigert wijzigen langs de algemene routes van Frappe. Een claim
   voegt in met `frappe.db.bulk_insert`. Een verlopen claim op hetzelfde object gaat in dezelfde transactie eerst weg.
   Eén claim blijft onder de schrijfgrens van D3 (voorstel: hoogstens 100 000 objecten); groter vraagt (c). Kiest Ethan
   (b), dan vervangt dit het veld `objecten` van `Objectuitcheck` in §5.3. Kosten: een DocType in plaats van een
@@ -1195,12 +1202,14 @@ Punten die een review op schaal en duurzaamheid moet toetsen:
    bij een deling als wortel, of bij een soort regel die de client niet kent?
 5. D2: kan een client met een cursor net onder, op of boven de ondergrens iets missen? Wat bij een verwijdering tijdens
    een lezing, en bij een deling als wortel?
-6. D3: geeft de veger in delen dezelfde garantie als §5.4 (niets gemist, geen dubbel nummer), ook met de tijdgrens en
+6. D4: blijft de regel van §5.4 staan als pushes gebundeld worden, bijv. een bundel die klaarstond vóór een deling
+   werd ingetrokken?
+7. D3: geeft de veger in delen dezelfde garantie als §5.4 (niets gemist, geen dubbel nummer), ook met de tijdgrens en
    twee vegers tegelijk? Is "niet vegen als het slot bezet is" veilig?
-7. D5: twee gelijktijdige claims met overlap, een verlopen claim, en de schrijfgrens. Wint er altijd precies één?
-8. D6: klopt de schatting e^(−λT)? Verliest een wachtrij op de server ooit stil werk, bijv. door een andere versie van
+8. D5: twee gelijktijdige claims met overlap, een verlopen claim, en de schrijfgrens. Wint er altijd precies één?
+9. D6: klopt de schatting e^(−λT)? Verliest een wachtrij op de server ooit stil werk, bijv. door een andere versie van
    de bibliotheek dan in de client?
-9. §12.3: een downgrade van de app, een index met een andere canonieke vorm, een rapport in een oud formaat. Gaat er
+10. §12.3: een downgrade van de app, een index met een andere canonieke vorm, een rapport in een oud formaat. Gaat er
    iets stil mis?
-10. De grenzen tussen de lagen: lekt er ergens kennis over, bijv. GlobalIds in laag 1 of S3 in laag 2?
-11. Overengineering: wat in dit hoofdstuk is niet nodig voor de doelen bovenaan?
+11. De grenzen tussen de lagen: lekt er ergens kennis over, bijv. GlobalIds in laag 1 of S3 in laag 2?
+12. Overengineering: wat in dit hoofdstuk is niet nodig voor de doelen bovenaan?
