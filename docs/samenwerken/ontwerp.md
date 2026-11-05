@@ -287,10 +287,17 @@ Alles onder `/api/method/openaec_storage.samenwerken.<methode>`, met de inlog va
 
 Uitbreiding van de bestaande API:
 
-- `upload_start(…, bij_conflict="kopie" | "weiger", samengevoegd_uit?)`. Met `weiger` geeft `upload_klaar` bij een
-  verouderde basis een fout met de foutcode `verouderde_basis` en de huidige versie, in plaats van een
-  conflictkopie. Dat is de vergelijk-en-schrijf die de opslaan-lus nodig heeft. `kopie` blijft de standaard, dus
-  bestaande clients merken niets.
+- `upload_start(…, basis_bestand?, bij_conflict="kopie" | "weiger", samengevoegd_uit?)`. Een versienummer is alleen
+  uniek binnen één bestand. Daarom vergelijkt de server het paar (bestand, versie): `basis_bestand` is het id van het
+  bestand waarop de client werkte. Voorbeeld: Anna werkt offline aan `planning.ifc` (bestand F1, versie 1). Piet
+  verwijdert F1 en maakt onder dezelfde naam een nieuwe planning (F2, ook versie 1). Nu zoekt `_registreer` op naam
+  (`_actief_bestand`, `api.py` r. 90) en vergelijkt alleen het nummer, dus Anna's oude planning wordt F2 versie 2,
+  zonder conflict. Met `basis_bestand=F1` ziet de server dat op die plek een ander bestand staat: dat is een
+  verouderde basis. Met `weiger` geeft `upload_klaar` bij een verouderde basis (ander nummer of ander bestand) een
+  fout met de foutcode `verouderde_basis`, met het huidige bestand en de huidige versie, in plaats van een
+  conflictkopie. Met `kopie` wordt het een conflictkopie, ook bij een ander bestand. Zonder `basis_bestand` blijft
+  de vergelijking zoals nu, dus bestaande clients merken niets. De vergelijking gebeurt onder het slot van stap 4,
+  dus atomair.
 - `mogelijkheden()` krijgt `samenwerken: {aanwezigheid, opmerkingen, volgen, objectuitcheck, bij_conflict_weiger,
   verschil}` zodat een client weet wat de server kent.
 
@@ -392,7 +399,9 @@ per conflict laten kiezen.
 van hun komt, krijgt nieuwe nummers achteraan. Zo blijft de delta per blok klein bij het uploaden.
 
 **De opslaan-lus.** Eén trait met drie methodes: `huidige()`, `lees(versie)` en `schrijf_als(basis, inhoud)`, die
-weigert als de basis verouderd is. De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen,
+weigert als de basis verouderd is. De basis is het paar (bestand, versie), niet alleen een versienummer: bij
+openaec-storage `basis_bestand` en `basis_versie`, bij Nextcloud de ETag (een opnieuw aangemaakt bestand heeft een
+andere ETag en een ander fileid). De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen,
 schrijf opnieuw met de nieuwe basis; geef op na enkele pogingen. openaec-storage en Nextcloud passen allebei op die
 trait. Een slot van een ander is een aparte weigering: daar helpt samenvoegen niet, en de lus probeert het niet.
 
@@ -459,7 +468,8 @@ Daarom:
    geheugenkoppeling; een geweigerde eerste verplaatsing (lokale inhoud en toestand blijven); een bestand dat vlak
    vóór de plaatsing op het pad verschijnt (het blijft staan); de gebruiker slaat op na de scan maar vóór een lokale
    verwijdering (het nieuwe werk blijft en gaat naar de server); een wijziging die alleen in een bron gebeurt, zonder
-   gebeurtenis op het oorspronkelijke pad (de sync verwerkt haar); en een onderbreking na het journaal, na het verplaatsen,
+   gebeurtenis op het oorspronkelijke pad (de sync verwerkt haar); een bestand dat een ander verwijderde en onder dezelfde naam opnieuw maakte, terwijl de client offline werkte (de
+server weigert; er gaat niets van de nieuwe inhoud verloren); en een onderbreking na het journaal, na het verplaatsen,
    na het plaatsen en vóór het afronden (na herstart is er niets verloren en wordt niets als verwijderd gezien). Op
    elk platform dat de desktop-app ondersteunt.
 
@@ -600,7 +610,7 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 | 1 | Dit ontwerp | openaec-storage | Nee |
 | 2 | Bibliotheek: IFC lezen, objectmodel, verschil | openaec-cloud-desktop | Nee |
 | 3 | Bibliotheek: samenvoegen, schrijven, opslaan-lus, met een proef van 8 clients tegelijk in het geheugen | openaec-cloud-desktop | Nee |
-| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
+| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), vergelijken op bestand én versie (`basis_bestand`), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
 | 4b | Storage: een commitnummer voor de wijzigingenlijst, zodat de cursor geen regels overslaat (§5.4) | openaec-storage | Nee |
 | 5 | Desktop-sync: IFC samenvoegen via de opslaan-lus, en de proef met twee clients tegen een echte openaec-storage-server (met stap 4), als script met log | openaec-cloud-desktop | Nee |
 | 6 | Storage: gebeurtenissen (push en haak, issue #7), `zet_terug`, `activiteit` | openaec-storage | Deels: push vraagt socket.io in de kern |
