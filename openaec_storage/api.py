@@ -1280,7 +1280,13 @@ def kopieer(bestanden=None, doel_ruimte: str | None = None, doel_map: str | None
 @frappe.whitelist()
 def wijzigingen(ruimte: str | None = None, sinds: int = 0, limiet: int = 1000, deling: str | None = None) -> dict:
 	"""Wijzigingen in de ruimte na cursor `sinds`, oplopend; de cursor is het volgnummer van de wijziging. Met
-	`deling` alleen die binnen de gedeelde map (de cursor loopt over de hele ruimte, zoals zonder deling)."""
+	`deling` alleen die binnen de gedeelde map (de cursor loopt over de hele ruimte, zoals zonder deling).
+
+	Het volgnummer is het commitnummer (zie commitnummer.py): uitgedeeld vlak voor de commit, in commitvolgorde. Na
+	een gelezen nummer verschijnt er dus nooit meer een regel met een lager nummer, en schuift de cursor nooit voorbij
+	een regel die nog moet komen. De cursor is het nummer van de laatste regel van de pagina, vóór het filter op een
+	deling. Bij een lege pagina blijft hij `sinds`: een losse vraag naar het hoogste nummer zou een regel kunnen
+	overslaan die net daarna gecommit wordt."""
 	ruimte, wortel = _wortel(ruimte, deling)
 	if wortel:
 		vereis_op_plek(ruimte, wortel, "read")
@@ -1289,17 +1295,13 @@ def wijzigingen(ruimte: str | None = None, sinds: int = 0, limiet: int = 1000, d
 	sinds, limiet = cint(sinds), min(max(cint(limiet), 1), 5000)
 	regels = frappe.get_all(
 		"Opslagwijziging",
-		filters={"ruimte": ruimte, "name": (">", sinds)},
-		fields=["name", "soort", "doel_doctype", "doel", "naam", "creation"],
-		order_by="name asc",
+		filters={"ruimte": ruimte, "commitnummer": (">", sinds)},
+		fields=["commitnummer", "soort", "doel_doctype", "doel", "naam", "creation"],
+		order_by="commitnummer asc",
 		limit=limiet,
 		ignore_permissions=True,
 	)
-	if regels:
-		cursor = cint(regels[-1]["name"])
-	else:
-		hoogste = frappe.db.sql("select coalesce(max(name), 0) from `tabOpslagwijziging`")[0][0]
-		cursor = max(sinds, cint(hoogste))
+	cursor = cint(regels[-1]["commitnummer"]) if regels else sinds
 	meer = len(regels) == limiet
 	if wortel:
 		regels = _binnen_wortel(wortel, regels)
@@ -1320,7 +1322,7 @@ def wijzigingen(ruimte: str | None = None, sinds: int = 0, limiet: int = 1000, d
 		"wijzigingen": [
 			{
 				**r,
-				"volgnummer": cint(r.pop("name")),
+				"volgnummer": cint(r.pop("commitnummer")),
 				"versie_id": versie_ids.get(r.doel) if r.doel_doctype == "Opslagbestand" else None,
 			}
 			for r in regels

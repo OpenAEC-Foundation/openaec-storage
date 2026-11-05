@@ -1,4 +1,5 @@
 [pre_model_sync]
 
 [post_model_sync]
+openaec_storage.patches.commitnummer_invullen
 openaec_storage.patches.huidige_versie_id_invullen

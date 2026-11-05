@@ -19,6 +19,14 @@ def gebruiker(naam: str) -> str:
 	return email
 
 
+def nummer_wijzigingen() -> None:
+	"""Geef de wijzigingsregels van deze transactie hun commitnummer, zoals vlak vóór een commit
+	(`commitnummer.deel_uit`). De hoofdthread van een test commit nooit: wie de wijzigingenlijst in zijn eigen
+	transactie wil lezen, nummert eerst."""
+	from openaec_storage import commitnummer
+
+	commitnummer.deel_uit()
+
 def met_rol(email: str, rol: str) -> str:
 	"""Geef een testgebruiker een rol. De beheerrollen komen uit openaec_beheer; zonder die app wordt de rol aangemaakt."""
 	if not frappe.db.exists("Role", rol):

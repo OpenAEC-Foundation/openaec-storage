@@ -429,6 +429,36 @@ lezing (fout 1020, voor Frappe een `QueryDeadlockError`). Wat het verzoek daarvo
 Tests: `tests/test_vergelijk_en_schrijf.py` (twee echte databaseverbindingen die in een vaste volgorde wisselen).
 
 
+## Wijzigingenlijst en cursor
+
+`wijzigingen` (`ruimte` of `deling`, `sinds?` (0), `limiet?` (1000, hoogstens 5000)) geeft de regels van de
+wijzigingenlijst na cursor `sinds`, oplopend: `{cursor, meer, wijzigingen: [{volgnummer, soort, doel_doctype, doel,
+naam, creation}]}`. De desktop-sync bewaart de cursor per koppeling en leest vanaf daar.
+
+- Het `volgnummer` is het commitnummer van de regel (`commitnummer.py`). Dat nummer wordt vlak vóór de commit
+  uitgedeeld, onder een slot op één tellerregel, dus in commitvolgorde. Heeft een client nummer N gelezen, dan
+  verschijnt er daarna nooit meer een regel met een nummer van N of lager. Een transactie die eerder begon maar later
+  commit, krijgt het hogere nummer.
+- De cursor is het nummer van de laatste regel van de pagina, met `deling` van vóór het filter op de gedeelde map.
+  Bij een lege pagina blijft de cursor `sinds`. `meer` is waar als de pagina vol is: lees dan meteen door.
+- Een gat in de nummers van één ruimte is normaal: daar staat een regel van een andere ruimte. Een teruggedraaide
+  transactie geeft geen gat en geen nummer.
+- Een cursor van vóór deze versie (een `name`) blijft geldig: bestaande regels kregen bij de migratie
+  `commitnummer = name`, en de teller begint boven het hoogste `name`.
+- `ruimtebeheer.activiteit` sorteert en nummert ook op het commitnummer (nieuwste eerst): één gebeurtenis heeft in
+  beide hetzelfde nummer.
+- Het slot op de teller is het laatste slot van een transactie, na de sloten op bestand en map. Het duurt van het
+  uitdelen tot de SQL-commit klaar is: gemeten 2 ms bij 1 regel, 3 ms bij 100 en 19 ms bij 500 regels in één
+  transactie (MariaDB 11.8, lokaal; `test_commitnummer`).
+- Een wijzigingsregel zonder commitnummer wordt nooit vastgelegd. De nummeraar nummert als laatste before_commit-
+  callback; blijven er na 20 keer achteraan zetten nog callbacks bijkomen, dan mislukt de commit
+  (`NummeringMislukt`). Mislukt het uitdelen zelf (bijv. de wachttijd op de teller is om), dan gaat de nummering
+  terug naar haar savepoint, mislukt de commit, en nummert een volgende commit de regels opnieuw.
+- Het commitnummer is alleen van de nummeraar: wie een Opslagwijziging invoegt of opslaat (ook via `/api/resource`),
+  kan het niet zetten.
+- Alleen MariaDB: de nummeraar gebruikt een gebruikersvariabele en `on duplicate key update`.
+
+
 ## Overdrachten
 
 Losse bestanden versturen via een link, eventueel met een e-mail aan de ontvangers ("Versturen met SuperCloud

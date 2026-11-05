@@ -16,7 +16,16 @@ from frappe.tests import IntegrationTestCase
 
 from openaec_storage import api, s3
 from openaec_storage.patches import huidige_versie_id_invullen
-from openaec_storage.tests.hulp import OPSLAGINSTELLINGEN, NagebootsteS3, foutcode, gebruiker, ruim_op, ruimte, upload
+from openaec_storage.tests.hulp import (
+	OPSLAGINSTELLINGEN,
+	NagebootsteS3,
+	foutcode,
+	gebruiker,
+	nummer_wijzigingen,
+	ruim_op,
+	ruimte,
+	upload,
+)
 
 WACHT = 30  # seconden: hoogstens zo lang wachten op een thread of een sein
 BEDENKTIJD = 1.0  # seconden: zo lang krijgt B om bij het slot te komen
@@ -299,6 +308,7 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		frappe.set_user(self.piet)
 		upload(self.ruimte, "plan.ifc", b"twee", basis_versie=1)
 		frappe.set_user(self.anna)
+		nummer_wijzigingen()
 		sinds = api.wijzigingen(ruimte=self.ruimte)["cursor"]
 		r = api.upload_klaar(
 			**start(
@@ -311,6 +321,7 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 			[(3, {"basis": 1, "hun": 2}), (2, None), (1, None)],
 		)
 		# In de wijzigingenlijst een gewone nieuwe versie: bestaande clients filteren op `gewijzigd`.
+		nummer_wijzigingen()
 		regels = api.wijzigingen(ruimte=self.ruimte, sinds=sinds)["wijzigingen"]
 		self.assertEqual([(w["soort"], w["doel"]) for w in regels], [("gewijzigd", bestand)])
 
@@ -564,6 +575,7 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		self.assertEqual([v.versie_id for v in api.versies(bestand=bestand)], [regel])
 		self.assertEqual(api.info(bestand=bestand)["versie_id"], regel)
 		self.assertEqual(api.download(bestand=bestand)["versie_id"], regel)
+		nummer_wijzigingen()
 		wijzigingen = api.wijzigingen(ruimte=self.ruimte)["wijzigingen"]
 		self.assertEqual({w["versie_id"] for w in wijzigingen if w["doel"] == bestand}, {regel})
 		self.assertEqual({w["versie_id"] for w in wijzigingen if w["doel"] == map_id}, {None})
