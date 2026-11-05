@@ -79,6 +79,7 @@ allebei "vergrendeld". Anna denkt dat ze het bestand alleen heeft, maar het slot
 - Fix: `vergrendel` en `ontgrendel` in een eigen transactie, en eerst de bestandsregel op slot zetten (`FOR UPDATE`),
   net als de upload dat al doet; daarna het slot opnieuw lezen. Getoetst tegen vergrendelen, ontgrendelen, verlopen,
   forceren en uploaden; niet tegen verwijderen of verplaatsen.
+- Gemeld: [openaec-storage#20](https://github.com/OpenAEC-Foundation/openaec-storage/issues/20).
 - Model: `Slot.tla`. In de eerste versie kon een slot niet verlopen (een fout in het model, gevonden door de
   reviewer). Dat is hersteld; de runs lopen opnieuw.
 
@@ -99,6 +100,8 @@ nog in de prullenbak. Niemand krijgt een melding.
 - Fix: de client stuurt de versie mee die hij verwijdert, en de server weigert als dat niet de huidige versie is. De
   vergelijking en het verwijderen moeten onder hetzelfde slot op de bestandsregel gebeuren; een losse controle
   vooraf verplaatst de race alleen. Weigert de server, dan haalt de client de nieuwe versie op.
+- Gemeld: [openaec-storage#21](https://github.com/OpenAEC-Foundation/openaec-storage/issues/21) (server) en
+  [openaec-cloud-desktop#14](https://github.com/OpenAEC-Foundation/openaec-cloud-desktop/issues/14) (client).
 - Model: `SyncClient.tla`, runs `Sync_5a_k2p1`, `Sync_5b_k2p1` (fout) en `*_fix` (met de fix).
 
 ### Fout 3. Een upload met alleen een versienummer kan het verkeerde bestand overschrijven
@@ -117,6 +120,7 @@ niemand merkt dat het overschreven is.
 - Hoe vaak: een bestand vervangen terwijl een ander er nog offline aan werkt, is gewoon werk. Versie 1 tegenover
   versie 1 is genoeg, en een nieuw bestand begint altijd bij versie 1.
 - Fix: de desktop stuurt bij elke upload `basis_bestand` mee als de server dat kent.
+- Gemeld: [openaec-cloud-desktop#13](https://github.com/OpenAEC-Foundation/openaec-cloud-desktop/issues/13).
 - Model: `UploadServer.tla`, run `UploadServer_pr9_voltooi_eenmalig`; in de sync: `Sync_5b_nietifc_a3`.
 
 ### Fout 4. Een herhaald "klaar" kan de inhoud van een vastgelegde versie wissen
@@ -134,6 +138,7 @@ vastligt. Bij "conflictkopie" wijzen twee versies naar hetzelfde object.
   `een_afronding` gaat daarvan uit.
 - Fix: bij een tweede "klaar" eerst kijken of een versie dit S3-object al heeft, en dan die versie teruggeven. En:
   ruim nooit een sleutel op die een versieregel heeft.
+- Gemeld: [opmerking bij storage-PR #9](https://github.com/OpenAEC-Foundation/openaec-storage/pull/9#issuecomment-6661893101).
 - Model: `UploadServer.tla`, runs `UploadServer_pr9_inhoud` en `UploadServer_pr9_lus_voltooi_herhaalbaar`.
 
 ### Kleinere bevinding (VERVOLG)
@@ -145,7 +150,7 @@ ziet de client: de kopie staat in de toestand, op de server, maar niet lokaal. H
 dezelfde ronde wordt Piets bestand nog eens geüpload, als tweede conflictkopie, en die komt wel lokaal. Er gaat niets
 verloren, maar er staat een kopie in de prullenbak die niemand weggooide. Waar: 5b `motor.rs` `na_upload`, de tak
 zonder serverbestand (r. 746-750), en `onthoud_als`. Op main faalt hier `onthoud`; dan komt de kopie de volgende ronde
-gewoon lokaal.
+gewoon lokaal. Gemeld: [openaec-cloud-desktop#15](https://github.com/OpenAEC-Foundation/openaec-cloud-desktop/issues/15).
 
 ### Bekende fouten, bevestigd
 
