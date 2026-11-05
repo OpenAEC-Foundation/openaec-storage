@@ -1,4 +1,3 @@
 [pre_model_sync]
 
 [post_model_sync]
-openaec_storage.patches.versienummers_bij_invoering
