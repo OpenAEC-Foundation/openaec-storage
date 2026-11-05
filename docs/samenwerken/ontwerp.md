@@ -425,6 +425,20 @@ knoop anders, dan verandert die identiteit, en telt het als een wijziging van di
 hetzelfde attribuut, dan is het een conflict. Kan de schrijver een gedeeld anker niet eenduidig naar één knoop in het
 resultaat vertalen, dan is het ook een conflict.
 
+**Ankers in een SET.** Een SET heeft geen volgorde, dus de plek in de tekst zegt niets over welk lid welk is.
+Voorbeeld: het project heeft twee contexten met gelijke inhoud, #20 en #200; de wand gebruikt #20, het raam #200. Hangt
+ons de wand onder #200 en staan de twee in de tekst omgekeerd, dan mag de wijziging van de wand niet verdwijnen. De
+bibliotheek koppelt de leden van zo'n SET tussen twee versies alleen als dat eenduidig kan:
+
+1. op gelijke inhoud, als die inhoud aan beide kanten precies één keer voorkomt;
+2. daarna per type, voor de leden die over zijn: het paar met de meeste gelijke attributen en dezelfde objecten die
+   ernaar verwijzen, alleen als elk van beide de enige beste keuze van de ander is.
+
+Een lid dat zo niet te koppelen is, geldt aan de ene kant als nieuw en aan de andere als weg. Elk object dat ernaar
+verwijst, telt dan als gewijzigd; bij samenvoegen geeft dat een conflict als beide kanten zo'n object raken. Een andere
+volgorde kan zo nooit een wijziging verbergen; hooguit meldt de bibliotheek een wijziging te veel. Twee gewijzigde
+contexten, of een gewijzigde naast een nieuwe, wijzigen alleen het project als de koppeling eenduidig is.
+
 **Vluchtige velden.** Sommige velden veranderen bij elk opslaan, ook als niemand iets aan het object deed: in
 `IfcOwnerHistory` de tijdstempels en de velden over de laatste wijziging, in de HEADER de tijdstempel van
 `FILE_NAME`, en `IfcWorkControl.CreationDate` (OPS schrijft bij het hoofdwerkplan en -schema elke keer "nu",
