@@ -24,6 +24,9 @@ De eerste bouwstappen staan los van de kern van de SuperCloud: een Rust-biblioth
 samenvoegt, en de koppeling in de desktop-sync. De diensten op de server (aanwezigheid, opmerkingen, volgen en
 meldingen, uitchecken per object) beschrijf ik hier, maar bouw ik pas als de kern gelezen is. Zie §9.
 
+Hoe dit meegroeit naar modellen van meerdere gigabytes en honderden deelnemers, en hoe het tientallen jaren meegaat,
+staat in §12. Daar staan ook de grenzen tussen de lagen, met wat elke laag van de andere mag weten.
+
 ## 1. Opdracht en grenzen
 
 - Opdracht van Ethan (5 november 2026): "Ga in de Supercloud bestands collaboratie inbouwen. Beter dan ms 365.
@@ -968,6 +971,10 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 
 Stap 2 tot en met 5 (met 4b) bouw ik nu. Stap 6 en verder wachten tot de kern gelezen is.
 
+Schaal (§12) staat niet als eigen stap in de tabel. In de bibliotheek komt nu een weg per object (§12.1, G1 tot en met
+G3, branch `samenvoegen/gb-schaal`). Bij stap 4b hoort de veger in delen (§12.2, D3). Bij stap 10 hoort, als die keuze
+valt, één regel per uitgecheckt object met een unieke index (D5). De rest van §12 wacht op de kern.
+
 ## 8. Welke schermen er later op kunnen
 
 Niets hiervan wordt nu gebouwd. Dit is wat de onderlaag mogelijk maakt:
@@ -1070,3 +1077,362 @@ Deze staan als issues in openaec-storage, zoals #2 tot en met #7:
   `src/services/file/siteHost.ts`, `src/services/file/hostFileActions.ts`. Het voorbeeld van Open PDF Studio
   (`js/core/werkplek-app.js`) staat niet op de standaardbranch van `open-pdf-studio`; volgens het contract gaat het
   over de assistent, niet over bestanden.
+
+## 12. Schaal en duurzaamheid
+
+De richting van Ethan (5 november 2026): "zorg dat hij flexibel en duurzaam is voor de zeer lange termijn en met grote
+hoeveelheden deelnemers. uiteindelijk willen we natuurlijk ook samenwerken in BIM modellen van meerdere gigabytes. je
+hoeft niet hetzelfde te doen als MS, als het maar beter of net zo goed is."
+
+Dit hoofdstuk geeft per onderwerp het probleem met een getal, de opties, de voorkeur met de reden, de kosten en het
+bewijs. Op de server wordt niets gebouwd tot de kern gelezen is (§9). Keuzes voor de server staan hier daarom als
+opties, met de aanname die beslist. Gebouwd is alleen wat er "gebouwd" bij staat. Een getal met "schatting" is gerekend,
+niet gemeten.
+
+Doelen (voorstel van Claude, nog niet beoordeeld door Ethan):
+
+| Doel | Getal |
+|---|---|
+| Grootte van één model | 5 GB IFC zonder harde grens in bibliotheek of opslag |
+| Geheugen bij verschil en samenvoegen | hoogstens 2 GiB, ook bij 5 GB |
+| Versturen na een kleine wijziging | ongeveer de grootte van de wijziging, niet van het bestand |
+| Deelnemers | 300 tegelijk actief in één ruimte, 1 000 leden op één site |
+| Levensduur | een versie van nu is over tientallen jaren nog te lezen en te vergelijken, ook zonder onze software |
+
+### 12.1 Modellen van meerdere gigabytes
+
+**Het probleem.** De bibliotheek leest de bestanden helemaal in, en houdt per versie een model in het geheugen.
+Samenvoegen heeft er vier: basis, ons, hun, en het resultaat voor de zelfcontrole. Metingen van P4
+(`docs/samenwerken/metingen.md` op `samenvoegen/p4-metingen` in openaec-cloud-desktop, commit `349e3ec`, bibliotheek
+`0655eda`, elke run onder een harde grens van 2 GiB, `MemoryMax=2G`):
+
+| Model | Grootte | `voeg-samen` | Piekgeheugen |
+|---|---|---|---|
+| Dicht (43 bytes per instantie, zoals een gewone BIM-export) | 92 MB | 6,4 s | 1 579 MiB (17 MiB per MB) |
+| Veel geometrie in lange regels (1 900 bytes per instantie) | 150 MB | 5,4 s | 670 MiB (4,4 MiB per MB) |
+| Dicht | 1,2 GB | — | gestopt door de grens: `verschil` tijdens het inlezen van het tweede bestand (na 6,8 s, 2,0 GiB) |
+| Dicht | 6,3 GB | — | gestopt tijdens het inlezen van het bestand zelf (`tel`, na 6,9 s); de controle op 4 GiB (`Fout::TeGroot`, `ontleden.rs` r. 157) komt niet aan de beurt |
+
+De invoer is een open model van buildingSMART (CC BY 4.0), vermenigvuldigd met nieuwe nummers en GlobalIds. Het
+geheugen van `voeg-samen` volgt de formule 4,1 × de bytes + 670 bytes per knoop + 2,8 kB per object (een fit over de
+metingen tot 174 MB). Alleen lezen, één versie, kost bij een dicht model al 2,9 bytes per byte (174 MB: 2,1 s en
+481 MiB). Doorgetrokken (schatting van P4, in GB van 10^9 bytes) vraagt een dicht model van 1 GB 2,9 GB om te lezen,
+9,8 GB voor een verschil en ongeveer 20 GB om samen te voegen. Bij een dicht model van 5 GB is dat 14,5, 49 en 100 GB.
+Een model met veel geometrie in lange regels vraagt minder: 1,1, 2,3 en 4,6 GB bij 1 GB. Of echte modellen van die
+grootte hetzelfde doen, is niet gemeten. Dat de opzet van nu niet tot meerdere GB gaat, is wel gemeten (de regels van
+1,2 en 6,3 GB hierboven). De tijd is een kleiner probleem: 3 tot 7 s per 100 MB (bij een planning van OPS 19 s),
+waarvan een derde de zelfcontrole. Ook het contract is op hele bestanden gebouwd: `Opslag::lees` geeft een `Vec<u8>`
+en `schrijf_als` neemt een `&[u8]` (`samenwerken.rs` r. 53-67).
+
+Versturen schaalt ook slecht. De server hergebruikt een blok van 8 MiB alleen als **dezelfde plek** in de basis dezelfde
+hash heeft (`api.py` `_herbruikbare_blokken`, r. 308). Wordt één regel een byte langer, dan schuift alles erachter.
+Gemeten in meting 07 (desktop-PR #12, branch `samenvoegen/m365-scenario`, `efd675c`), op een model van 92 MB met 11
+blokken: een wijziging vlak bij het einde stuurt 1 blok, een wijziging vlak bij het begin alle 11. Na samenvoegen gaan
+in beide richtingen alle 11 blokken opnieuw over de lijn. Downloaden met `blokken` werkt op dezelfde manier.
+
+**G1. Een objectindex in plaats van het hele model.** Het bestand blijft waar het is (mmap). Per instantie houdt de
+bibliotheek 5 bytes bij: de plek in het bestand en 7 bits (object, wie ernaar verwijst, anker, vluchtig type). Per
+object zijn het 64 bytes: het nummer, een sleutel uit de GlobalId en de inhoudshash volgens de regels van §5.6.
+Attributen leest ze opnieuw uit de tekst als ze nodig zijn. Een inhoudshash hangt af van de knopen waar een knoop naar
+wijst, en die staan soms verderop in het bestand. Daarom rekent ze in een paar doorlopen eerst uit wat globaal is
+(kringen, ankers, gedeelde knopen), en dan per object de hash (`docs/samenwerken/gb-schaal.md` in
+openaec-cloud-desktop). Rekensom (schatting) voor het testmodel van 6,3 GB van P4 (116 miljoen instanties, 780 000
+objecten): 0,6 GB per versie. `verschil` heeft er twee, samenvoegen drie: ongeveer 1,9 GB, net onder de grens van
+2 GiB (2,1 GB). Een bestand met nummers die niet oplopen, valt terug op ongeveer 40 bytes per instantie; dat haalt de
+grens niet.
+- De client bewaart de index van de basis naast de momentopname S in `.openaec/` (§5.6). Samenvoegen hoeft dan alleen
+  ons en hun te indexeren.
+- De index is een cache: hij is altijd opnieuw te maken uit het IFC-bestand (zie §12.3).
+- Elke client rekent de index zelf uit. Een index van een andere client kan fout zijn, door een fout of met opzet, en
+  dan verdwijnt een wijziging stil. Een index van de server is alleen te vertrouwen als de server de bibliotheek draait
+  (A6).
+- Status: `verschil_stromend` wordt gebouwd op `samenvoegen/gb-schaal` (openaec-cloud-desktop, PR #20), met dezelfde
+  uitkomst als `verschil` op elke test. Samenvoegen is daar nog een plan (5 november, 17:10).
+
+**G2. Alleen gewijzigde objecten lezen en samenvoegen.** Gelijke hash is gelijk. Alleen een object met een andere hash
+leest de bibliotheek uit het bestand, met zijn knopen, en daarop gelden de regels van §5.6. De schrijver kopieert de
+bytes van ons en zet alleen de vervangen en nieuwe regels erin. De controles na het samenvoegen (de koppelregel, de
+boomregel, kringen, de grenzen van INVERSE's) hebben de relaties nodig, niet de geometrie. De index houdt daarom de
+graaf van objecten en relaties. De zelfcontrole leest het resultaat streamend opnieuw en vergelijkt de hashes per
+object.
+- De zelfcontrole kost nu een derde van de tijd en het vierde model (P4, profiel per fase). Een smallere controle
+  (alleen wat het samenvoegen raakt, plus de tellingen) mag pas als een test laat zien dat ze dezelfde fouten vindt:
+  de zelfcontrole is het vangnet tegen een fout in het schrijven.
+- Bewijs: een test op het hele testcorpus (dezelfde gewijzigde objecten en dezelfde conflicten als de weg van nu), en
+  metingen op 1 en 5 GB onder een harde grens van 2 GiB (`systemd-run --user --scope -p MemoryMax=2G`). Beide op
+  `samenvoegen/gb-schaal`.
+
+**G3. Het contract van de opslag.** Opties: (a) hele bestanden in het geheugen, zoals nu; (b) paden:
+`lees(versie, naar: &Path)` en `schrijf_als(basis, van: &Path)`; (c) `Read`- en `Write`-stromen. Voorkeur (b): de sync
+heeft de bestanden al op schijf, en de index wil mmap. Kosten: de trait en zijn twee implementaties (de proefopslag in
+de tests en de sync). Samen met G2, want pas dan heeft het effect.
+
+**G4. Alleen wijzigingen versturen.**
+
+| Optie | Wat | Na één lokale wijziging in 5 GB | Na 1 000 verspreide wijzigingen in 5 GB | Hangt af van |
+|---|---|---|---|---|
+| V1 (nu) | Vaste blokken van 8 MiB; hergebruik alleen op dezelfde plek in de basis | gemiddeld de helft van het bestand | bijna alles | — |
+| V2 | Blokgrenzen bepaald door de inhoud (content-defined chunking), 5 tot 16 MiB, een grens alleen na het einde van een instantie; hergebruik op hash uit de basis en de eerdere versies van hetzelfde bestand | één tot enkele blokken (8 tot 50 MiB) | ongeveer 80 % van de 600 blokken (schatting) | A11; servercode ligt stil |
+| V3 | Een objectdelta: alleen de gewijzigde objecten als STEP-regels en de verwijderde GlobalIds; de server bouwt de versie met de bibliotheek | ongeveer de wijziging (kB tot MB) | idem | A6 |
+
+- Waarom minstens 5 MiB: in S3 moet elk deel van een multipart-upload minstens 5 MiB zijn (behalve het laatste), en de
+  server kopieert een stuk van de basis per deel (UploadPartCopy). Zo blijft elke versie één gewoon IFC-object in S3,
+  zoals nu. Kleinere blokken vragen een eigen S3-object per blok en een lijst per versie. Dan is een versie in S3 geen
+  leesbaar IFC-bestand meer, en dat botst met §12.3.
+- Blokken op objectgrenzen helpen alleen samen met grenzen die de inhoud bepaalt. Vaste blokken die op een objectgrens
+  knippen, verschuiven nog steeds. Met V2 zorgen ze dat een gewijzigde instantie in één blok valt.
+- Hergebruik alleen binnen hetzelfde bestand. Hergebruik over bestanden heen laat een gebruiker met een hash testen of
+  een ander dezelfde inhoud heeft.
+- V2 werkt voor elke bestandssoort, ook DWG en PDF. V3 werkt alleen voor IFC, en de server moet byte voor byte hetzelfde
+  bestand maken als de client.
+- Voorkeur: V2 als volgende stap zodra de server weer mag. Microsoft 365 doet differential sync voor alle
+  bestandssoorten ("For other file types, differential sync is available globally", support.microsoft.com,
+  Restrictions and limitations in OneDrive and SharePoint, geciteerd in meting 07). Zonder V2 doen wij het daar dus
+  slechter. V3 alleen als metingen tonen dat wijzigingen meestal verspreid zijn, en als A6 klopt.
+- Kosten van V2: het knippen in de client (`blokken.rs` in openaec-sync), en hergebruik op hash in `upload_start` en
+  `blokken` op de server; de opslag in S3 blijft gelijk. Kosten van V3: de bibliotheek als hulpprogramma op de server
+  (issue #13).
+- Bewijs (niet gebouwd): een meting zonder server die voor echte paren van versies telt hoeveel bytes er onder V1, V2 en
+  V3 over de lijn gaan. Paren: de voorbeelden van OPS, de invoer van P4 (`weinig`, `groot`), en versies uit een
+  ontwerpprogramma. Het hoort naast `crates/openaec-samenvoegen/scripts/meting/` van P4.
+
+**G5. Een model deels laden.** Opties: (a) federatie: het projectmodel bestaat uit meer IFC-bestanden, bijv. per
+discipline of per bouwdeel, zoals in BIM gebruikelijk is (eigen kennis); (b) deels laden met de objectindex: een app
+vraagt "verdieping 3 met alles erin", de index geeft de objecten, hun knopen en de plekken in het bestand, en de client
+leest alleen die stukken. Voorkeur (a): het werkt nu, met elk programma, en het verlaagt ook het aantal schrijvers per
+bestand (D6 in §12.2). Het kost geen software, alleen een afspraak in het project. (b) bouwt later op G1, als een app
+erom vraagt. Terugschrijven vanuit een deel vraagt dan de hele basis in de client, of V3 op de server.
+
+### 12.2 Honderden deelnemers aan één project
+
+Rekenvoorbeeld: 300 actieve deelnemers in één ruimte met 20 000 bestanden, elk met de desktop-app. De app vraagt elke
+30 s `wijzigingen`, en doet elke 10 minuten hoe dan ook een ronde (`bewaking.rs` r. 19-21, main `a3aceac`).
+
+**D1. Elke ronde vraagt de hele boom.** In de desktop-sync is de wijzigingenlijst alleen het sein dat er iets nieuws
+is. Daarna haalt elke ronde de hele ruimte op met `boom` (`motor.rs` `sync_met_opties` en `opslag.rs`
+`lijst_als_boom`, main `a3aceac`). De simulatie (P2) laat het zien: 191 rondes en 191 keer `boom` (run `b-zaad1`,
+8 clients, desktop `1b451e1`, server `197d55b`). Rekenvoorbeeld: 300 deelnemers slaan samen ongeveer één keer per
+seconde op. Dan ziet elke client bij elke controle iets nieuws en vraagt hij 20 000 regels. Samen is dat
+300 × 20 000 / 30 s = 200 000 regels per seconde voor één ruimte (schatting). De 10 HTTP-verzoeken per seconde naar
+`wijzigingen` zijn daarnaast klein: met 4 werkers van gunicorn verwerkte de proefbench ongeveer 200 verzoeken per
+seconde, en een poll duurde bij 300 clients 1,5 s (p50) (P2, lastproef `d-last-4werkers` van 17:34, desktop
+`c9e8052`, server `197d55b`).
+- Opties: (a) zoals nu; (b) een ronde op de wijzigingen: de client past de regels uit de lijst toe op zijn beeld van de
+  server, en vraagt alleen de bestanden en mappen die daarin staan; de hele boom alleen bij het starten, na
+  `cursor_te_oud` (D2) en één keer per dag; (c) `boom` met een `sinds`, zodat de server alleen gewijzigde regels geeft.
+- Voorkeur (b): de regels staan al op de server. De hele boom als vangnet mag pas zelden als de cursor niets meer
+  overslaat, dus alleen tegen een server met 4b (§5.4, `mogelijkheden()`). Een verplaatste map verandert het pad van
+  alles eronder; de client houdt mappen daarom bij hun id bij, niet bij hun pad. (c) is minder werk in de client, maar
+  vraagt servercode.
+- Kosten: een tweede weg in de motor van de sync, naast de volledige ronde.
+- Bewijs: in de simulatie volgt op elke ronde op de wijzigingen een volledige ronde, en beide geven hetzelfde beeld. P2
+  telt al de gemiste regels per client: 0 van de 299 in run `b-zaad1`.
+
+**D2. De wijzigingenlijst blijft groeien.** Schatting: 300 deelnemers met elk 100 regels per dag (een app die elke 5
+minuten opslaat) geven 11 miljoen regels per jaar in één ruimte, ongeveer 2 GB. De index op `(ruimte, commitnummer)`
+(PR #16) houdt het lezen snel. De groei raakt de schijf, de back-ups en elke patch die de tabel wijzigt.
+- Opties: (a) alles bewaren; (b) een bewaartermijn voor de sync; (c) partities in MariaDB op het commitnummer, maar
+  Frappe kent geen partities, en elke `ALTER TABLE` bij een migratie moet er rekening mee houden.
+- Voorkeur (b). De site bewaart een ondergrens op de tellerregel: het hoogste commitnummer dat weg is.
+  `wijzigingen(sinds)` met `sinds` onder de ondergrens geeft `cursor_te_oud`. De client doet dan een volledige ronde en
+  gaat verder met de cursor die hij krijgt. Een nieuwe client (`sinds=0`) doet dat al.
+- Veilig verwijderen: nooit een regel met nummer 0. De ondergrens omhoog en de regels eronder weg in dezelfde
+  transactie, in delen onder de schrijfgrens (D3). Een lezer ziet dan beide of geen van beide.
+- Beslissend: hoe lang de activiteit (`activiteit`, §5.5) terug moet. De versies staan in `Bestandsversie`, en die
+  regels gaan nooit weg. Moeten de andere gebeurtenissen jaren blijven (dossier, aansprakelijkheid), dan horen ze in een
+  eigen archief, niet in de lijst van de sync. Een verplichte bewaartermijn vond ik niet; dit besluit is aan Ethan.
+  Voorstel: 180 dagen voor de sync.
+- Kosten: een foutcode, een vlag in `mogelijkheden()`, een opruimtaak in de scheduler (A10), en een besluit over de
+  activiteit.
+- Bewijs: databaseproeven zoals in §5.4: een cursor net onder, op en boven de ondergrens; verwijderen tijdens een
+  lezing; een nieuwe client.
+
+**D3. De veger bij een grote achterstand.** Frappe breekt een transactie af na 200 000 schrijfacties
+(`MAX_WRITES_PER_TRANSACTION`, `frappe/database/database.py` r. 99, Frappe 16.55.2; in te stellen met
+`max_writes_per_transaction`). De veger nummert alle regels met nummer 0 in één transactie (§5.4, stap 5). Voorbeeld:
+'s nachts importeert een taak 250 000 bestanden, in delen met een commit ertussen, en geen client leest. De eerste lezer
+daarna vindt meer dan 200 000 regels met nummer 0, en zijn veger faalt. De volgende ook, want de achterstand groeit
+alleen. Geen client krijgt nog nieuwe regels (VERVOLG-punt van Sol op PR #16).
+- Een grote achterstand houdt ook de anderen op, op de hele site en niet alleen in de ruimte. Elke lezer die een regel
+  met nummer 0 ziet, wacht op het tellerslot (§5.4, stap 3). Gemeten in de lastproef van P2 (run `d-last-4werkers` van
+  17:34, server `197d55b`, log in `1b54141`, bekend punt 62 in `crates/openaec-sync/knownbugs.md`): bij een
+  achterstand van 9 664 regels duurt de eerste lezing 2,7 s, bij 40 000 regels 9,0 s en bij 150 000 regels 31,6 s.
+  Alle 20 polls van andere clients wachten zo lang mee (31,1 s bij 150 000). Daarna gaat lezen weer snel: de hele lijst
+  van 200 000 regels vanaf cursor 0 kost 7,5 s in 201 pagina's, en een stille ruimte vanaf 0 kost 0,017 s.
+- Oplossing, twee delen. (1) De veger nummert per ronde hoogstens 1 000 regels (ongeveer 0,3 s slot, afgeleid uit de
+  meting), in volgorde van `name`, en commit. Hij herhaalt tot er niets over is of tot 2 s om zijn. De rest houdt
+  nummer 0 en blijft onzichtbaar; de volgende lezer gaat verder. (2) Een lezer die het slot bezet vindt
+  (`FOR UPDATE NOWAIT`), veegt niet en leest meteen. De garantie blijft: elke ronde geeft hogere nummers dan alle
+  eerdere, en de regels van de andere veger krijgen een nummer boven elke uitgedeelde cursor, dus de lezer krijgt ze
+  bij zijn volgende vraag. Kosten: een lus om stap 3 tot en met 6 van §5.4, en `NOWAIT` in stap 3. Hoort bij stap 4b.
+  Sneller per deel kan met één `UPDATE` voor de namen uit de lezing van stap 4. Eén `UPDATE` over alle regels met
+  nummer 0 mag niet: zo'n `UPDATE` leest de nieuwste stand en wacht op het slot van een open transactie, en dan wacht de
+  veger toch op een schrijver (§5.4, stap 4).
+- Bewijs: een test met een achterstand boven de grens, met de grens in de test laag gezet
+  (`frappe.db.MAX_WRITES_PER_TRANSACTION = 1000`), zodat hij snel blijft. Zonder de lus faalt die test met
+  `TooManyWritesError`. En de lastproef van P2 opnieuw: de polls van anderen wachten niet meer op een grote veger.
+
+**D4. Push, aanwezigheid en meldingen.** §5.4 pusht naar de persoonlijke kamer van elke lezer, zonder inhoud. De
+server bepaalt de lezers bij elke aflevering opnieuw, en de client haalt de inhoud zelf op met een gewone aanroep. Per
+gebeurtenis kost dat dus N rechtencontroles, N berichten en N ophaalverzoeken, met N het aantal lezers. Rekenvoorbeeld
+(schatting): 300 lezers en één gebeurtenis per seconde geven 900 handelingen per seconde voor één ruimte. Bij
+aanwezigheid is het zwaarder: kijken 300 mensen naar één bestand, dan vraagt bij elke wisseling iedereen `aanwezig()`,
+met elk 300 namen. Bij één wisseling per seconde is dat 90 000 regels per seconde. Daarbij komen 10 HTTP-meldingen per
+seconde (300 / 30 s) van `meld_aanwezig`.
+- Opties: (a) zoals §5.4 en §5.8; (b) bundelen per gebruiker: hoogstens één push per gebruiker per 2 s ("er is iets
+  nieuws"), waarna de client één keer `wijzigingen` vanaf zijn cursor leest (de ronde op de wijzigingen van D1); bij
+  aanwezigheid hoogstens één push per bestand per 2 s, en `aanwezig()` geeft de eerste 50 en het aantal; (c) de
+  herhaalde melding van aanwezigheid over de realtime-verbinding in plaats van HTTP.
+- Voorkeur (b). De veiligheidsregel van §5.4 blijft: geen inhoud in de push, het recht bij de aflevering van de bundel
+  en opnieuw bij het ophalen. Kosten: een bundelstap na de commit, in de wachtrij (A10). (c) pas als A2 klopt.
+- Bewijs: de lastproef van P2 (`scripts/simulatie/last.py`) telt verzoeken per seconde bij 100 tot 300 clients; met
+  push erbij (pas na stap 6) telt hij ook de pushes en de ophaalverzoeken per gebruiker.
+- Meldingen: een bestand met 300 volgers en elke minuut een nieuwe versie geeft 300 Notification Logs per minuut
+  (432 000 per dag). Voorkeur: automatisch volgen (§5.10, `bron: automatisch`) vervalt na 30 dagen zonder eigen
+  handeling. Eén regel per gebeurtenis met een leescursor per gebruiker (zoals de wijzigingenlijst) is de optie voor
+  daarna. Waar meldingen wonen, beslist A3 (issue #15).
+
+**D5. Uitchecken per object zonder één slot.** §5.3 bewaart de objecten van een claim als JSON-lijst. Een nieuwe claim
+moet met alle lijsten van het bestand vergelijken, onder een slot op het bestand; anders slagen twee overlappende claims
+tegelijk. Voorbeeld: 300 mensen met elk 1 000 objecten. Dan leest en vergelijkt elke claim 300 000 GlobalIds, en alle
+claims op het bestand wachten op één slot.
+- Opties: (a) zoals §5.3; (b) een eigen DocType met één regel per (bestand, GlobalId) en een unieke index: de database
+  weigert de tweede claim zelf, zonder slot op het bestand; (c) een claim per groep (een verdieping met alles erin):
+  klein, maar dan moet de server de boom van het model kennen (A6).
+- Voorkeur (b). Een claim wacht alleen op claims op dezelfde objecten, en het schaalt tot miljoenen regels. De
+  DocType krijgt de bescherming van §5.14: de controller weigert wijzigen langs de algemene routes van Frappe. Een claim
+  voegt in met `frappe.db.bulk_insert`. Een verlopen claim op hetzelfde object gaat in dezelfde transactie eerst weg.
+  Eén claim blijft onder de schrijfgrens van D3 (voorstel: hoogstens 100 000 objecten); groter vraagt (c). Kiest Ethan
+  (b), dan vervangt dit het veld `objecten` van `Objectuitcheck` in §5.3. Kosten: een DocType in plaats van een
+  JSON-veld; er is nog niets gebouwd, dus er is niets te migreren.
+- Bewijs: twee verbindingen claimen tegelijk overlappende lijsten. Eén wint, de ander krijgt `object_uitgecheckt` met
+  precies de overlap. Plus een meting van een claim van 100 000 objecten.
+
+**D6. Veel schrijvers op één bestand.** De opslaan-lus probeert hoogstens 5 keer (`LusOpties::max_pogingen`); daarna
+maakt de sync een conflictkopie (`motor.rs` r. 963 op `samenwerken/5b-samenvoegen`, `25c20a0`). Eén poging duurt T: hun
+downloaden, samenvoegen, uploaden. Komen er λ opslagen per seconde op het bestand, dan slaagt een poging met een kans
+van ongeveer e^(−λT) (schatting: niemand anders slaat op tijdens T). Voorbeeld: 20 schrijvers die elk om de 15 minuten
+opslaan (λ = 1/45 per seconde):
+
+| Model | T | Kans per poging | Na 5 pogingen een conflictkopie |
+|---|---|---|---|
+| 100 MB | ongeveer 20 s | 64 % | 0,6 % |
+| 1 GB met de opzet van nu, als er ongeveer 20 GB geheugen is (downloaden met 100 Mbit/s, samenvoegen, uploaden) | ongeveer 3 min | 2 % | 91 % |
+
+Uitchecken per object helpt hier niet: ook zonder conflict racen de schrijvers om de versie van het bestand.
+- Opties: (a) T klein maken met G1 tot en met G4; (b) een wachtrij op de server: de client uploadt zijn versie met zijn
+  basis als voorstel, en de server voegt per bestand één voorstel tegelijk samen met de huidige versie. Niemand verliest
+  een race, en niemand doet werk opnieuw. Dit vraagt de bibliotheek op de server (A6). (c) een korte schrijfbeurt: de
+  client vraagt vlak voor zijn laatste poging een slot van 2 minuten. (d) federatie (G5): minder schrijvers per bestand.
+  (e) een willekeurige wachttijd tussen twee pogingen, die elke keer langer wordt (backoff met jitter).
+- Voorkeur: nu (a), (d) en (e); (e) is klein en zit alleen in de client, maar maakt verhongeren alleen minder
+  waarschijnlijk, niet onmogelijk. Daarna (b) als A6 klopt: de lastproef hieronder laat zien dat de lus in de client
+  alleen niet genoeg is bij veel schrijvers op één bestand. Niet (c): een client die hangt of offline gaat met de
+  schrijfbeurt, laat iedereen wachten; (b) geeft dezelfde volgorde zonder dat.
+- Bij (b) moeten de client en de server dezelfde versie van de bibliotheek gebruiken, of de server noemt zijn versie in
+  het rapport. Anders kan "gelijk" op de server iets anders betekenen dan in de client (§12.3, de canonieke vorm).
+- Bewijs: de lastproef van P2 (run `d-last-4werkers` van 17:34: 4 werkers van gunicorn, kleine bestanden, elke client
+  schrijft hetzelfde bestand met 1 s denktijd, 45 s per stap) laat zien dat de lus vastloopt. Bij 100 schrijvers
+  slaagden 20 opslagen, tegen 1 835 weigeringen met `verouderde_basis`, en 96 schrijvers slaagden nooit. Bij 300
+  schrijvers waren het 7 opslagen, alle van één client; 299 schrijvers slaagden nooit. Er waren geen andere fouten.
+- De simulatie (P2) telt ook de weigeringen bij een gewone belasting. Run `b-zaad1` (8 clients, 20 beurten, 15 % kans
+  dat twee clients tegelijk hetzelfde bestand opslaan): 254 opslagen, alle 254 op de server; 139 keer
+  `verouderde_basis` (117 bij `upload_start`, 22 bij `upload_klaar`), 93 samenvoegingen, 16 conflictkopieën. De
+  bestanden zijn klein, dus T is kort. Na G1 volgt een meting met N schrijvers op een model van 1 GB.
+
+### 12.3 Duurzaam voor de zeer lange termijn
+
+**Wat de bron is en wat een cache is.** De bron: de IFC-versies in S3 met hun `Bestandsversie`, het samenvoegrapport bij
+een versie, de opmerkingen met hun anker, de rechten en de wijzigingenlijst (zolang die bewaard blijft). Al het andere
+is daaruit opnieuw te maken: de objectindex, de inhoudshashes, de blokhashes en de aanwezigheid. De regel: een cache
+draagt zijn formaatversie, en bij een andere versie maakt de software hem opnieuw. Een cache is nooit de enige plek van
+iets.
+
+**Een versie op elk formaat dat we bewaren.**
+
+| Formaat | Waar | Nu | Voorstel |
+|---|---|---|---|
+| Toestand van de sync | `.openaec/staat.json` (`motor.rs` `laad`, main `a3aceac`) | geen versie; een onleesbaar bestand wordt stil een lege toestand (`unwrap_or_default()`) | een veld `formaat`. Een onbekend, hoger formaat (een oudere app na een downgrade): de sync stopt voor die map met een duidelijke fout en schrijft niets. Wat de sync nu met een lege toestand doet bij een volle map, is niet nagegaan |
+| Journaal van vervangingen | `.openaec/journaal/*.json` (stap 5a, `vervang.rs`) | geen versie; een onleesbaar item geeft een fout | een veld `formaat` |
+| Objectindex (G1) | `.openaec/`, later misschien bij de versie op de server | — | `formaat`, de versie van de canonieke vorm (wat "gelijk" is: getallen, teksten, vluchtige velden), de hashfunctie, en de BLAKE3 van het IFC-bestand. Klopt er één niet: opnieuw maken |
+| Samenvoegrapport | `Bestandsversie.samenvoegrapport` (§5.3) | — | `formaat` en de versie van de bibliotheek; een veld verandert nooit van betekenis |
+| Blokken | `Bestandsversie.blokgrootte`, `blokhashes` | de blokgrootte staat per versie (groter boven 80 GiB) | met V2 ook de manier van knippen per versie; oude versies houden hun manier |
+| API | `mogelijkheden()` | een vlag per functie | een client vraagt naar functies, niet naar een versienummer. Een veld verdwijnt niet en verandert niet van betekenis; een nieuwe betekenis krijgt een nieuwe naam (zoals `basis_versie_id` naast `basis_versie`) |
+
+**Migratie.** Op de server met Frappe-patches, zoals in stap 4: niets hernummeren, elke herstelling loggen, en een
+tweede run verandert niets. In de client leest de sync formaat n en n−1 en schrijft n, via de bestaande weg met een
+tijdelijk bestand en een rename (`bewaar`). Een index maakt hij gewoon opnieuw. Let op: een andere canonieke vorm (bijv.
+een nieuw vluchtig veld) verandert welke objecten "gewijzigd" zijn bij hetzelfde paar bestanden. Daarom hoort de versie
+van de canonieke vorm in de index en in het rapport. Een nieuwe hashfunctie komt in een nieuw veld, niet in het oude.
+
+**Open standaarden en uitstappen.** IFC 4.3 is ISO 16739-1:2024 (fragment:
+[iso.org](https://www.iso.org/contents/data/standard/08/41/84123.html), en de aankondiging van buildingSMART van
+2 april 2024); het bestandsformaat is STEP (ISO 10303-21). Opmerkingen volgen BCF 3.0 (buildingSMART, geen ISO-norm).
+Elke versie in S3 is een volledig bestand (bij een model een gewoon IFC-bestand), en met V2 blijft dat zo. Een ruimte is
+dus te exporteren als bestanden met versies plus een `.bcfzip`, en te lezen zonder onze software. IFC5 is in
+ontwikkeling (alpha). Het hoofdformaat wordt waarschijnlijk JSON en niet STEP, maar dat is nog geen besluit (fragment:
+[forums.buildingsmart.org](https://forums.buildingsmart.org/t/clarifying-the-role-of-ifc-step-spf-in-ifc5-and-its-relationship-with-modern-formats-like-json/6046)).
+Het objectmodel (een vaste sleutel per object, attributen per object) blijft passen. Een tweede lezer komt achter
+dezelfde functies van de bibliotheek (zie de grenzen hieronder).
+
+**Niet vast aan één transport.** Alles wat een client niet mag missen, staat in de wijzigingenlijst; push en de haak
+zijn alleen een signaal (§5.4, §9). Een nieuw transport (WebSocket, SSE, een berichtenbus tussen sites) maakt het dus
+sneller, nooit juister. De bibliotheek ziet alleen de trait `Opslag`.
+
+**Ruimte voor live samen bewerken (§5.11).** `verschil` geeft al per object en per attribuut de oude en de nieuwe
+waarde. Een live wijziging "attribuut X van object G kreeg waarde W" is dezelfde eenheid. Voorstel: één vorm voor drie
+dingen: de uitvoer van `verschil`, de objectdelta van V3, en later een live stroom. Nu bouwen we daar niets voor. De
+enige eis voor nu: `verschil` noemt een attribuut bij zijn naam uit het schema, niet bij zijn plek, en een verwijzing
+naar een knoop als inhoud, naar een object als GlobalId (zoals §5.6).
+
+**Andere bestandssoorten.** De grens is: `kan_samenvoegen(naam)`, `verschil`, `voeg_samen` en het rapport. Een tweede
+formaat (bijv. IFC5, of het eigen formaat van een app) komt achter dezelfde functies; de sync en de server veranderen
+niet. DWG, PDF en de rest blijven bij uitchecken per bestand en een conflictkopie (§5.6, "Wat het niet doet"); V2 helpt
+ze wel bij het versturen. Een trait voor formaten komt pas als er een tweede formaat is.
+
+**De grenzen tussen de lagen.** De nummers volgen §5.1.
+
+| Laag | Weet | Weet niet | Contract |
+|---|---|---|---|
+| 1. Opslag (openaec-storage: `Bestandsversie`, S3, blokken, wijzigingenlijst) | bytes, versies (`versie_id`), blokken en hashes, de basis vergelijken, rechten op de plek, de volgorde van gebeurtenissen | wat er in een bestand staat: geen IFC, geen GlobalIds, geen samenvoegen | `versies`, `download(…, versie_id)`, `upload_start` en `upload_klaar` met `basis_bestand`, `basis_versie_id` en `bij_conflict`, `blokken`, `wijzigingen(sinds)` met cursor, `mogelijkheden()` |
+| 2. Samenwerkdiensten (server) | mensen, rechten (via `vereis_op_plek` van laag 1), GlobalIds als tekst zonder betekenis (ankers, uitchecken), gebeurtenissen | de inhoud van een IFC-bestand, S3-sleutels en blokken. Heeft hij IFC-kennis nodig (`verschil`, handhaven, een wachtrij), dan roept hij laag 3 aan als los programma: bytes erin, verschil of rapport eruit (A6) | de API van §5.5 en de push; elke gebeurtenis gaat via `gebeurtenis()` in de lijst van laag 1 |
+| 3. Formaatkennis (bibliotheek) | IFC en STEP, schema's, objecten, ankers, verschil, samenvoegen, de opslaan-lus | netwerk, database, gebruikers, rechten, de vorm van de API | `kan_samenvoegen`, `verschil`, `voeg_samen`, het rapport; naar de opslag alleen de trait `Opslag` (`huidige`, `lees`, `schrijf_als`) met een bestand- en versie-id zonder betekenis |
+| Transport (HTTP nu; later push, WebDAV, browser, werkplek) | hoe een verzoek aankomt | eigen regels | elke weg komt langs dezelfde functies (K10) |
+
+- Afhankelijkheden gaan één kant op. De client (desktop-sync) zet laag 3 samen met een implementatie van `Opslag` voor
+  laag 1. Laag 2 gebruikt laag 1 (rechten, gebeurtenissen), en later laag 3 als programma. Laag 1 kent laag 2 en 3 niet:
+  laag 2 hoort van laag 1 via de haak en de lijst (§5.4), niet via een directe aanroep. Dat scherpt §5.4 aan: daar
+  stuurt `gebeurtenis()` zelf de meldingen (punt 3). Met de meldingen aan de haak kunnen ze ook in de kern wonen (A3)
+  zonder dat laag 1 verandert.
+- Laag 3 deelt maar twee sleutels met de andere lagen: de GlobalId (met laag 2, die er geen betekenis aan geeft) en het
+  versie-id (met laag 1, via de trait; laag 3 geeft er geen betekenis aan).
+- Een laag is te vervangen achter zijn contract: een andere S3 voor laag 1, een andere plek voor laag 2 (§9), een ander
+  formaat voor laag 3.
+
+### 12.4 Voor Sol
+
+Punten die een review op schaal en duurzaamheid moet toetsen:
+
+1. G1 en G2: klopt de rekensom van het geheugen (5 bytes per instantie, drie indexen, 1,9 GB bij 6,3 GB), en waar
+   gaat het geheugen nog heen (verwijzingen naar verderop, gedeelde knopen, het schrijven)? Geeft de weg per object
+   precies dezelfde uitkomst als de weg van nu, ook voor de controles die de hele graaf nodig hebben (koppelregel,
+   boomregel, kringen)?
+2. G1: is het terecht dat een client geen index van een andere client vertrouwt? Kan een index van de basis in
+   `.openaec/` verouderen zonder dat de client het merkt?
+3. G4, V2: kan hergebruik op hash ooit een verkeerd stuk in een versie zetten (een range die niet klopt, een blok van
+   een versie die de gebruiker niet mag lezen), en lekt het iets tussen gebruikers?
+4. D1: kan een ronde op de wijzigingen een ander beeld geven dan een volledige ronde, bijv. na een verplaatste map,
+   bij een deling als wortel, of bij een soort regel die de client niet kent?
+5. D2: kan een client met een cursor net onder, op of boven de ondergrens iets missen? Wat bij een verwijdering tijdens
+   een lezing, en bij een deling als wortel?
+6. D3: geeft de veger in delen dezelfde garantie als §5.4 (niets gemist, geen dubbel nummer), ook met de tijdgrens en
+   twee vegers tegelijk? Is "niet vegen als het slot bezet is" veilig?
+7. D4: blijft de regel van §5.4 staan als pushes gebundeld worden, bijv. een bundel die klaarstond vóór een deling
+   werd ingetrokken?
+8. D5: twee gelijktijdige claims met overlap, een verlopen claim, en de schrijfgrens. Wint er altijd precies één?
+9. D6: klopt de schatting e^(−λT)? Verliest een wachtrij op de server ooit stil werk, bijv. door een andere versie van
+   de bibliotheek dan in de client?
+10. §12.3: een downgrade van de app, een index met een andere canonieke vorm, een rapport in een oud formaat. Gaat er
+   iets stil mis?
+11. De grenzen tussen de lagen: lekt er ergens kennis over, bijv. GlobalIds in laag 1 of S3 in laag 2?
+12. Overengineering: wat in dit hoofdstuk is niet nodig voor de doelen bovenaan?
