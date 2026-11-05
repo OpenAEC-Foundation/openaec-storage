@@ -3,8 +3,7 @@
 Elke `Verbinding` is een eigen thread met een eigen Frappe-context en databaseverbinding, zoals een verzoek of taak op
 een tweede werker. De test bepaalt stap voor stap wie invoegt, wie commit en wie terugdraait; wat niet gecommit is,
 blijft open staan tot de volgende stap. Wat een andere verbinding moet zien, is echt gecommit, dus deze tests ruimen
-hun gegevens zelf op. De hoofdthread nummert hier zoals buiten de tests (`frappe.flags.oa_nummer_bij_commit`); hij
-leest alleen, telkens met een verse momentopname."""
+hun gegevens zelf op. De hoofdthread leest alleen, telkens met een verse momentopname."""
 
 import queue
 import random
@@ -89,7 +88,6 @@ def rollback():
 
 class Basis(IntegrationTestCase):
 	def setUp(self):
-		frappe.flags.oa_nummer_bij_commit = True
 		ruim_op()
 		self.anna = gebruiker("anna")
 		self.r1 = ruimte("Project Een", {self.anna: "beheerder"})
@@ -107,7 +105,6 @@ class Basis(IntegrationTestCase):
 		frappe.db.delete("Notification Log", {"for_user": ("like", "%@storage-test.localhost")})
 		ruim_op()
 		frappe.db.commit()
-		frappe.flags.oa_nummer_bij_commit = False
 
 	def verbinding(self, naam: str) -> Verbinding:
 		v = Verbinding(self, naam)
@@ -341,30 +338,109 @@ class TestCommitnummer(Basis):
 		self.assertEqual(volgorde, ["callback", "teller"])
 		self.assertEqual(self.nummer(self.name_van("uit-callback")), self.nummer(gewoon) + 1)
 
-	def test_callback_die_blijft_wachten_krijgt_toch_een_nummer(self):
-		"""Een callback die zich steeds opnieuw achteraan zet: na `MAX_UITSTEL` keer deelt de nummeraar toch uit.
-		Schrijft de callback daarna nog een regel, dan meldt die insert de nummeraar opnieuw aan, en nummert hij in
-		dezelfde commit door (de teller is dan nog van deze transactie)."""
+	def test_callback_die_blijft_uitstellen_breekt_de_commit_af(self):
+		"""De proef van Sol (fixronde 1, punt 2): een callback zet zich steeds opnieuw achteraan, en draait als laatste
+		handeling terug naar een savepoint van na het maken van de map en vóór de nummering. Vroeger nummerde de
+		nummeraar na `MAX_UITSTEL` keer toch: tellerslot, de callback zag het nummer, de rollback naar het savepoint
+		maakte het weer 0, en de SQL-commit legde map en regel vast met nummer 0 (de lijst gaf ze nooit). Nu mislukt de
+		commit; er komt niets vast. Een nieuwe poging nummert opnieuw: als de callback klaar is, is de nummeraar de
+		laatste."""
 		a = self.verbinding("A")
-		rondes = {"aantal": 0}
+		voor = self.teller()
+		gemaakt, gezien = {}, []
 
 		def koppig():
-			rondes["aantal"] += 1
-			if rondes["aantal"] <= commitnummer.MAX_UITSTEL + 2:
+			gemaakt["rondes"] += 1
+			if gemaakt["rondes"] <= commitnummer.MAX_UITSTEL + 2:
 				frappe.db.before_commit.add(koppig)
 			else:
-				schrijf(self.r1, "na-de-nummeraar")
+				gezien.append(frappe.db.get_value("Opslagwijziging", gemaakt["regel"], "commitnummer"))
+				frappe.db.rollback(save_point="na_de_map")
 
 		def transactie():
-			gewoon = schrijf(self.r1, "gewoon")
+			gemaakt["map"] = api.maak_map(ruimte=self.r1, naam="Koppig")["map"]
+			gemaakt["regel"] = frappe.db.get_value("Opslagwijziging", {"doel": gemaakt["map"]}, "name")
+			gemaakt["rondes"] = 0
+			frappe.db.savepoint("na_de_map")
 			frappe.db.before_commit.add(koppig)
 			frappe.db.commit()
-			return gewoon
 
-		gewoon = a.doe(transactie)
-		laat = self.name_van("na-de-nummeraar")
-		self.assertEqual(self.nummer(laat), self.nummer(gewoon) + 1)
-		self.assertEqual(self.teller(), self.nummer(laat))
+		with self.assertRaises(commitnummer.NummeringMislukt):
+			a.doe(transactie)
+		# Niets vastgelegd: geen map, geen regel (ook niet met nummer 0), en de teller staat stil.
+		self.assertIsNone(self.name_van(gemaakt["map"]))
+		self.assertFalse(frappe.db.exists("Opslagmap", gemaakt["map"]))
+		self.assertEqual(self.teller(), voor)
+		self.assertEqual(gezien, [])
+		# Een nieuwe poging: de callback draait zijn laatste rondes (en ziet nummer 0), daarna nummert de nummeraar.
+		a.doe(commit)
+		self.assertEqual(gezien, [0])
+		nummer = self.nummer(gemaakt["regel"])
+		self.assertEqual(nummer, voor + 1)
+		self.assertEqual(self.teller(), nummer)
+		self.assertIn(gemaakt["map"], doelen(self.lees(self.r1)))
+
+	def test_wachttijd_op_de_teller_om_dan_mislukt_de_commit_en_nummert_de_volgende(self):
+		"""De proef van Sol (fixronde 1, punt 1): een tweede verbinding houdt de teller vast; `maak_map`; met een
+		wachttijd van 1 s geeft `commit()` 1205 (QueryTimeoutError). Vroeger had de nummeraar zijn lijst en zijn
+		aanmelding dan al weggegooid: de volgende `commit()` legde map en regel vast met nummer 0, en
+		`wijzigingen(sinds=0)` gaf ze nooit. Nu staan na de fout de naam nog op de lijst en de nummeraar nog in de
+		wachtrij, en nummert de volgende commit."""
+		a, b = self.verbinding("A"), self.verbinding("B")
+		voor = self.teller()
+		b.doe(lambda: frappe.db.sql("select current from `tabSeries` where name = %s for update", commitnummer.TELLER))
+
+		def map_maken():
+			frappe.db.sql("set session innodb_lock_wait_timeout = 1")
+			map_id = api.maak_map(ruimte=self.r1, naam="Wacht")["map"]
+			return map_id, frappe.db.get_value("Opslagwijziging", {"doel": map_id}, "name")
+
+		map_id, regel = a.doe(map_maken)
+		with self.assertRaises(frappe.QueryTimeoutError):
+			a.doe(commit)
+		namen, aangemeld = a.doe(
+			lambda: (list(commitnummer._staat()["namen"]), list(frappe.db.before_commit._functions).count(commitnummer._nummer))
+		)
+		self.assertEqual((namen, aangemeld), ([regel], 1))
+		self.assertIsNone(self.name_van(map_id), "niets vastgelegd")
+		b.doe(rollback)
+		a.doe(commit)
+		self.assertEqual(self.nummer(regel), voor + 1)
+		self.assertEqual(self.teller(), voor + 1)
+		self.assertIn(map_id, doelen(self.lees(self.r1, sinds=0)))
+		self.assertEqual(
+			frappe.db.sql("select count(*) from `tabOpslagwijziging` where ruimte = %s and commitnummer = 0", self.r1)[0][0], 0
+		)
+
+	def test_halve_nummering_gaat_helemaal_terug(self):
+		"""Mislukt het uitdelen na het nummeren van de regels maar vóór de teller is bijgezet, dan gaat alles terug naar
+		het savepoint van de nummeraar. Anders had de regel al een nummer boven de teller: een nieuwe poging sloeg haar
+		over, en een andere transactie kon hetzelfde nummer nog eens uitgeven."""
+		a = self.verbinding("A")
+		voor = self.teller()
+
+		def transactie():
+			regel = schrijf(self.r1, "half")
+			echte, keer = frappe.db.sql, {"aantal": 0}
+
+			def sql(query, *args, **kwargs):
+				if str(query).startswith("update `tabSeries`") and not keer["aantal"]:
+					keer["aantal"] += 1
+					raise frappe.QueryTimeoutError("nagebootst")
+				return echte(query, *args, **kwargs)
+
+			with mock.patch.object(frappe.db, "sql", sql):
+				try:
+					frappe.db.commit()
+				except frappe.QueryTimeoutError:
+					pass
+			na_de_fout = frappe.db.get_value("Opslagwijziging", regel, "commitnummer")
+			frappe.db.commit()
+			return regel, na_de_fout
+
+		regel, na_de_fout = a.doe(transactie)
+		self.assertEqual(na_de_fout, 0, "de regel houdt geen nummer van een mislukte nummering")
+		self.assertEqual((self.nummer(regel), self.teller()), (voor + 1, voor + 1))
 
 	def test_activiteit_sorteert_en_nummert_op_het_commitnummer(self):
 		a, b = self.verbinding("A"), self.verbinding("B")
@@ -471,8 +547,8 @@ class TestCommitnummer(Basis):
 
 
 class TestMigratie(IntegrationTestCase):
-	"""Bestaande regels en de teller. Draait in de hoofdthread zonder commit (de regels krijgen hier meteen een
-	nummer, zie commitnummer._direct) en eindigt met een rollback."""
+	"""Bestaande regels en de teller. Draait in de hoofdthread zonder commit en eindigt met een rollback; wat het in
+	zijn eigen transactie leest, nummert het eerst zelf (`commitnummer.deel_uit`)."""
 
 	def setUp(self):
 		ruim_op()
@@ -502,6 +578,7 @@ class TestMigratie(IntegrationTestCase):
 		)
 		# Een cursor van vóór de migratie (een name) blijft geldig: de rest komt erna.
 		api._log(self.ruimte, "nieuw", "Opslagmap", "nieuw")
+		commitnummer.deel_uit()
 		uit = api.wijzigingen(ruimte=self.ruimte, sinds=oud[0])
 		self.assertEqual(doelen(uit), ["oud-1", "oud-2", "nieuw"])
 		self.assertEqual(uit["wijzigingen"][-1]["volgnummer"], hoogste + 1)
@@ -543,7 +620,10 @@ class TestNummerVanBuiten(IntegrationTestCase):
 				"commitnummer": 10**9,
 			}
 		).insert()
+		self.assertEqual(frappe.db.get_value("Opslagwijziging", doc.name, "commitnummer"), 0)
+		commitnummer.deel_uit()
 		nummer = frappe.db.get_value("Opslagwijziging", doc.name, "commitnummer")
+		self.assertGreater(nummer, 0)
 		self.assertLess(nummer, 10**9)
 		self.assertEqual(api.wijzigingen(ruimte=self.ruimte, sinds=begin)["cursor"], nummer)
 		doc.reload()

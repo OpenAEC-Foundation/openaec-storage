@@ -4,7 +4,7 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from openaec_storage import api, delen
-from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, ruim_op, ruimte, upload
+from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, nummer_wijzigingen, ruim_op, ruimte, upload
 
 
 class TestVergrendelen(IntegrationTestCase):
@@ -94,6 +94,7 @@ class TestVergrendelen(IntegrationTestCase):
 		frappe.set_user(self.beheer)
 		api.forceer_ontgrendel(bestand=self.bestand)
 		self.assertIsNone(api.info(bestand=self.bestand)["vergrendeling"])
+		nummer_wijzigingen()
 		soorten = [w["soort"] for w in api.wijzigingen(ruimte=self.ruimte, sinds=0)["wijzigingen"]]
 		self.assertIn("ontgrendeld", soorten)
 

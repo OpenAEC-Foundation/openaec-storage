@@ -3,7 +3,7 @@ import requests
 from frappe.tests import IntegrationTestCase
 
 from openaec_storage import api
-from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, ruim_op, ruimte, upload
+from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, nummer_wijzigingen, ruim_op, ruimte, upload
 
 KB = 1000
 
@@ -64,6 +64,7 @@ class TestKopieren(IntegrationTestCase):
 		self.assertEqual(inhoud_van(r["bestand"]), b"inhoud van het plan")
 		sleutels = frappe.get_all("Bestandsversie", filters={"bestand": ("in", [b["bestand"], r["bestand"]])}, pluck="s3_sleutel")
 		self.assertEqual(len(set(sleutels)), 2)
+		nummer_wijzigingen()
 		soorten = [(w["soort"], w["naam"]) for w in api.wijzigingen(ruimte=self.a, sinds=0)["wijzigingen"]]
 		self.assertEqual(soorten.count(("nieuw", "plan.pdf")), 2)
 

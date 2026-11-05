@@ -366,6 +366,10 @@ naam, creation}]}`. De desktop-sync bewaart de cursor per koppeling en leest van
 - Het slot op de teller is het laatste slot van een transactie, na de sloten op bestand en map. Het duurt van het
   uitdelen tot de SQL-commit klaar is: gemeten 2 ms bij 1 regel, 3 ms bij 100 en 19 ms bij 500 regels in één
   transactie (MariaDB 11.8, lokaal; `test_commitnummer`).
+- Een wijzigingsregel zonder commitnummer wordt nooit vastgelegd. De nummeraar nummert als laatste before_commit-
+  callback; blijven er na 20 keer achteraan zetten nog callbacks bijkomen, dan mislukt de commit
+  (`NummeringMislukt`). Mislukt het uitdelen zelf (bijv. de wachttijd op de teller is om), dan gaat de nummering
+  terug naar haar savepoint, mislukt de commit, en nummert een volgende commit de regels opnieuw.
 - Het commitnummer is alleen van de nummeraar: wie een Opslagwijziging invoegt of opslaat (ook via `/api/resource`),
   kan het niet zetten.
 - Alleen MariaDB: de nummeraar gebruikt een gebruikersvariabele en `on duplicate key update`.

@@ -3,7 +3,14 @@ import requests
 from frappe.tests import IntegrationTestCase
 
 from openaec_storage import api
-from openaec_storage.tests.hulp import NagebootsteS3, gebruiker, ruim_op, ruimte, upload
+from openaec_storage.tests.hulp import (
+	NagebootsteS3,
+	gebruiker,
+	nummer_wijzigingen,
+	ruim_op,
+	ruimte,
+	upload,
+)
 
 MIB = 1024 * 1024
 
@@ -76,11 +83,14 @@ class TestApi(IntegrationTestCase):
 		self.assertIn("weg.txt", namen)
 
 	def test_wijzigingenlijst_met_cursor(self):
+		nummer_wijzigingen()
 		begin = api.wijzigingen(ruimte=self.ruimte, sinds=0)
 		upload(self.ruimte, "a.txt", b"a")
+		nummer_wijzigingen()
 		na_upload = api.wijzigingen(ruimte=self.ruimte, sinds=begin["cursor"])
 		self.assertEqual([w["soort"] for w in na_upload["wijzigingen"]], ["nieuw"])
 		self.assertGreater(na_upload["cursor"], begin["cursor"])
+		nummer_wijzigingen()
 		self.assertEqual(api.wijzigingen(ruimte=self.ruimte, sinds=na_upload["cursor"])["wijzigingen"], [])
 
 	def test_quotum_weigert_te_grote_upload(self):
