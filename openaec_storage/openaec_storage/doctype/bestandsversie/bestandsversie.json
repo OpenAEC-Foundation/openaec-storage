@@ -15,6 +15,7 @@
   "maker",
   "blokgrootte",
   "blokhashes",
+  "samengevoegd_uit",
   "revisie",
   "revisiestatus"
  ],
@@ -83,6 +84,13 @@
    "label": "Blokhashes (JSON)"
   },
   {
+   "fieldname": "samengevoegd_uit",
+   "fieldtype": "JSON",
+   "label": "Samengevoegd uit",
+   "description": "{basis, hun}: deze versie is een samenvoeging van die twee versies van het bestand (de gemeenschappelijke basis en de versie van de ander).",
+   "read_only": 1
+  },
+  {
    "fieldname": "revisie",
    "fieldtype": "Data",
    "label": "Revisie"
@@ -94,7 +102,7 @@
    "options": "\nconcept\nter_beoordeling\nvrijgegeven\nvervallen"
   }
  ],
- "modified": "2026-10-28 12:00:00.000000",
+ "modified": "2026-11-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Bestandsversie",
