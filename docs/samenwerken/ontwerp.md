@@ -946,20 +946,23 @@ Doelen (voorstel van Claude, nog niet beoordeeld door Ethan):
 
 ### 12.1 Modellen van meerdere gigabytes
 
-**Het probleem.** De bibliotheek leest drie of vier hele modellen in het geheugen: basis, ons, hun, en het resultaat
-voor de zelfcontrole.
+**Het probleem.** De bibliotheek leest de bestanden helemaal in, en houdt per versie een model in het geheugen.
+Samenvoegen heeft er vier: basis, ons, hun, en het resultaat voor de zelfcontrole. Metingen van P4
+(`docs/samenwerken/metingen.md` op `samenvoegen/p4-metingen` in openaec-cloud-desktop, bibliotheek `0655eda`, elke run
+onder een harde grens van 2 GB):
 
-| Meting | Grootte | `voeg-samen` | Piekgeheugen | Bron |
-|---|---|---|---|---|
-| Gegenereerd model, 200 000 elementen, 1,6 miljoen instanties | 92 MB | 9,7 s | 1,9 GB (20 keer het bestand) | README van de bibliotheek, commit `6a27723` |
-| Brugmodel van buildingSMART (IFC4), vermenigvuldigd | 150 MB | 5,8 tot 11,8 s | 670 MB (4,5 keer) | P4, bibliotheek `0655eda`, scripts `b719977`, `metingen-data/reeks-0655eda.csv` |
-| Landschapsmodel van buildingSMART (IFC2X3), vermenigvuldigd | 10 MB | 0,9 s | 187 MB (18 keer) | idem |
+| Model | Grootte | `voeg-samen` | Piekgeheugen |
+|---|---|---|---|
+| Dicht (43 bytes per instantie, zoals een gewone BIM-export) | 92 MB | 6,4 s | 1,6 GB (17 MB per MB) |
+| Veel geometrie in lange regels (1 900 bytes per instantie) | 150 MB | 5,4 s | 670 MB (4,4 MB per MB) |
+| Dicht | 1,2 GB | — | gestopt door de grens: al tijdens het lezen van één bestand (`tel`, na 7,5 s) |
+| Dicht | 6,3 GB | — | gestopt tijdens het inlezen; zonder grens zou `Fout::TeGroot` volgen (4 GiB of groter, `ontleden.rs` r. 157) |
 
-Het geheugen hangt vooral af van het aantal instanties. Het landschapsmodel heeft 43 bytes per instantie en kost 18 keer
-het bestand; het brugmodel heeft lange geometrieregels (ongeveer 1 900 bytes per instantie) en kost 4,5 keer.
-Doorgetrokken (schatting) kost 1 GB dus 40 tot 105 s en 4,5 tot 20 GB. Een bestand van 4 GiB of groter weigert de lezer
-nu (`ontleden.rs` r. 157, `Fout::TeGroot`). Ook het contract is op hele bestanden gebouwd: `Opslag::lees` geeft een
-`Vec<u8>` en `schrijf_als` neemt een `&[u8]` (`samenwerken.rs` r. 53-67).
+De invoer is een open model van buildingSMART (CC BY 4.0), vermenigvuldigd met nieuwe nummers en GlobalIds. Het
+geheugen volgt de formule 3,9 × de bytes + 670 bytes per knoop + 2,8 kB per object (een fit over 196 metingen).
+Doorgetrokken (schatting van P4) vraagt een dicht model van 1 GB 18,5 GB om samen te voegen, en een van 5 GB 92 GB. De
+tijd is het probleem niet: ongeveer 4 s per 100 MB, waarvan een derde de zelfcontrole. Ook het contract is op hele
+bestanden gebouwd: `Opslag::lees` geeft een `Vec<u8>` en `schrijf_als` neemt een `&[u8]` (`samenwerken.rs` r. 53-67).
 
 Versturen schaalt ook slecht. De server hergebruikt een blok van 8 MiB alleen als **dezelfde plek** in de basis dezelfde
 hash heeft (`api.py` `_herbruikbare_blokken`, r. 308). Wordt één regel een byte langer, dan schuift alles erachter.
@@ -990,6 +993,9 @@ bytes van ons en zet alleen de vervangen en nieuwe regels erin. De controles na 
 boomregel, kringen, de grenzen van INVERSE's) hebben de relaties nodig, niet de geometrie. De index houdt daarom de
 graaf van objecten en relaties. De zelfcontrole leest het resultaat streamend opnieuw en vergelijkt de hashes per
 object.
+- De zelfcontrole kost nu een derde van de tijd en het vierde model (P4, profiel per fase). Een smallere controle
+  (alleen wat het samenvoegen raakt, plus de tellingen) mag pas als een test laat zien dat ze dezelfde fouten vindt:
+  de zelfcontrole is het vangnet tegen een fout in het schrijven.
 - Bewijs: een test op het hele testcorpus (dezelfde gewijzigde objecten en dezelfde conflicten als de weg van nu), en
   metingen op 1 en 5 GB onder een harde grens van 2 GB (`systemd-run --user --scope -p MemoryMax=2G`). Beide op
   `samenvoegen/gb-schaal`.
