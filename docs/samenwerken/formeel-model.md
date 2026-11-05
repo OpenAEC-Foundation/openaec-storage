@@ -45,7 +45,8 @@ Daarnaast is er een bewijsschets voor het samenvoegen van IFC-bestanden: [`forme
 
 - **De wijzigingenlijst met storage-PR #16.** Geen enkele volgorde laat een client een wijziging missen. En een
   client die blijft vragen, krijgt uiteindelijk elke wijziging die voor hem is. TLC liep 193.723 toestanden af (3
-  gelijktijdige schrijvers, 2 lezers, 2 ruimtes; 39 minuten). Als ik de belangrijkste stap van de fix weghaal, vindt
+  gelijktijdige schrijvers met elk 1 regel, 2 lezers, 2 ruimtes; 39 minuten) en 643.565 toestanden (2 schrijvers met
+  elk 2 regels en een savepoint; 42 minuten). Als ik de belangrijkste stap van de fix weghaal, vindt
   TLC meteen een fout. Dat laat zien dat het model de fix echt meet.
 - **Uploaden met storage-PR #9, als de client de opslaan-lus gebruikt.** Geen dubbele actieve bestanden, geen stille
   overschrijving, geen verloren inhoud (42.920 toestanden), zolang S3 een tweede "klaar" voor dezelfde upload weigert.
@@ -167,7 +168,7 @@ desktop-PR #7). De uitkomst volgt hieronder zodra de tests klaar zijn.
 | Model | Toestanden | Uitkomst |
 |---|---|---|
 | Wijzigingenlijst, main | 6.648 | fout: slaat over |
-| Wijzigingenlijst, PR #16 | 193.723 | geen fout |
+| Wijzigingenlijst, PR #16 | 193.723 en 643.565 | geen fout, ook levend |
 | Uitchecken, nu | 130-352 | fout 1 |
 | Uitchecken, met fix | 5.969 | geen fout |
 | Upload, main | 312 | twee bestanden met dezelfde naam |
