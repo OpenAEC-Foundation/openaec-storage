@@ -239,18 +239,35 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
    Sol, hele ontwerp, 5 november: na het intrekken bleef het lidmaatschap bestaan). De push bevat alleen wat nodig is
    om iets op te halen (soort, bestand, de `name` van de regel); de inhoud haalt de client met een gewone aanroep, die
    het recht weer controleert. De kosten: één bericht per lezer per gebeurtenis (zie §12 voor veel deelnemers).
-   **Geen andere route.** Frappe publiceert zelf ook, buiten `gebeurtenis` om: bij elke `save` gaat `doc_update`
-   naar de kamer van het document en `list_update` naar de kamer van de DocType (`frappe/model/document.py`
-   r. 1737–1785), `docinfo_update` naar de kamer van het document, en `doc_viewers` (wie het formulier open heeft)
-   naar de kamer van het open formulier (`frappe/realtime/handlers.py` r. 118). Ook in die kamers blijft wie er ooit
-   in mocht (review Sol, hele ontwerp, ronde 2). Daarom laat de opslag voor zijn eigen DocTypes geen enkele gedeelde
-   kamer toe. De realtimeserver vraagt bij `doc_subscribe`, `doc_open` en `doctype_subscribe` de controle
-   `frappe.realtime.has_permission`. Die vervangt openaec-storage via `override_whitelisted_methods` in `hooks.py`:
-   voor een DocType van openaec-storage antwoordt hij altijd nee, voor elke andere DocType roept hij de gewone
-   controle aan. De standaardberichten van Frappe komen dan in lege kamers, en de persoonlijke kamer via
-   `gebeurtenis` is de enige weg. Een formulier in de desk krijgt voor deze DocTypes dus geen live bijwerking; dat
-   is goed zo. Bewijs: een proef abonneert als lezer op elk van de drie kamers en wordt geweigerd, en na een `save`
-   ontvangt alleen de persoonlijke kamer iets. Dit hangt af van A2 (§9): welke realtimeserver de kern draait en welke
+   **Geen andere route.** Een bericht over een opslagdocument gaat alleen via `gebeurtenis`, en alleen naar de
+   persoonlijke kamer van wie het op dat moment mag lezen. Frappe publiceert zelf ook, buiten `gebeurtenis` om, naar
+   kamers waar niemand het recht opnieuw controleert: `doc_update` en `docinfo_update` (kamer van het document),
+   `list_update` (kamer van de DocType), `doc_viewers` (kamer van het open formulier), de voortgang van een
+   bulkbewerking met de naam van het document (kamer van een taak; abonneren vraagt daar geen recht), en
+   `kanban_board_update` (kamer van de hele site, waar elke `System User` in zit). Bronnen:
+   `frappe/model/document.py` r. 1737–1785, `frappe/realtime/handlers.py` r. 35, 60 en 118,
+   `desk/doctype/bulk_update/bulk_update.py` r. 125, `desk/doctype/kanban_board/kanban_board.py` r. 654 (reviews
+   Sol, hele ontwerp, rondes 2 en 3). Het ontwerp sluit dat niet per kamer, maar op drie plekken:
+   - **Bij de bron.** De DocTypes van de opslag veranderen alleen via de API van openaec-storage. De controller
+     weigert elke andere schrijfroute (formulier in de desk, bulkbewerking, Kanban, data-import, `frappe.client`,
+     `/api/resource`), zoals §5.14 vraagt; alleen patches en de beheerder van de site gaan eromheen. Een
+     standaardroute komt dus niet tot opslaan, en dus niet tot publiceren. Ook een `Kanban Board`, `ToDo`, `Comment`
+     of Frappe-`DocShare` met een DocType van de opslag als referentie weigert de opslag (één functie in
+     `doc_events`, bij `validate`). De opslag gebruikt die vier zelf niet: delen gaat via de eigen rechten (§5.14).
+   - **In de eigen API.** De controllers hebben een lege `notify_update`: opslaan via de eigen API publiceert niets
+     van Frappe zelf. `gebeurtenis` geeft de kamer zelf op (`room=` de persoonlijke kamer), niet `user=`: met een
+     `task_id` in de context kiest `publish_realtime` anders de kamer van de taak (`frappe/realtime/__init__.py`
+     r. 66–73).
+   - **Bij abonneren**, als tweede slot. De realtimeserver vraagt bij `doc_subscribe`, `doc_open` en
+     `doctype_subscribe` de controle `frappe.realtime.has_permission`. Die vervangt openaec-storage via
+     `override_whitelisted_methods` in `hooks.py`: voor een DocType van openaec-storage antwoordt hij altijd nee, voor
+     elke andere DocType roept hij de gewone controle aan (Sol bevestigde in ronde 3 dat dit werkt voor de aanroep
+     van de realtimeserver).
+
+   Een formulier in de desk krijgt voor deze DocTypes dus geen live bijwerking; dat is goed zo. Bewijs: een
+   ontvanger zonder recht zit in elke soort kamer (site, taak, document, DocType, open formulier). Na een handeling
+   via elke standaardroute (die geweigerd wordt) en via de eigen API ontvangt hij niets over het document; een lezer
+   ontvangt alleen in zijn persoonlijke kamer. Dit hangt af van A2 (§9): welke realtimeserver de kern draait en welke
    controle die bij abonneren vraagt;
 2. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
    app houdt de handeling niet tegen;
@@ -441,8 +458,6 @@ inhoud op met de gewone aanroep, die het recht controleert. Soorten (en de aanro
 `bestand.nieuwe_versie` (`wijzigingen`, `versies`), `bestand.aanwezigheid` (`aanwezig`), `bestand.opmerking`
 (`opmerkingen`), `bestand.uitgecheckt` en `bestand.vrijgegeven` (slot per bestand), `bestand.objecten_uitgecheckt` en
 `bestand.objecten_vrijgegeven` (`uitgecheckte_objecten`).
-`bestand.uitgecheckt` en `bestand.vrijgegeven` (slot per bestand), `bestand.objecten_uitgecheckt` en
-`bestand.objecten_vrijgegeven {bestand, gebruiker, aantal}`.
 
 ### 5.6 Samenvoegen
 
@@ -749,9 +764,9 @@ offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
   `has_permission` overrulen. Per DocType zijn er negatieve proeven voor lezen, lijst en wijzigen langs de algemene
   routes van Frappe (`/api/resource`, `frappe.client`), ook met een achtergebleven `DocShare` na het intrekken van de
   opslagdeling.
-- Realtime: voor de DocTypes van openaec-storage bestaat geen gedeelde kamer (document, DocType of open formulier).
-  De controle bij abonneren weigert ze; alleen de persoonlijke kamer krijgt berichten (§5.4, "Geen andere route").
-  Een negatieve proef per kamer hoort bij stap 6.
+- Realtime: een bericht over een opslagdocument komt alleen in de persoonlijke kamer van een lezer (§5.4, "Geen
+  andere route": dicht bij de bron, in de eigen API en bij abonneren). Een negatieve proef per soort kamer (site,
+  taak, document, DocType, open formulier) hoort bij stap 6.
 - Een deellink zonder account (soort `link`) kan geen opmerkingen plaatsen en ziet geen aanwezigheid: er is geen
   persoon om te tonen of te melden.
 - De samenvoegbibliotheek leest onbetrouwbare invoer. Ze mag nooit vastlopen of crashen op een kapot bestand, en ze
