@@ -1249,8 +1249,9 @@ minuten opslaat) geven 11 miljoen regels per jaar in één ruimte, ongeveer 2 GB
 's nachts importeert een taak 250 000 bestanden, in delen met een commit ertussen, en geen client leest. De eerste lezer
 daarna vindt meer dan 200 000 regels met nummer 0, en zijn veger faalt. De volgende ook, want de achterstand groeit
 alleen. Geen client krijgt nog nieuwe regels (VERVOLG-punt van Sol op PR #16).
-- Een grote achterstand houdt ook de anderen op. Elke lezer die een regel met nummer 0 ziet, wacht op het tellerslot
-  (§5.4, stap 3). Gemeten in de lastproef van P2 (run `d-last-4werkers` van 17:34, server `197d55b`): bij een
+- Een grote achterstand houdt ook de anderen op, op de hele site en niet alleen in de ruimte. Elke lezer die een regel
+  met nummer 0 ziet, wacht op het tellerslot (§5.4, stap 3). Gemeten in de lastproef van P2 (run `d-last-4werkers` van
+  17:34, server `197d55b`, log in `1b54141`, bekend punt 62 in `crates/openaec-sync/knownbugs.md`): bij een
   achterstand van 9 664 regels duurt de eerste lezing 2,7 s, bij 40 000 regels 9,0 s en bij 150 000 regels 31,6 s.
   Alle 20 polls van andere clients wachten zo lang mee (31,1 s bij 150 000). Daarna gaat lezen weer snel: de hele lijst
   van 200 000 regels vanaf cursor 0 kost 7,5 s in 201 pagina's, en een stille ruimte vanaf 0 kost 0,017 s.
@@ -1260,6 +1261,9 @@ alleen. Geen client krijgt nog nieuwe regels (VERVOLG-punt van Sol op PR #16).
   (`FOR UPDATE NOWAIT`), veegt niet en leest meteen. De garantie blijft: elke ronde geeft hogere nummers dan alle
   eerdere, en de regels van de andere veger krijgen een nummer boven elke uitgedeelde cursor, dus de lezer krijgt ze
   bij zijn volgende vraag. Kosten: een lus om stap 3 tot en met 6 van §5.4, en `NOWAIT` in stap 3. Hoort bij stap 4b.
+  Sneller per deel kan met één `UPDATE` voor de namen uit de lezing van stap 4. Eén `UPDATE` over alle regels met
+  nummer 0 mag niet: zo'n `UPDATE` leest de nieuwste stand en wacht op het slot van een open transactie, en dan wacht de
+  veger toch op een schrijver (§5.4, stap 4).
 - Bewijs: een test met een achterstand boven de grens, met de grens in de test laag gezet
   (`frappe.db.MAX_WRITES_PER_TRANSACTION = 1000`), zodat hij snel blijft. Zonder de lus faalt die test met
   `TooManyWritesError`. En de lastproef van P2 opnieuw: de polls van anderen wachten niet meer op een grote veger.
