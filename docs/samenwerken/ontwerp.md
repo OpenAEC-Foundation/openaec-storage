@@ -326,8 +326,11 @@ Uitbreiding van de bestaande API:
      regel aanpassen, en het dossier de revisiegegevens (`revisie`, `revisiestatus`, `dossier.py` r. 432). Die raken
      de inhoud niet. Nu kan een schrijver van de ruimte een versieregel nog via de algemene routes van Frappe wijzigen
      of wissen (`/api/resource`, `frappe.client.set_value` en `save`, de wijzigroute van API v2). Stap 4 sluit dat af
-     met één bescherming op het niveau van de DocType (de `has_permission`-haak), niet per route, met een
-     negatieve test per route.
+     in de controller van de DocType: een bestaande versieregel opslaan of wissen weigert altijd. Een
+     `has_permission`-haak alleen is niet genoeg, want Frappe kijkt na een weigering nog naar een expliciete deling
+     (`DocShare`), en die kan al bestaan (review Sol op PR #9). De server zelf wijzigt een regel alleen met
+     `frappe.db.set_value`, dat de controller niet aanroept. Een negatieve test per route, ook met een schrijvende
+     deling en als Administrator.
 
   Wat er verandert:
   - `Opslagbestand` krijgt `huidige_versie_id`: de regel die nu de inhoud is. De server zet hem overal waar hij
