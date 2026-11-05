@@ -567,7 +567,8 @@ def _registreer(info: dict) -> dict:
 	dossier.
 
 	Vastleggen gebeurt onder sloten, in een vaste volgorde: eerst de regel van het bestaande bestand (een nieuwe versie
-	ervan wacht tot een ander met dat bestand klaar is), dan zijn vergrendeling, en alleen als er een nieuw bestand of
+	ervan wacht tot een ander met dat bestand klaar is; zonder `basis_versie` is dat slot niet nodig, want dan wordt het
+	hoe dan ook een conflictkopie), dan zijn vergrendeling, en alleen als er een nieuw bestand of
 	een conflictkopie komt, als laatste de plek (de map, of de ruimte voor het hoofdniveau). Na het slot op de plek
 	wordt opnieuw gekeken of de naam intussen bestaat. Niemand vraagt eerst de plek en dan een bestand, zodat twee
 	aanvragen niet op elkaar blijven wachten; en een gewone nieuwe versie wacht niet op aanvragen die mappen maken.
@@ -581,10 +582,15 @@ def _registreer(info: dict) -> dict:
 	ruimte, map, naam = info["ruimte"], info["map"], info["naam"]
 	basis_versie = info.get("basis_versie")
 	weigeren = info.get("bij_conflict") == "weiger"
-	bestaand = _vergrendel_bestand(ruimte, map, naam)
+	if basis_versie is None:
+		# Zonder basis wordt het nooit een nieuwe versie van een bestaand bestand: een slot op dat bestand is niet
+		# nodig (kopiëren houdt via `_maak_map` al mappen vast en mag daarna geen bestand meer vragen).
+		bestaand = _actief_bestand(ruimte, map, naam)
+	else:
+		bestaand = _vergrendel_bestand(ruimte, map, naam)
 	conflict = bool(bestaand)
 	if bestaand:
-		slot = _actief_slot(bestaand.name, for_update=True)
+		slot = _actief_slot(bestaand.name, for_update=basis_versie is not None)
 		if info.get("samengevoegd_uit"):
 			_controleer_samenvoeging(bestaand.name, info["samengevoegd_uit"])
 		slot_van_ander = bool(slot and slot.gebruiker != frappe.session.user)
