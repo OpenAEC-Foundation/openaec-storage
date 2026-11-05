@@ -110,19 +110,20 @@ dit op door de basis niet meer op het nummer te laten steunen (§5.5).
 ## 3. Wat Microsoft 365 doet
 
 "Gelezen" betekent: ik las de officiële bron. "Eigen kennis" betekent: niet met een bron nagegaan op 5 november 2026.
+De nummers [M1] tot en met [M24] verwijzen naar de bronnenlijst in §4a; daar staat per functie ook de vergelijking.
 
 | Functie | Microsoft 365 | Zekerheid |
 |---|---|---|
-| Tegelijk bewerken | Word, Excel en PowerPoint, voor bestanden in OneDrive of SharePoint. Alleen .docx, .xlsx en .pptx. Alle bewerkers hebben bewerkrecht nodig; niet met IRM-beveiliging. Wijzigingen verschijnen binnen seconden als AutoSave aan staat | Gelezen: [support.microsoft.com, Document collaboration and co-authoring](https://support.microsoft.com/en-gb/sharepoint/get-started-with-sharepoint/document-collaboration-and-co-authoring). Snelheid: eigen kennis |
-| Andere bestandssoorten | Geen tegelijk bewerken. Een DWG, IFC of PDF krijgt in OneDrive bij gelijktijdig wijzigen een conflictkopie, of de laatste opslag wint | Afgeleid uit de bron hierboven; gedrag eigen kennis |
-| Aanwezigheid | Je ziet wie het document open heeft, en in Word en Excel waar hun cursor staat | Eigen kennis |
-| Opmerkingen met @noemen | Iemand noemen stuurt een e-mail met de opmerking. Heeft die persoon geen toegang, dan vraagt Word of je het bestand met hem deelt | Fragment: [office365itpros.com](https://office365itpros.com/2020/05/02/mentions-word-comments/) |
-| Versies en terugzetten | Standaard 500 hoofdversies per bestand in een nieuwe bibliotheek (instelbaar van 100 tot 50 000). Elke versie is terug te zetten | Gelezen: [learn.microsoft.com, default version limits](https://learn.microsoft.com/en-us/SharePoint/set-default-org-version-limits). Terugzetten: eigen kennis |
-| Delen met rechten | Links voor iedereen, voor de organisatie of voor bepaalde personen; bekijken of bewerken; vervaldatum en wachtwoord | Eigen kennis |
-| Uitchecken | SharePoint kan uitchecken verplicht maken. Een uitgecheckt bestand is voor anderen alleen te lezen tot het inchecken. Tegelijk bewerken en verplicht uitchecken gaan niet samen | Fragment: [mrsharepoint.com](https://www.mrsharepoint.com/do-you-have-to-check-out-a-document-in-sharepoint-online/) |
-| Activiteit | Per bestand een activiteitenlijst (wie opende, bewerkte, deelde); in Word "wijzigingen sinds je laatste bezoek" | Eigen kennis |
-| Meldingen | E-mail en een melding in de app bij @noemen en bij reacties op je opmerkingen | Eigen kennis |
-| Offline | OneDrive synct offline wijzigingen. Office-bestanden voegt Office samen; andere bestanden krijgen een kopie met de naam van de computer | Eigen kennis |
+| Tegelijk bewerken | Word, Excel en PowerPoint, voor bestanden in OneDrive of SharePoint. Alleen .docx, .xlsx en .pptx. Alle bewerkers hebben bewerkrecht nodig. In Excel zie je elkaars wijzigingen "in a matter of seconds", met AutoSave aan; Word noemt geen tijd. Niet met IRM-beveiliging | Gelezen: [M1], [M2], [M4]. IRM: eigen kennis |
+| Andere bestandssoorten | Geen tegelijk bewerken. Bij een conflict houdt OneDrive beide versies: de online versie houdt de naam, de kopie op de computer krijgt de naam van het apparaat (bijv. `Report-JOHNS-SURFACE.txt`). OneDrive for work or school maakt hoogstens 5 conflictversies | Gelezen: [M5] |
+| Aanwezigheid | Excel toont foto's of initialen rechtsboven en de selecties van anderen in kleuren. PowerPoint toont gekleurde vlaggen waar iemand werkt. Office laat zien "where in the file they're working". Word vergrendelt de alinea waarin je werkt | Gelezen: [M1], [M2], [M7], [M8]. Een cursor in Word: niet in de bronnen gevonden |
+| Opmerkingen met @noemen | Iemand noemen stuurt een e-mail met een link naar de opmerking. Heeft die persoon geen toegang, dan vraagt het programma je om die te geven. Alleen mensen binnen de organisatie; geen gasten | Gelezen: [M9] |
+| Versies en terugzetten | Standaard 500 hoofdversies per bestand in een nieuwe bibliotheek (instelbaar van 100 tot 50 000). Versies van elk soort bestand. Terugzetten maakt de gekozen versie de huidige; de vorige huidige blijft in de lijst | Gelezen: [M13], [M14], [M15] |
+| Delen met rechten | Links voor iedereen, voor de organisatie, voor wie al toegang heeft, of voor gekozen personen; bewerken, bekijken, beoordelen (Word) of niet downloaden; vervaldatum en wachtwoord alleen bij een link voor iedereen | Gelezen: [M17] |
+| Uitchecken | SharePoint kan uitchecken verplicht maken. Niemand anders kan een uitgecheckt bestand wijzigen of je wijzigingen zien tot het inchecken. Met recht kun je de uitcheck van een ander opheffen. Tegelijk bewerken en verplicht uitchecken gaan niet samen | Gelezen: [M18], [M19] |
+| Activiteit | Per bestand een activiteitenlijst in het detailvenster (opmerkingen en activiteit, bijv. hernoemen), en wie toegang heeft. In Word "wijzigingen sinds je laatste bezoek" | Gelezen: [M10]. Word: eigen kennis, geen bron gevonden |
+| Meldingen | E-mail bij @noemen. Standaard krijgen de maker en de deelnemers van een draad een melding als iemand de draad maakt of wijzigt. Meldingen over bestanden in de apps en als push op de telefoon, nu alleen bij delen. SharePoint Alerts stoppen in juli 2026 | Gelezen: [M9], [M11], [M12] |
+| Offline | Offline doorwerken kan; weer online meldt Office de wijzigingen van anderen. In Word kan offline dezelfde alinea botsen: dan komt er een conflictmelding. Een ander soort bestand krijgt een kopie met de naam van het apparaat | Gelezen: [M1], [M5], [M24] |
 
 Uit de AEC-wereld (alleen het samenwerkmodel):
 
@@ -157,6 +158,121 @@ Uit de AEC-wereld (alleen het samenwerkmodel):
    van de SuperCloud is openaec-storage. Omdat de bibliotheek niets anders van de opslag weet, kan ze later ook op de
    server, in de browser of achter een ander transport draaien.
 6. **Open formaten.** Alles werkt op IFC (ISO 16739) en BCF. Geen eigen formaat.
+
+## 4a. Vergelijking per functie met Microsoft 365
+
+Ethan vroeg: "hoe wordt gecontroleerd of de collaboratie echt net zo goed is als ms365". En: "je hoeft niet
+hetzelfde te doen als MS, als het maar beter of net zo goed is." Dit hoofdstuk geeft daarom per functie een meetbaar
+criterium, het bewijs en een uitkomst. De aanpak mag anders zijn dan bij Microsoft 365 (M365); het resultaat telt.
+
+Stand: 5 november 2026. De bronnen van Microsoft las ik die dag zelf; ze staan onder de tabel als [M1] tot en met
+[M24]. De citaten staan letterlijk in de logs van de proeven.
+
+**Uitkomsten.**
+
+- **gelijk**: het criterium geldt bij M365 volgens de bron, en bij ons volgens een test of proef.
+- **beter**: zo ook, en wij halen een criterium dat M365 volgens de bron niet haalt.
+- **slechter**: M365 haalt het criterium volgens de bron, wij niet.
+- **nog niet gebouwd**: ontworpen, maar er is geen code. Dat geldt voor alles op de server: opmerkingen,
+  aanwezigheid, meldingen, terugzetten, activiteit per bestand en uitchecken per object. De server ligt stil tot de
+  kern gelezen is (§9).
+- **meting**: een getal van ons zonder vergelijking, omdat de bron van Microsoft geen getal noemt.
+
+**Waar het bewijs ligt.** Elke regel noemt de laag van het bewijs. "Bibliotheek" betekent: de opdrachtregel of de
+tests van `openaec-samenvoegen`, zonder desktop-sync en zonder server. Een gebruiker heeft daar nog niets aan: de weg
+van de desktop-app naar openaec-storage is voor samenvoegen nog niet gebouwd (F2). "Server (main)" betekent: een
+bestaande test van openaec-storage op `main` (`e87b870`). "Desktop-sync" betekent: een test van `openaec-sync`.
+
+**Het vaste voorbeeld.** Anna en Piet wijzigen tegelijk één IFC-bestand. Ze beginnen allebei bij versie 12. In
+scenario 04 werkt Anna offline, in scenario 02 hangt er een opmerking aan een wand, en in scenario 05 zet Piet een
+versie terug. Het script doet de bewerking zelf (een datum, een duur, een plaats, een eigenschap) en nummert daarna het
+hele bestand opnieuw, zoals OPS bij elk opslaan doet. Invoer: een echte planning van OPS
+(`examples/showcase-appartementencomplex.ifc` uit open-planner-studio, 260 taken, 482 kB) en een echt model van
+buildingSMART (`Building-Architecture.ifc`, IFC2X3, 93 kB, met wanden en een vloer). De scripts staan in
+openaec-cloud-desktop, branch `samenvoegen/m365-scenario`, map `scripts/scenario-m365/`. De logs staan in
+`docs/samenwerken/scenario-m365/`, elk met `EXIT:<code>` als laatste regel. Een script stopt met een fout zodra onze
+onderlaag iets anders doet dan verwacht.
+
+| # | Functie | M365 volgens de bron | Onze onderlaag (plek) | Criterium | Bewijs | Uitkomst |
+|---|---|---|---|---|---|---|
+| F1 | Samenvoegen als twee mensen tegelijk een IFC-bestand wijzigen (model of planning) | Tegelijk bewerken alleen voor .docx, .pptx en .xlsx [M1]. Bij een conflict met een ander soort bestand: "OneDrive automatically keeps both versions", en de kopie krijgt de naam van het apparaat [M5] | Three-way samenvoegen per object: `voeg_samen` in `crates/openaec-samenvoegen/src/samenvoegen.rs` (desktop-PR #7, draft) | Twee opslagen vanaf dezelfde versie die elk een ander object wijzigen, geven één versie met beide wijzigingen en geen conflictkopie. Het verschil met de basis noemt precies die twee objecten | Bibliotheek: scenario 01 (planning) en 02 (model); tests `verschillende_objecten_op_echte_bestanden` en `taakdatum_en_taaknaam_in_een_planning` (proef 06) | **beter** (bibliotheek) |
+| F2 | Hetzelfde, langs de echte weg: desktop-app naar openaec-storage | Als F1 | De opslaan-lus `sla_op` achter de trait `Opslag` (`src/samenwerken.rs`, PR #7). De server moet "schrijf alleen als de basis klopt" kennen (`bij_conflict=weiger`, storage-PR #9, een voorstel). De koppeling in de desktop-sync is stap 5 (§7) | Als F1, met twee desktop-apps tegen een echte openaec-storage | Alleen tegen een opslag in het geheugen: de 8 tests van de lus (proef 06). Geen proef tegen de server | **nog niet gebouwd** |
+| F3 | Live samen typen in Word, Excel en PowerPoint | Excel: "you can see each other's changes quickly—in a matter of seconds" [M2]. Word: "you'll see their presence and the changes they're making" [M4] | Geen. Een .docx is voor ons een gewoon bestand; bij gelijktijdig opslaan komt er een conflictkopie (`_conflictnaam`, `api.py` r. 99). Live samen bewerken staat in §5.11 | — | — | **nog niet gebouwd** |
+| F4 | Hoe snel de wijziging van de een bij de ander is | Excel: "AutoSave lets them see your changes in just a matter of seconds" [M2]. AutoSave slaat op "every few seconds" [M3] | Geen push (§2): de desktop-sync vraagt elke 30 s de wijzigingenlijst (`bewaking.rs` r. 19-21). Samenvoegen zelf is gemeten. Grens: bestanden kleiner dan 4 GiB; geheugen ongeveer 20 keer de grootte (README van PR #7) | De tijd van `voeg-samen` | Bibliotheek: 0,16 tot 0,20 s op de planning van 482 kB (scenario 01, 04, 05); 0,03 s op het model van 93 kB (02); 9,7 s en 1,9 GB op drie bestanden van 92 MB (README van PR #7) | **meting**. De ander hoort het pas bij zijn volgende ronde, tot 30 s later. Push is ontworpen (§5.4), niet gebouwd |
+| F5 | Conflict: beide wijzigen hetzelfde, elk anders | Excel: "the last change that is saved, either with the Save button or automatically with AutoSave, is the one that "wins."" [M2]. Word: "your edits conflict with edits from others", en daarna "Accept or reject each change." [M6]. Ander soort bestand: beide versies blijven, zonder uitleg wat botst [M5] | Geen nieuwe versie en geen keuze, maar een rapport per object en attribuut met de waarden van basis, ons en hun (`Samenvoeging.conflicten`, PR #7). De client maakt dan een conflictkopie, zoals openaec-storage nu doet | Er wordt niets stil overschreven of gekozen, en het rapport noemt het object, het attribuut en de drie waarden | Bibliotheek: scenario 03; test `hetzelfde_attribuut_anders_is_een_conflict` (proef 06). Server (main): `test_verouderde_basisversie_geeft_conflictkopie` (proef 08) | **beter** dan Excel en dan OneDrive bij een .ifc; **gelijk** aan Word |
+| F6 | Een conflict oplossen door per wijziging te kiezen | Word: "Accept or reject each change." [M6] | Het rapport per conflict is er; een scherm om te kiezen niet (§8) | — | — | **nog niet gebouwd** |
+| F7 | Offline werken en weer online komen | "When you go back online, you'll be notified of any changes that are available"; in Word op dezelfde alinea: "you'll get a pop-up message saying there's a conflict" [M1]. Word: "any pending changes will sync as soon as you're back online" [M24]. Ander soort bestand: beide versies blijven [M5] | Bibliotheek: samenvoegen met de basis van vóór het offline gaan. Desktop-sync: werkt offline door (§5.13); lokaal vervangen en verwijderen is veilig gemaakt in stap 5a (`crates/openaec-sync/src/vervang.rs`, desktop-PR #8, draft) | Na weer online staan de twee offline opslagen van Anna en de twee nieuwe versies van Piet in één versie. Het verschil met de basis noemt precies die vier taken | Bibliotheek: scenario 04. Desktop-sync: `tests/vervang.rs` van PR #8, o.a. `opslaan_tijdens_de_upload_gaat_niet_verloren` en `werk_in_een_verwijderde_bron_komt_ook_offline_terug`, groen op Linux, macOS en Windows (CI-run 42025843231 op `f0d144c`). De upload via de lus: F2 | **beter** (bibliotheek) |
+| F8 | Verschil tussen twee versies van een IFC-bestand | Word: "Word shows the differences with revision marks" [M20]. Excel toont wijzigingen in cellen en formules, niet "Chart, shape, and other object edits" [M21]. Voor een IFC-bestand vond ik niets | `verschil` per GlobalId, per attribuut oud en nieuw; andere nummers tellen niet (`src/verschil.rs`, desktop-PR #6 en #7; opdrachtregel `verschil`) | Het verschil noemt precies de gewijzigde objecten, met oud en nieuw per attribuut. Een bestand dat alleen opnieuw genummerd is, geeft geen verschil | Bibliotheek: scenario 01, 02, 04 en 05 (na elke opslag "zoals OPS" eist het script een leeg verschil); `tests/verschil.rs` (28 tests) | **beter** (bibliotheek) |
+| F9 | Verschil tussen twee versies van een Word- of Excel-bestand | Zie F8 [M20], [M21] | Geen | — | — | **slechter** |
+| F10 | Een opmerking aan een plek in het bestand | Opmerkingen in Word, Excel en PowerPoint [M9]. Bij een ander soort bestand alleen in OneDrive for home, over het hele bestand; dit is "not yet available for the OneDrive sync app or OneDrive for work or school accounts" [M10] | Ontworpen: `Opslagopmerking` met een anker op de GlobalId (§5.9). Niet gebouwd. Wel al: het verschil zegt of de wand van een opmerking in de nieuwe versie gewijzigd is | — | Bibliotheek: scenario 02 toont de status van de wand ("gewijzigd"); de opmerking zelf bestaat nog niet | **nog niet gebouwd** |
+| F11 | @noemen in een opmerking | "you'll receive an email notification that includes a link that takes you to the comment in the file"; zonder toegang: "you'll be asked to provide that"; "Mentions are restricted to people inside your organization." [M9] | Ontworpen (§5.9: `zonder_toegang`, nooit vanzelf delen). Niet gebouwd | — | — | **nog niet gebouwd** |
+| F12 | Aanwezigheid: wie heeft het bestand open, en waar werkt die | Excel: "pictures of people in the upper-right", selecties van anderen in kleuren [M2]. PowerPoint: "Colored flags show where each person is editing." [M8]. Office "shows you where in the file they're working" [M7]. Word vergrendelt de alinea waarin je werkt [M1] | Ontworpen (§5.8). Niet gebouwd | — | — | **nog niet gebouwd** |
+| F13 | Een melding bij delen | "Currently, the service sends notifications to users when files are shared with them."; ook via de mobiele Office-app (Firebase Cloud Messaging, Apple Push Notification service) en de OneDrive-sync-app [M11] | Een Notification Log in de desk en een e-mail aan de ontvanger (`_meld_ontvanger`, `api.py` r. 1103) | De ontvanger van een deling krijgt een melding en een e-mail met een link | Server (main): `test_ontvanger_krijgt_mail_en_melding_met_link` (proef 08) | **slechter**: geen push naar de telefoon |
+| F14 | Een melding bij een opmerking, een reactie of een nieuwe versie | Bij @noemen een e-mail [M9]. "By default, the original document creator and any participants in a comment thread are notified whenever someone creates or updates a comment thread." [M9]. SharePoint Alerts stoppen vanaf juli 2026; "use rules or Power Automate" [M12] | Ontworpen: volgen en meldingen (§5.10). Niet gebouwd | — | — | **nog niet gebouwd** |
+| F15 | Versies bewaren en tonen | "Version history works with all file types" [M13]. Standaard 500 hoofdversies, instelbaar van 100 tot 50 000 [M15] | Elke upload is een nieuwe `Bestandsversie`; `versies(bestand)` toont ze. Geen code wist een versieregel (§5.5); er is geen grens op het aantal | Na een tweede upload heeft het bestand twee versies, en de lijst toont ze allebei. Dit geldt voor elk soort bestand | Server (main): `test_tweede_upload_op_huidige_versie_wordt_versie_2` (een .pdf) en `test_quotum_telt_alle_versies` (proef 08). Niet getoetst: een oude versie downloaden | **gelijk** |
+| F16 | Een versie terugzetten | "The document version you selected becomes the current version. The previous current version becomes the previous version in the list." [M13]. SharePoint "creates a copy and makes it the latest version" [M14] | Ontworpen: `zet_terug` (§5.5). Nu: de oude versie downloaden en opnieuw uploaden. De bibliotheek voegt een teruggezette versie gewoon samen met werk dat tegelijk gebeurt | Na terugzetten naar 12 en een opslag van Anna vanaf 13: versie 12 plus de wijziging van Anna | Bibliotheek: scenario 05 (alleen het samenvoegen; het terugzetten is daar een kopie van versie 12) | **nog niet gebouwd** (op de server) |
+| F17 | Een verwijderd bestand terughalen | Werk- of schoolaccount: binnen 93 dagen; persoonlijk account: binnen 30 dagen [M16] | `verwijder` zet een bestand in de prullenbak; `herstel` haalt het terug (`api.py` r. 444). Geen geplande taak leegt de prullenbak (`hooks.py`: alleen `overdracht.opruimen`) | Een verwijderd bestand komt met herstel terug op zijn plek | Server (main): `test_verwijderen_en_herstellen` (proef 08) | **gelijk** |
+| F18 | De hele opslag terugzetten naar een tijdstip | Microsoft 365-abonnees kunnen "roll back everything, reverting all changes that occurred on any files and folders, to any point in the last 30 days" [M16] | Geen, en niet ontworpen | — | — | **slechter** |
+| F19 | Delen met een persoon of als link | Links voor "Anyone", "People in <Your Organization>", "People with existing access" en "People you choose"; rechten "Can edit" en "Can view"; vervaldatum en wachtwoord alleen bij een "anyone link" [M17] | `deel` met een collega (`lezen`, `schrijven`, `beheren`) of als link met wachtwoord en vervaldatum (`api.py` r. 1001, `delen.py`) | Delen met lezen of schrijven geeft precies dat recht; een link met wachtwoord vraagt het wachtwoord; een verlopen of ingetrokken link werkt niet | Server (main): `test_deellink_met_wachtwoord`, `test_verlopen_of_ingetrokken_link_werkt_niet`, `test_deling_lezen_geeft_geen_schrijfrecht`, `test_deling_schrijven_geeft_uploadrecht_in_die_map` (proef 08) | **gelijk** |
+| F20 | Alleen laten beoordelen, of niet laten downloaden | "Can review limits people to leaving comments and making suggestions on the file." (voor Word); "Can't download prevents people from downloading the files or folders they have access to." [M17] | Geen. Ontworpen is alleen dat lezers opmerkingen mogen plaatsen (K7, hangt aan F10). Niet downloaden is niet ontworpen | — | — | **slechter** |
+| F21 | Uitchecken: een slot per bestand | "No one else can change the file, and no one else can see your changes, while you have it checked out." [M18]. "If you have permission, you can check a file back in that was checked out by someone else." [M19]. Verplicht uitchecken per bibliotheek kan, maar niet samen met tegelijk bewerken [M18] | `vergrendel`: 8 uur een slot (`SLOT_UREN`); een upload van een ander wordt een conflictkopie; verwijderen en verplaatsen weigert; alleen een beheerder breekt het slot open (`api.py` r. 948-997) | Met een slot kan een ander het bestand niet vervangen, verwijderen of verplaatsen, en alleen een beheerder breekt het slot open | Server (main): de 9 tests over het slot in `test_vergrendelen_delen.py` (proef 08) | **gelijk**. Anders: wij kennen geen verplicht uitchecken per map, en een slot vervalt na 8 uur |
+| F22 | Uitchecken per object | Geen. Word vergrendelt wel de alinea waarin je werkt: "the paragraph you're working in is locked so that no one can overwrite what you're working on" [M1] | Ontworpen (§5.7). Niet gebouwd | — | — | **nog niet gebouwd** |
+| F23 | Activiteit per bestand | Het detailvenster toont "a snapshot of all activities and comments on any file" en "who has access to a file", bijvoorbeeld "renaming files or adding captions and descriptions" [M10] | Per ruimte: `wijzigingen(ruimte, sinds)` en `ruimtebeheer.activiteit`. Per bestand: `activiteit()` is ontworpen (§5.5), niet gebouwd | — | — | **nog niet gebouwd** |
+| F24 | Alleen de gewijzigde delen versturen | Differential sync voor .docx, .pptx en .xlsx; "For other file types, differential sync is available globally." De bron noemt geen blokgrootte [M22] | Blokken van 8 MiB met BLAKE3, vergeleken met het blok op dezelfde plek in de basisversie (`_herbruikbare_blokken`, `api.py` r. 308) | Hoeveel blokken van een model van 92 MB over het netwerk gaan, met en zonder samenvoegen | Server (main): `test_alleen_gewijzigd_blok_wordt_geupload` (proef 08). Bibliotheek: meting 07 | **meting**: METING_F24 |
+| F25 | Veel schrijvers tegelijk | Voor M365 vond ik geen getal. Voor SharePoint Server 2013 is er de instelling `CoauthoringMaxAuthors` [M23] | De opslaan-lus voegt opnieuw samen tot de basis klopt (`max_pogingen`) | Acht schrijvers wijzigen tegelijk vanaf één versie elk een andere taak; alle acht wijzigingen staan in de laatste versie | Bibliotheek, opslag in het geheugen: `acht_klanten_tegelijk` (proef 06) | **meting** |
+
+**Bronnen van Microsoft** (gelezen op 5 november 2026):
+
+- [M1] Document collaboration and co-authoring:
+  <https://support.microsoft.com/en-gb/sharepoint/get-started-with-sharepoint/document-collaboration-and-co-authoring>
+- [M2] Collaborate on Excel workbooks at the same time with co-authoring:
+  <https://support.microsoft.com/en-us/excel/get-started/collaborate-on-excel-workbooks-at-the-same-time-with-co-authoring>
+- [M3] What is AutoSave?: <https://support.microsoft.com/en-us/office/collab-files/what-is-autosave>
+- [M4] Collaborate on Word documents with real-time co-authoring:
+  <https://support.microsoft.com/en-us/word/training/collaborate-on-word-documents-with-real-time-co-authoring>
+- [M5] Resolve sync issues in OneDrive for work or school:
+  <https://learn.microsoft.com/en-us/troubleshoot/sharepoint/sync/troubleshoot-sync-issues>
+- [M6] Troubleshoot common coauthoring errors: <https://support.microsoft.com/en-us/word/troubleshoot-common-coauthoring-errors>
+- [M7] Work together on Office documents: <https://support.microsoft.com/en-us/office/work-together-on-office-documents>
+- [M8] Share and collaborate in PowerPoint:
+  <https://support.microsoft.com/en-us/powerpoint/training/share-and-collaborate-in-powerpoint>
+- [M9] Use @mention in comments to tag someone for feedback:
+  <https://support.microsoft.com/en-us/word/use-mention-in-comments-to-tag-someone-for-feedback>
+- [M10] See comments and activity on your OneDrive files:
+  <https://support.microsoft.com/en-us/onedrive/see-comments-and-activity-on-your-onedrive-files>
+- [M11] Turn on OneDrive file activity notifications:
+  <https://learn.microsoft.com/en-us/sharepoint/turn-on-external-sharing-notifications>
+- [M12] Create an alert to get notified when a file or folder changes in SharePoint:
+  <https://support.microsoft.com/en-us/sharepoint/documents-and-library/create-an-alert-to-get-notified-when-a-file-or-folder-changes-in-sharepoint>
+- [M13] Restore a previous version of a file stored in OneDrive:
+  <https://support.microsoft.com/en-us/onedrive/restore-a-previous-version-of-a-file-stored-in-onedrive>
+- [M14] Restore a previous version of an item or file in SharePoint:
+  <https://support.microsoft.com/en-us/sharepoint/documents-and-library/restore-a-previous-version-of-an-item-or-file-in-sharepoint>
+- [M15] Set default organization version limits: <https://learn.microsoft.com/en-us/sharepoint/set-default-org-version-limits>
+- [M16] Restore files deleted from your OneDrive: <https://support.microsoft.com/en-us/onedrive/restore-your-onedrive-files>
+- [M17] Share SharePoint files or folders:
+  <https://support.microsoft.com/en-us/sharepoint/sharepoint-sharing-and-permissions/share-sharepoint-files-or-folders>
+- [M18] Set up a library to require check out of files:
+  <https://support.microsoft.com/en-us/sharepoint/documents-and-library/set-up-a-library-to-require-check-out-of-files>
+- [M19] Check out, check in, or discard changes to files in a SharePoint library:
+  <https://support.microsoft.com/en-us/sharepoint/documents-and-library/check-out-check-in-or-discard-changes-to-files-in-a-sharepoint-library>
+- [M20] Compare and merge two versions of a document:
+  <https://support.microsoft.com/en-us/word/compare-and-merge-two-versions-of-a-document>
+- [M21] Get help with Show Changes in Excel: <https://support.microsoft.com/en-us/excel/get-help-with-show-changes-in-excel>
+- [M22] Restrictions and limitations in OneDrive and SharePoint:
+  <https://support.microsoft.com/en-us/onedrive/restrictions-and-limitations-in-onedrive-and-sharepoint>
+- [M23] Configure the maximum number of co-authoring authors in SharePoint Server:
+  <https://learn.microsoft.com/en-us/sharepoint/governance/configure-the-maximum-number-of-co-authoring-authors>
+- [M24] Can I work offline? (Word): <https://support.microsoft.com/en-us/word/can-i-work-offline>
+
+
+### Voor Sol
+
+Per "gelijk" en per "beter": het bewijs, en wat het niet bewijst. De proeven draai je in openaec-cloud-desktop op
+branch `samenvoegen/m365-scenario` met `scripts/scenario-m365/alles.sh`; de logs staan in
+`docs/samenwerken/scenario-m365/`.
+
+VOOR_SOL
 
 ## 5. Architectuur
 
