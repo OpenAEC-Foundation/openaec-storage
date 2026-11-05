@@ -235,12 +235,23 @@ Voorbeeld: transactie A krijgt 41 en blijft open, B krijgt 42 en commit. Een cli
 Daarna commit A. `wijzigingen(sinds=42)` vraagt `name > 42` (`api.py` r. 858) en ziet 41 nooit. Dit raakt de
 desktop-sync nu al; alleen de volledige ronde elke 10 minuten vangt het op.
 
-Oplossing (stap 4b): `wijzigingen()` geeft de regels zoals nu, maar de teruggegeven `cursor` stopt vóór het eerste
-gat in de volgnummers dat jonger is dan een vaste tijd T (standaard 15 minuten, langer dan de langste transactie).
-Een gat ontstaat door een open transactie of door een teruggedraaide; de leeftijd van een gat is de leeftijd van de
-eerste regel erna. Een gat ouder dan T telt als teruggedraaid. Regels na het gat komen bij de volgende aanvraag dus
-opnieuw mee; een client verwerkt elke regel op volgnummer en slaat een regel die hij al had over. Verplichte
-databaseproeven: commit in omgekeerde volgorde voor twee bestanden, en een teruggedraaide transactie.
+Oplossing (stap 4b): een **commitnummer**. `Opslagwijziging` krijgt een veld `commitnummer`. Dat nummer wordt pas
+uitgedeeld vlak voor de commit (`frappe.db.before_commit`, `frappe/database/database.py` r. 1199 in Frappe 16):
+de transactie vergrendelt één tellerregel voor de site, geeft haar eigen nieuwe regels oplopende nummers, en
+commit. De teller blijft vergrendeld tot de commit klaar is. Zo committen de nummers in volgorde: wie nummer N+1
+krijgt, wacht tot N gecommit is. Het slot duurt alleen van het uitdelen tot de commit (milliseconden), niet de hele
+upload. Een teruggedraaide transactie deelt geen nummer uit, dus er ontstaat geen gat door een rollback.
+
+- `wijzigingen()` filtert en sorteert op `commitnummer` in plaats van `name`. `volgnummer` en `cursor` in het antwoord
+  worden het commitnummer. De cursor is de laatste teruggegeven regel, of zonder regels het hoogste commitnummer van de
+  site. Paginering en `meer` blijven zoals nu.
+- Bestaande regels krijgen bij de migratie `commitnummer = name`, en de teller begint boven het hoogste `name`. Een
+  cursor die een client nu bewaart, blijft dus geldig.
+- Een gat in de nummers binnen één ruimte is gewoon een regel van een andere ruimte. Dat geeft niets: de veiligheid
+  komt uit de commitvolgorde, niet uit het zoeken naar gaten.
+- Verplichte databaseproeven: twee transacties in omgekeerde volgorde gecommit (de client mist niets), een
+  teruggedraaide transactie, regels in twee ruimtes, een deling als wortel, en een volle pagina (de cursor schuift
+  op).
 
 ### 5.5 API-overzicht
 
@@ -326,8 +337,14 @@ waarde.
 | Na samenvoegen wijst iets naar een verwijderd object | Conflict |
 | Na samenvoegen heeft een object meer relaties dan het schema toestaat (een INVERSE met bovengrens 1, bijv. een wand in twee verdiepingen), terwijl dat in ons en in hun elk klopte | Conflict |
 | Na samenvoegen voldoet een samengevoegde verzameling niet aan de grenzen uit het schema (bijv. ons haalt A en hun haalt B uit `RelatedElements = {A, B}`: leeg, terwijl minstens 1 nodig is) | Conflict |
-| De koppeling tussen een object en een definitie (eigenschappenset, type, materiaal, classificatie, document: `IfcRelDefines*` en `IfcRelAssociates*`) bestond in de basis en verdween door de ene kant, terwijl de andere kant die definitie wijzigde | Conflict |
+| De koppeling tussen een object en een definitie (eigenschappenset, type, materiaal, classificatie, document: `IfcRelDefines*` en `IfcRelAssociates*`) bestond in de basis en verdween door de ene kant, terwijl de andere kant die definitie wijzigde, of iets wat aan die definitie hangt | Conflict |
+| Na samenvoegen zit er een kring in de boom (`IfcRelAggregates`, `IfcRelNests`, `IfcRelContainedInSpatialStructure`), of is een object dat in ons én in hun vanaf het project bereikbaar was, dat niet meer | Conflict |
 | Onbekend schema of een geval dat de bibliotheek niet kent | Conflict |
+
+"Wat aan een definitie hangt" volgt de verwijzingen vanuit de definitie naar andere definities, ook indirect. Voorbeeld:
+W1 en W2 hebben type T (`IfcRelDefinesByType`), en T heeft eigenschappenset P (`IfcTypeObject.HasPropertySets`). Ons
+geeft W1 type T2; hun zet de brandwerendheid in P op 60. De koppeling W1–T verdween door ons, en hun wijzigde P, dat
+aan T hangt: conflict.
 
 De koppelregel werkt per object, niet per definitie. Voorbeeld: wanden W1 en W2 delen eigenschappenset P. Ons
 verwijdert W1 (en haalt W1 uit de relatie); hun zet de brandwerendheid in P van 30 naar 60 minuten. P hangt nog aan
@@ -337,10 +354,15 @@ kant. Een verdiepingsrelatie (`IfcRelContainedInSpatialStructure`) of een volgor
 (`IfcRelSequence`) is geen definitie: een andere verdiepingsnaam bij hun en een verplaatste wand bij ons geven samen
 geen conflict.
 
+De boomregel vangt herindelingen die elk apart kloppen, maar samen niet. Voorbeeld: gebouw G bevat verdiepingen P, Q
+en S. Ons hangt P onder Q, hun hangt Q onder P. Elke kant apart is een goede boom; samen bevat Q P en P Q, en P en Q
+hangen niet meer aan het project. De bibliotheek kijkt daarvoor alleen naar de relaties, niet naar geometrie.
+
 Deze gevallen zijn verplichte tests van de bibliotheek, met de voorbeelden uit de reviews van Sol: de wand die onder
 een andere verdieping gaat hangen (de herplaatsing van ons blijft), de wand die via twee nieuwe relaties in twee
 verdiepingen komt (conflict), de verwijderde wand met zijn eigenschappenset (conflict), de gedeelde eigenschappenset
-van W1 en W2 (conflict), de lege `RelatedElements` (conflict), bewust losmaken en wijzigen door één kant (geen
+van W1 en W2 (conflict), de lege `RelatedElements` (conflict), het ander type terwijl de eigenschappenset van het oude type wijzigt
+(conflict), P onder Q en Q onder P (conflict), bewust losmaken en wijzigen door één kant (geen
 conflict), een gedeelde plaatsing die een kant splitst (geen stil verlies) en een gewijzigde auteur in OPS (de auteur
 van hun blijft). Elk geval in IFC2X3, IFC4 en IFC4X3, waar het schema dat toelaat.
 
@@ -483,8 +505,9 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 | K13 | Eerst vergelijk-en-schrijf op de server (`bij_conflict=weiger`), dan pas samenvoegen in de desktop-sync | Zonder atomair vergelijk-en-schrijf moet de client een conflictkopie achteraf opruimen, en dat kan niet veilig (review Sol, 5 november) | Een tussenweg met de bestaande API: samenvoegen vóór het uploaden en de conflictkopie daarna in de prullenbak |
 | K14 | Verwijzingen naar knopen van een ander object tellen als anker, niet als inhoud | Anders gaat een herplaatsing (wand onder een andere verdieping) verloren als de plaatsingen gelijk zijn (review Sol) | Alleen inhoudshashes: eenvoudiger, maar verliest data |
 | K15 | De regel in de wijzigingenlijst in dezelfde transactie als de handeling; push, haak en meldingen erna | Een versie zonder regel mist de sync en de haak (review Sol) | Alles na de commit: dan kan een uitval een regel kosten |
-| K16 | De cursor van `wijzigingen()` stopt vóór een jong gat in de volgnummers; regels kunnen dubbel komen | Volgnummers komen in invoegvolgorde, niet in commitvolgorde; zonder dit mist een client regels (review Sol) | De ruimte vergrendelen bij elke wijziging, zodat commits op volgorde gaan: kost veel bij parallelle uploads |
+| K16 | Een commitnummer, uitgedeeld vlak voor de commit onder een kort slot op één tellerregel | Volgnummers komen nu in invoegvolgorde, niet in commitvolgorde, en een client kan regels missen; zo volgt de veiligheid uit de commitvolgorde, en blijven paginering en bestaande cursors werken (review Sol, ronde 2 en 3) | Een cursor die vóór een jong gat stopt: veilig alleen als geen transactie langer duurt dan de tijdgrens (een taak in `long` mag 25 minuten), en hij breekt de paginering |
 | K17 | Gedeelde ankers krijgen de verzameling van hun ankers als identiteit; twijfel is een conflict | Een gekozen vertegenwoordiger verspringt als een programma een plaatsing splitst (review Sol) | Een vaste keuze, bijv. het kleinste anker |
+| K18 | Na samenvoegen de boom controleren: geen kring, niets wat bereikbaar was raakt los | Twee geldige herindelingen kunnen samen een kring maken, terwijl elke cardinaliteit klopt (review Sol, ronde 3) | Alleen cardinaliteiten uit het schema controleren |
 | K12 | Live samen bewerken (C) pas later | Vraagt dat elke app zijn model als wijzigingen per object uitdrukt, en een besluit over het transport | Nu al een sessiedienst: zonder app die hem gebruikt, is hij niet te testen |
 
 ## 7. Volgorde van bouwen
@@ -497,7 +520,7 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 | 2 | Bibliotheek: IFC lezen, objectmodel, verschil | openaec-cloud-desktop | Nee |
 | 3 | Bibliotheek: samenvoegen, schrijven, opslaan-lus, met een proef van 8 clients tegelijk in het geheugen | openaec-cloud-desktop | Nee |
 | 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
-| 4b | Storage: de cursor van `wijzigingen()` schuift niet voorbij nog niet zichtbare regels (§5.4) | openaec-storage | Nee |
+| 4b | Storage: een commitnummer voor de wijzigingenlijst, zodat de cursor geen regels overslaat (§5.4) | openaec-storage | Nee |
 | 5 | Desktop-sync: IFC samenvoegen via de opslaan-lus, en de proef met twee clients tegen een echte openaec-storage-server (met stap 4), als script met log | openaec-cloud-desktop | Nee |
 | 6 | Storage: gebeurtenissen (push en haak, issue #7), `zet_terug`, `activiteit` | openaec-storage | Deels: push vraagt socket.io in de kern |
 | 7 | Aanwezigheid | openaec-storage of kern | Ja |
