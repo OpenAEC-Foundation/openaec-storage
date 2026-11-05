@@ -235,7 +235,20 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
    controleert het recht daar alleen bij het abonneren, en een ingetrokken deling haalt niemand uit de kamer (review
    Sol, hele ontwerp, 5 november: na het intrekken bleef het lidmaatschap bestaan). De push bevat alleen wat nodig is
    om iets op te halen (soort, bestand, de `name` van de regel); de inhoud haalt de client met een gewone aanroep, die
-   het recht weer controleert. De kosten: één bericht per lezer per gebeurtenis (zie §12 voor veel deelnemers);
+   het recht weer controleert. De kosten: één bericht per lezer per gebeurtenis (zie §12 voor veel deelnemers).
+   **Geen andere route.** Frappe publiceert zelf ook, buiten `gebeurtenis` om: bij elke `save` gaat `doc_update`
+   naar de kamer van het document en `list_update` naar de kamer van de DocType (`frappe/model/document.py`
+   r. 1737–1785), `docinfo_update` naar de kamer van het document, en `doc_viewers` (wie het formulier open heeft)
+   naar de kamer van het open formulier (`frappe/realtime/handlers.py` r. 118). Ook in die kamers blijft wie er ooit
+   in mocht (review Sol, hele ontwerp, ronde 2). Daarom laat de opslag voor zijn eigen DocTypes geen enkele gedeelde
+   kamer toe. De realtimeserver vraagt bij `doc_subscribe`, `doc_open` en `doctype_subscribe` de controle
+   `frappe.realtime.has_permission`. Die vervangt openaec-storage via `override_whitelisted_methods` in `hooks.py`:
+   voor een DocType van openaec-storage antwoordt hij altijd nee, voor elke andere DocType roept hij de gewone
+   controle aan. De standaardberichten van Frappe komen dan in lege kamers, en de persoonlijke kamer via
+   `gebeurtenis` is de enige weg. Een formulier in de desk krijgt voor deze DocTypes dus geen live bijwerking; dat
+   is goed zo. Bewijs: een proef abonneert als lezer op elk van de drie kamers en wordt geweigerd, en na een `save`
+   ontvangt alleen de persoonlijke kamer iets. Dit hangt af van A2 (§9): welke realtimeserver de kern draait en welke
+   controle die bij abonneren vraagt;
 2. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
    app houdt de handeling niet tegen;
 3. meldingen aan de volgers (§5.10), gebundeld.
@@ -381,7 +394,7 @@ Uitbreiding van de bestaande API:
     fout.
   - Lijsten, `wijzigingen()`, `versies()`, `download()` en het antwoord van een upload geven `versie_id` mee. Het
     volgnummer blijft, voor mensen. Elk contract dat naar een versie verwijst (`samengevoegd_uit`, `zet_terug`, het
-    anker van een opmerking, `bestand.nieuwe_versie`), gebruikt `versie_id`. Een bron die verplaatst is of niet meer
+    anker van een opmerking, de regel van een nieuwe versie in de wijzigingenlijst), gebruikt `versie_id`. Een bron die verplaatst is of niet meer
     toegankelijk, geeft een duidelijke fout; er is geen terugval op het nummer.
   - **Ook verwijderen is voorwaardelijk.** Een client die een bestand op de server verwijdert omdat het lokaal weg
     is (de sync, ook uitgesteld of na offline werken), stuurt de versie mee waarvan hij uitging:
@@ -389,7 +402,13 @@ Uitbreiding van de bestaande API:
     huidige versie een andere, dan blijft het bestand staan en antwoordt de server `verouderde_basis`; de client
     vergelijkt opnieuw (meestal: de nieuwe versie downloaden, want een ander werkte verder). Voorbeeld: B wist F1
     lokaal en zijn scan ziet F1 op V1; daarna slaat A V2 op; B's verwijdering wordt geweigerd en F1 met V2 blijft in
-    het actieve dossier. Een verwijdering door een mens in de browser mag zonder basis. Zolang de server dit niet
+    het actieve dossier. Er is één verwijderroute, zonder onderscheid naar herkomst: ook de browser stuurt de versie
+    die hij toonde. Was die verouderd, dan haalt de browser eerst de huidige stand op, en pas daarna kan de gebruiker
+    opnieuw bevestigen (review Sol, hele ontwerp, ronde 2: B had de lijst met F1 op V1 open, A sloeg V2 op, en B's
+    oude bevestiging mag V2 niet wegzetten). Bij een map of een bulkactie stuurt de client per bestand de versie die
+    hij toonde; een bestand dat intussen veranderde of dat de client niet zag, blijft staan, en de map met hem. Alles
+    wat een huidige versie wegzet, volgt dezelfde regel: `verplaats(…, overschrijf=1)` stuurt ook de versie van het
+    doel die de client zag. Zolang de server dit niet
     kent (de server ligt stil, §9), haalt de sync vlak voor het verwijderen de huidige versie opnieuw op en stopt bij
     een verschil. Dat verkleint het gat, maar sluit het niet (review Sol, hele ontwerp, 5 november).
   - `verplaats` leest het doel met een slot, zodat twee verplaatsingen tegelijk geen dubbel nummer meer uitgeven. Een
@@ -413,8 +432,12 @@ Uitbreiding van de bestaande API:
 - `mogelijkheden()` krijgt `samenwerken: {aanwezigheid, opmerkingen, volgen, objectuitcheck, bij_conflict_weiger,
   verschil}` zodat een client weet wat de server kent.
 
-Gebeurtenissen via push (soort en inhoud): `bestand.nieuwe_versie {bestand, versie_id, door, samengevoegd}`,
-`bestand.aanwezigheid {bestand, aanwezigen}`, `bestand.opmerking {bestand, draad, opmerking, door}`,
+Gebeurtenissen via push. Elke push heeft dezelfde vorm als in §5.4: `{soort, bestand, name}`, zonder inhoud
+(`name` is de regel in de wijzigingenlijst; leeg bij aanwezigheid, want die staat alleen in Redis). De client haalt de
+inhoud op met de gewone aanroep, die het recht controleert. Soorten (en de aanroep om op te halen):
+`bestand.nieuwe_versie` (`wijzigingen`, `versies`), `bestand.aanwezigheid` (`aanwezig`), `bestand.opmerking`
+(`opmerkingen`), `bestand.uitgecheckt` en `bestand.vrijgegeven` (slot per bestand), `bestand.objecten_uitgecheckt` en
+`bestand.objecten_vrijgegeven` (`uitgecheckte_objecten`).
 `bestand.uitgecheckt` en `bestand.vrijgegeven` (slot per bestand), `bestand.objecten_uitgecheckt` en
 `bestand.objecten_vrijgegeven {bestand, gebruiker, aantal}`.
 
@@ -651,8 +674,11 @@ een tak van taken in een planning.
 **Welke objecten een wijziging raakt.** De lijst gewijzigde GlobalIds uit het verschil is niet genoeg. Voorbeeld:
 alleen de brandwerendheid van wand W wijzigt; het verschil meldt de GlobalId van de eigenschappenset, niet W. Een
 wijziging raakt daarom ook elk object waarvoor de gewijzigde definitie geldt, volgens de koppelregel van §5.6 (via
-`IfcRelDefines*`, `IfcRelAssociates*` en het type, ook indirect). Eén gedeelde bepaling geldt voor uitchecken
-(trede 1 en 2) en voor `anker_status` van opmerkingen (§5.9) (review Sol, hele ontwerp, 5 november).
+`IfcRelDefines*`, `IfcRelAssociates*` en het type, ook indirect). Ook een gewijzigde, toegevoegde of verwijderde
+koppeling telt, bekeken in de basis én in het resultaat. Voorbeeld: alleen de `IfcRelDefinesByProperties` tussen W en
+zijn eigenschappenset verdwijnt; W en de set zijn zelf ongewijzigd, maar W verloor zijn eigenschappen en is dus
+geraakt (review Sol, hele ontwerp, ronde 2). Eén gedeelde bepaling geldt voor uitchecken (trede 1 en 2) en voor
+`anker_status` van opmerkingen (§5.9) (review Sol, hele ontwerp, 5 november).
 
 ### 5.8 Aanwezigheid
 
@@ -720,6 +746,9 @@ offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
   `has_permission` overrulen. Per DocType zijn er negatieve proeven voor lezen, lijst en wijzigen langs de algemene
   routes van Frappe (`/api/resource`, `frappe.client`), ook met een achtergebleven `DocShare` na het intrekken van de
   opslagdeling.
+- Realtime: voor de DocTypes van openaec-storage bestaat geen gedeelde kamer (document, DocType of open formulier).
+  De controle bij abonneren weigert ze; alleen de persoonlijke kamer krijgt berichten (§5.4, "Geen andere route").
+  Een negatieve proef per kamer hoort bij stap 6.
 - Een deellink zonder account (soort `link`) kan geen opmerkingen plaatsen en ziet geen aanwezigheid: er is geen
   persoon om te tonen of te melden.
 - De samenvoegbibliotheek leest onbetrouwbare invoer. Ze mag nooit vastlopen of crashen op een kapot bestand, en ze
@@ -801,7 +830,7 @@ is.
 | # | Aanname, zo klein mogelijk | Keuzes die ervan afhangen | Eerst lezen in de kern |
 |---|---|---|---|
 | A1 | De inhoud en de versies van een bestand in een ruimte staan alleen in openaec-storage (`Bestandsversie` + S3), en niets schrijft er buiten de API van openaec-storage om | §5.3, §5.4 (de wijzigingenlijst als enige bron), stap 4 en 4b, K3 | Welke app de DocTypes voor bestanden en versies bezit; of de kern zelf naar S3 of naar `tabBestandsversie` schrijft (zoek in de code op `Bestandsversie`, `s3`, `boto3`) |
-| A2 | Een ingelogde client kan één realtime-kanaal per site volgen | §5.4 (push), §5.8, §5.10 | De Procfile of compose van de kern (draait `socketio`?), de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
+| A2 | Een ingelogde client kan één realtime-kanaal per site volgen, en de realtimeserver vraagt bij abonneren `frappe.realtime.has_permission` | §5.4 (push, geen gedeelde kamers), §5.8, §5.10, §5.14 | De Procfile of compose van de kern (draait `socketio`, en welke versie: de Node-server of die in Python?), welke controle die bij abonneren vraagt, de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
 | A3 | De kern heeft nog geen eigen DocTypes voor opmerkingen, meldingen of activiteit op bestanden | §5.9, §5.10, K6 | De lijst van DocTypes in de kern (alle `doctype/*/*.json`) en waar `Notification Log` wordt gebruikt |
 | A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling) | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4) | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, en of de kern `DocShare` gebruikt |
 | A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis | §5.5 (de basis), `bij_conflict` | Dat document, §6 |
