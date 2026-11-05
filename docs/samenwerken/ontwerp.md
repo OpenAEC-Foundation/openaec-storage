@@ -1094,7 +1094,7 @@ Doelen (voorstel van Claude, nog niet beoordeeld door Ethan):
 | Doel | Getal |
 |---|---|
 | Grootte van één model | 5 GB IFC zonder harde grens in bibliotheek of opslag |
-| Geheugen bij verschil en samenvoegen | hoogstens 2 GB, ook bij 5 GB |
+| Geheugen bij verschil en samenvoegen | hoogstens 2 GiB, ook bij 5 GB |
 | Versturen na een kleine wijziging | ongeveer de grootte van de wijziging, niet van het bestand |
 | Deelnemers | 300 tegelijk actief in één ruimte, 1 000 leden op één site |
 | Levensduur | een versie van nu is over tientallen jaren nog te lezen en te vergelijken, ook zonder onze software |
@@ -1103,23 +1103,26 @@ Doelen (voorstel van Claude, nog niet beoordeeld door Ethan):
 
 **Het probleem.** De bibliotheek leest de bestanden helemaal in, en houdt per versie een model in het geheugen.
 Samenvoegen heeft er vier: basis, ons, hun, en het resultaat voor de zelfcontrole. Metingen van P4
-(`docs/samenwerken/metingen.md` op `samenvoegen/p4-metingen` in openaec-cloud-desktop, commit `daa7748`, bibliotheek
-`0655eda`, elke run onder een harde grens van 2 GB):
+(`docs/samenwerken/metingen.md` op `samenvoegen/p4-metingen` in openaec-cloud-desktop, commit `349e3ec`, bibliotheek
+`0655eda`, elke run onder een harde grens van 2 GiB, `MemoryMax=2G`):
 
 | Model | Grootte | `voeg-samen` | Piekgeheugen |
 |---|---|---|---|
-| Dicht (43 bytes per instantie, zoals een gewone BIM-export) | 92 MB | 6,4 s | 1,6 GB (17 MB per MB) |
-| Veel geometrie in lange regels (1 900 bytes per instantie) | 150 MB | 5,4 s | 670 MB (4,4 MB per MB) |
-| Dicht | 1,2 GB | — | gestopt door de grens: al tijdens het lezen van één bestand (`tel`, na 7,5 s) |
-| Dicht | 6,3 GB | — | gestopt tijdens het inlezen; zonder grens zou `Fout::TeGroot` volgen (4 GiB of groter, `ontleden.rs` r. 157) |
+| Dicht (43 bytes per instantie, zoals een gewone BIM-export) | 92 MB | 6,4 s | 1 579 MiB (17 MiB per MB) |
+| Veel geometrie in lange regels (1 900 bytes per instantie) | 150 MB | 5,4 s | 670 MiB (4,4 MiB per MB) |
+| Dicht | 1,2 GB | — | gestopt door de grens: `verschil` tijdens het inlezen van het tweede bestand (na 6,8 s, 2,0 GiB) |
+| Dicht | 6,3 GB | — | gestopt tijdens het inlezen van het bestand zelf (`tel`, na 6,9 s); de controle op 4 GiB (`Fout::TeGroot`, `ontleden.rs` r. 157) komt niet aan de beurt |
 
 De invoer is een open model van buildingSMART (CC BY 4.0), vermenigvuldigd met nieuwe nummers en GlobalIds. Het
-geheugen volgt de formule 3,9 × de bytes + 670 bytes per knoop + 2,8 kB per object (een fit over 35 metingen tot
-174 MB). Doorgetrokken (schatting van P4) vraagt een dicht model van 1 GB 18,5 GB om samen te voegen, en een van 5 GB
-92 GB. Of echte modellen van die grootte hetzelfde doen, is niet gemeten; dat de opzet van nu niet tot meerdere GB
-gaat, wel (de regels van 1,2 en 6,3 GB hierboven). De
-tijd is het probleem niet: ongeveer 4 s per 100 MB, waarvan een derde de zelfcontrole. Ook het contract is op hele
-bestanden gebouwd: `Opslag::lees` geeft een `Vec<u8>` en `schrijf_als` neemt een `&[u8]` (`samenwerken.rs` r. 53-67).
+geheugen van `voeg-samen` volgt de formule 4,1 × de bytes + 670 bytes per knoop + 2,8 kB per object (een fit over de
+metingen tot 174 MB). Alleen lezen, één versie, kost bij een dicht model al 2,9 bytes per byte (174 MB: 2,1 s en
+481 MiB). Doorgetrokken (schatting van P4, in GB van 10^9 bytes) vraagt een dicht model van 1 GB 2,9 GB om te lezen,
+9,8 GB voor een verschil en ongeveer 20 GB om samen te voegen. Bij een dicht model van 5 GB is dat 14,5, 49 en 100 GB.
+Een model met veel geometrie in lange regels vraagt minder: 1,1, 2,3 en 4,6 GB bij 1 GB. Of echte modellen van die
+grootte hetzelfde doen, is niet gemeten. Dat de opzet van nu niet tot meerdere GB gaat, is wel gemeten (de regels van
+1,2 en 6,3 GB hierboven). De tijd is een kleiner probleem: 3 tot 7 s per 100 MB (bij een planning van OPS 19 s),
+waarvan een derde de zelfcontrole. Ook het contract is op hele bestanden gebouwd: `Opslag::lees` geeft een `Vec<u8>`
+en `schrijf_als` neemt een `&[u8]` (`samenwerken.rs` r. 53-67).
 
 Versturen schaalt ook slecht. De server hergebruikt een blok van 8 MiB alleen als **dezelfde plek** in de basis dezelfde
 hash heeft (`api.py` `_herbruikbare_blokken`, r. 308). Wordt één regel een byte langer, dan schuift alles erachter.
@@ -1135,7 +1138,8 @@ wijst, en die staan soms verderop in het bestand. Daarom rekent ze in een paar d
 (kringen, ankers, gedeelde knopen), en dan per object de hash (`docs/samenwerken/gb-schaal.md` in
 openaec-cloud-desktop). Rekensom (schatting) voor het testmodel van 6,3 GB van P4 (116 miljoen instanties, 780 000
 objecten): 0,6 GB per versie. `verschil` heeft er twee, samenvoegen drie: ongeveer 1,9 GB, net onder de grens van
-2 GB. Een bestand met nummers die niet oplopen, valt terug op ongeveer 40 bytes per instantie; dat haalt de grens niet.
+2 GiB (2,1 GB). Een bestand met nummers die niet oplopen, valt terug op ongeveer 40 bytes per instantie; dat haalt de
+grens niet.
 - De client bewaart de index van de basis naast de momentopname S in `.openaec/` (§5.6). Samenvoegen hoeft dan alleen
   ons en hun te indexeren.
 - De index is een cache: hij is altijd opnieuw te maken uit het IFC-bestand (zie §12.3).
@@ -1155,7 +1159,7 @@ object.
   (alleen wat het samenvoegen raakt, plus de tellingen) mag pas als een test laat zien dat ze dezelfde fouten vindt:
   de zelfcontrole is het vangnet tegen een fout in het schrijven.
 - Bewijs: een test op het hele testcorpus (dezelfde gewijzigde objecten en dezelfde conflicten als de weg van nu), en
-  metingen op 1 en 5 GB onder een harde grens van 2 GB (`systemd-run --user --scope -p MemoryMax=2G`). Beide op
+  metingen op 1 en 5 GB onder een harde grens van 2 GiB (`systemd-run --user --scope -p MemoryMax=2G`). Beide op
   `samenvoegen/gb-schaal`.
 
 **G3. Het contract van de opslag.** Opties: (a) hele bestanden in het geheugen, zoals nu; (b) paden:
@@ -1313,7 +1317,7 @@ opslaan (λ = 1/45 per seconde):
 | Model | T | Kans per poging | Na 5 pogingen een conflictkopie |
 |---|---|---|---|
 | 100 MB | ongeveer 20 s | 64 % | 0,6 % |
-| 1 GB, zoals nu (1 GB downloaden met 100 Mbit/s en samenvoegen) | ongeveer 3 min | 2 % | 91 % |
+| 1 GB met de opzet van nu, als er ongeveer 20 GB geheugen is (downloaden met 100 Mbit/s, samenvoegen, uploaden) | ongeveer 3 min | 2 % | 91 % |
 
 Uitchecken per object helpt hier niet: ook zonder conflict racen de schrijvers om de versie van het bestand.
 - Opties: (a) T klein maken met G1 tot en met G4; (b) een wachtrij op de server: de client uploadt zijn versie met zijn
