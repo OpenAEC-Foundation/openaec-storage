@@ -492,18 +492,28 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
          `frappe/core/doctype/report/report.py` r. 312). `Report Manager` mag het maken, en die rol is geen
          beheerder. Anna heeft `Desk User` en `Report Manager`, maar geen leesrecht op F1. Zij maakt een `Report
          Builder` op `Opslagbestand`, kiest `user = Administrator` en zichzelf als ontvanger, en krijgt F1 via
-         `download` of `send_now`. Met een rapport op `Notification Log` werkt het net zo. De opslag sluit dit
-         met een `has_permission`-haak in `hooks.py`: `Auto Email Report` is alleen voor `System Manager`. Dat
-         dekt maken, wijzigen, de lijst, `download` en `send_now`; beide roepen `check_permission` aan
-         (r. 303–323). De patch bij de invoering zet elk `Auto Email Report` uit dat geen beheerder maakte. Ook
-         haalt hij de ingeplande taken uit de wachtrij en logt hij elk rapport. Waarom niet alleen `user` aan de
-         maker binden: dan kan een `Report Manager` nog een rapport van een beheerder downloaden dat als
-         `Administrator` draait.
+         `download` of `send_now`. Met een rapport op `Notification Log` werkt het net zo. De patch bij de
+         invoering sluit dit in drie stappen:
+         1. De rechten op `Auto Email Report` zijn daarna alleen voor `System Manager` (`Custom DocPerm`).
+            `Report Manager` verliest lezen, schrijven, maken en delen, dus ook de lijst.
+         2. Elke `DocShare` op een `Auto Email Report` gaat weg. Frappe kijkt na een weigering nog naar een
+            deling, ook voor de lijst (`frappe/permissions.py` r. 200–209); `download` en `send_now` controleren
+            alleen die toegang, niet of het rapport aan staat (r. 303–323).
+         3. Alle bestaande rapporten gaan uit, ook die van een beheerder: een `Report Manager` kon vóór de
+            invoering elk rapport wijzigen (`user`, ontvangers), en de scheduler controleert bij het uitvoeren
+            geen rechten (r. 342). De ingeplande taken gaan uit de wachtrij voordat de werkers weer starten. Een
+            beheerder zet een rapport daarna bewust weer aan; de patch logt elk rapport.
+
+         Een `has_permission`-haak is niet genoeg: hij dekt de lijst niet en wijkt voor een bestaande deling
+         (review Sol, ronde 7). `user` aan de maker binden is ook niet genoeg: dan kan een `Report Manager` nog
+         een rapport van een beheerder downloaden dat als `Administrator` draait.
        - Een sjabloon (Jinja) krijgt bij het renderen leestoegang tot elke tabel, zonder rechtencontrole:
          `frappe.db.get_all` met `ignore_permissions`, `frappe.db.get_value` en `frappe.db.sql` voor leesquery's
          (`frappe/utils/safe_exec.py` r. 306–311, 351–353 en 580–589, ook met `restrict_globals`). Wie een
-         sjabloon mag schrijven dat Frappe rendert, leest dus alle metadata van de opslag: namen, paden,
-         opmerkingen, meldingen. De inhoud van de bestanden staat in S3 en blijft buiten bereik. In de bench
+         sjabloon mag schrijven dat Frappe rendert, leest dus alle gegevens van de opslag: namen, paden,
+         opmerkingen, meldingen, en ook het token van een deellink (`Opslagdeling.token`). Met dat token geeft
+         `openaec_storage/delen.py` (r. 153) een downloadlink, dus ook de inhoud van de bestanden ligt binnen
+         bereik (review Sol, ronde 7). In de bench
          kunnen `System Manager` (`Print Format`, `Email Template`, `Notification`, `Web Template`) en `Website
          Manager` (`Web Page`, `frappe/website/doctype/web_page/web_page.py` r. 116–130) zo'n sjabloon schrijven. Met ERPNext komen er rollen
          bij. Zo zijn het onderwerp en het bericht van `Auto Repeat` een sjabloon, en geeft
@@ -542,8 +552,11 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
    opslag-DocType als doel wordt geweigerd. En een `Overdracht` maken met `follow_created_documents` aan slaagt,
    zonder `Document Follow`. Anna met `Report Manager` maakt een `Auto Email Report` met `user = Administrator`,
    een keer op `Opslagbestand` en een keer op `Notification Log`. Maken, `download` en `send_now` worden
-   geweigerd. Een rapport van een `Report Manager` van vóór de invoering staat daarna uit en verstuurt niets. De
-   proef schrijft ook de rollen op die in de site een sjabloon mogen schrijven, en legt die lijst naast A4. Dit hangt af van A2 (§9): welke realtimeserver de kern draait, welke controle die bij abonneren vraagt,
+   geweigerd, en de lijst toont haar geen rapporten. Vóór de invoering zette Anna een rapport van een beheerder
+   op `user = Administrator` met zichzelf als ontvanger, en deelde ze een eigen rapport met zichzelf. Na de
+   invoering staan alle rapporten uit, de scheduler verstuurt niets, en `download` en `send_now` worden ook op
+   het gedeelde rapport geweigerd. De proef schrijft ook de rollen op die in de site een sjabloon mogen
+   schrijven, en legt die lijst naast A4. Dit hangt af van A2 (§9): welke realtimeserver de kern draait, welke controle die bij abonneren vraagt,
    en welke soorten configuratie op een document reageren;
 2. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
    app houdt de handeling niet tegen;
@@ -1074,10 +1087,20 @@ Wat dat voor dit ontwerp betekent:
   verandert. Dat is nodig: een volgnummer kan terugkomen (§5.5). Zie A5.
 - **De werkplek voorkomt nu tegelijk bewerken.** `open` geeft `readOnly: true` als "iemand anders het bewerkt". Dat
   is manier A van §5.2 (voorkomen), met een slot per bestand. Voor een soort die de bibliotheek kan samenvoegen
-  (IFC) is het voorstel: geen alleen-lezen voor de tweede, wel aanwezigheid (§5.8), en bij opslaan samenvoegen in de
-  host in plaats van een kopie (issue #11). Na een samengevoegde opslag heeft de tool niet de inhoud die nu op de
-  server staat; de host zegt dat in zijn antwoord, en de tool opent het bestand opnieuw. Voor DWG, PDF en andere
-  soorten blijft het slot. Zie A12.
+  (IFC) is het voorstel op termijn: geen alleen-lezen voor de tweede, wel aanwezigheid (§5.8), en bij opslaan
+  samenvoegen in de host in plaats van een kopie (issue #11). Voor DWG, PDF en andere soorten blijft het slot. Zie
+  A12.
+- **Route A krijgt eerst alleen conflictkopieën, geen samenvoegen** (review Sol, ronde 7). Het antwoord van `save` is
+  `{id, name, version}`; niets zegt dat de host iets anders bewaarde dan de tool stuurde. Calc Studio neemt na `save`
+  de nieuwe `version` als basis, en houdt zijn eigen inhoud (`hostFileActions.ts` r. 70–86, commit `4e8ed38`). Na een
+  samengevoegde opslag zou de volgende opslag het werk van de ander dus wissen: de basis klopt, de inhoud mist het.
+  Opnieuw openen helpt niet altijd: werkte de gebruiker tijdens het opslaan verder, dan valt dat werk weg. Samenvoegen
+  in route A komt pas met drie afspraken in het hostcontract:
+  1. `save` zegt herkenbaar dat de host samenvoegde (bijv. `merged: true`).
+  2. De basis van de tool gaat alleen vooruit samen met de inhoud die hij werkelijk laadt.
+  3. Is het document sinds de verstuurde momentopname niet veranderd, dan laadt de tool het resultaat en neemt hij
+     de nieuwe versie als basis. Is het wel veranderd, dan houdt de tool zijn oude basis en zijn eigen inhoud. De
+     volgende opslag voegt dan opnieuw samen: wat beide kanten al gelijk hebben, is geen conflict.
 - **Aanwezigheid hoeft de tool niet te melden.** De host weet wanneer een tool een bestand opent (en of het
   alleen-lezen is) en wanneer het frame sluit; de host meldt zelf `meld_aanwezig` en `meld_weg` namens de gebruiker.
   Naar de tool toe heeft het contract al een gebeurtenis (`openaec-host-preferences`). Het voorstel is een tweede in
@@ -1086,8 +1109,10 @@ Wat dat voor dit ontwerp betekent:
 - **Route B is een sync.** Het bestand in de werkmap terugzetten als nieuwe versie heeft dezelfde risico's als de
   desktop-sync: zonder de basis gaat werk van een ander verloren (§2), en een programma dat het bestand nog open heeft
   kan in een vervangen bestand schrijven (§5.6, veilig vervangen). Zie A13, en de optie "één sync" in §9.
-- **De assistent (MCP)** opent en bewaart niets zelf ("Openen en opslaan doet de gebruiker via het hostcontract").
-  Voor de samenwerklaag verandert er daardoor niets.
+- **De assistent (MCP).** In route A opent en bewaart de assistent niets zelf ("Openen en opslaan doet de gebruiker
+  via het hostcontract"). In route B heeft hij wel `<tool>_open` en `<tool>_opslaan` (Blueprint r. 125–126). Daar
+  gelden dezelfde regels als voor route B: de basis, de rechten van de gebruiker en veilig vervangen, ongeacht wie
+  het opslaan start (review Sol, ronde 7).
 
 ## 6. Keuzes
 
@@ -1198,12 +1223,13 @@ dit ontwerp bij, en pas dan wordt er weer op de server gebouwd.
 - **Slot of samenvoegen in de werkplek, per soort bestand.** Optie 1: het slot blijft voor alles (nu; de tweede
   persoon krijgt alleen-lezen). Optie 2: geen slot voor een soort die de bibliotheek kan samenvoegen (IFC), wel
   aanwezigheid en samenvoegen bij opslaan; het slot blijft voor de rest. Optie 2 is het voorstel: alleen zo werken
-  twee mensen tegelijk aan één model. Beslissend: A12, en waar het samenvoegen draait (A6).
+  twee mensen tegelijk aan één model. Het vraagt wel eerst de drie afspraken over `save` uit §5.15; tot dan blijft
+  optie 1. Beslissend: A12, en waar het samenvoegen draait (A6).
 - **Eén sync voor de desktop en route B.** Optie 1: de gestreamde desktop gebruikt dezelfde sync als de desktop-app
   (`openaec-sync`: de basis, veilig vervangen, samenvoegen bij opslaan). Optie 2: de kern houdt een eigen werkmap,
   die dan dezelfde regels moet volgen. Optie 1 is het voorstel: één plek voor dezelfde risico's. Beslissend: A13.
 - **Een eigen site voor de opslag.** Optie 1: de opslag deelt de site met de andere apps (nu). Dan is elke rol die
-  een sjabloon mag schrijven, vertrouwd voor de metadata van de opslag (§5.4). Optie 2: de opslag krijgt een eigen
+  een sjabloon mag schrijven, vertrouwd voor alle gegevens van de opslag, ook de bestanden (§5.4). Optie 2: de opslag krijgt een eigen
   site met een eigen database; alleen de beheerders van die site zijn dan vertrouwd. Dat kost wel een aanmelding over
   twee sites heen. Optie 1 is het voorstel zolang alleen beheerders zulke rollen krijgen. Beslissend: A4.
 
@@ -1215,8 +1241,9 @@ Deze staan als issues in openaec-storage, zoals #2 tot en met #7:
 2. #11 Werkplek: samenvoegen bij opslaan vanuit een tool, in plaats van een conflictkopie.
 
    Bij #10 en #11 staat een reactie die het voorstel op het hostcontract van de Blueprint legt (§5.15): de host meldt
-   aanwezigheid zelf, een gebeurtenis in de vorm van `openaec-host-preferences`, en samenvoegen in `save` zonder
-   nieuwe vorm voor de tool.
+   aanwezigheid zelf, en een gebeurtenis in de vorm van `openaec-host-preferences`. Samenvoegen in `save` vraagt wel
+   een nieuwe vorm voor de tool: een herkenbaar antwoord en een basis die bij de geladen inhoud hoort (§5.15, review
+   Sol ronde 7). Tot dan geeft route A conflictkopieën.
 3. #12 Realtime in de SuperCloud: draait socket.io, en kan de desktop-app er met een token bij?
 4. #13 Server: een Rust-hulpprogramma naast Frappe voor verschil en samenvoegen van IFC.
 5. #14 Eén systeem voor opmerkingen op bestanden en BIM-issues (BCF).
