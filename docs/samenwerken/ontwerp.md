@@ -244,17 +244,26 @@ Voorbeeld: transactie A krijgt 41 en blijft open, B krijgt 42 en commit. Een cli
 Daarna commit A. `wijzigingen(sinds=42)` vraagt `name > 42` (`api.py` r. 858) en ziet 41 nooit. Dit raakt de
 desktop-sync nu al; alleen de volledige ronde elke 10 minuten vangt het op.
 
-Oplossing (stap 4b): een **commitnummer**. `Opslagwijziging` krijgt een veld `commitnummer`. Dat nummer wordt pas
-uitgedeeld vlak voor de commit (`frappe.db.before_commit`, `frappe/database/database.py` r. 1199 in Frappe 16):
-de transactie vergrendelt één tellerregel voor de site, geeft haar eigen nieuwe regels oplopende nummers, en
-commit. De teller blijft vergrendeld tot de commit klaar is. Zo committen de nummers in volgorde: wie nummer N+1
-krijgt, wacht tot N gecommit is. Het slot duurt alleen van het uitdelen tot de commit (milliseconden), niet de hele
-upload. Een teruggedraaide transactie deelt geen nummer uit, dus er ontstaat geen gat door een rollback.
+Oplossing (stap 4b): een **commitnummer, uitgedeeld bij het lezen**. `Opslagwijziging` krijgt een veld
+`commitnummer`; een nieuwe regel krijgt 0. Wie de lijst leest (`wijzigingen()`, `activiteit()`, en straks push en
+haak), veegt eerst, in een eigen korte transactie: hij neemt het slot op één tellerregel voor de site, zoekt met een
+vergrendelende lezing alle vastgelegde regels met nummer 0, geeft ze in volgorde van `name` de volgende nummers, werkt
+de teller bij en commit. Pas daarna leest hij op `commitnummer`.
 
-Een wijzigingsregel zonder commitnummer wordt nooit vastgelegd. Lukt het uitdelen niet (het tellerslot komt niet op
-tijd), of kan de volgorde niet veilig (een andere callback blijft na het uitdelen nog iets doen, of draait een deel
-terug), dan mislukt de commit. Een nieuwe poging nummert opnieuw, of mislukt weer. Er is geen terugval die "dan toch
-maar" nummert, en geen aparte werking voor tests (review Sol op PR #16).
+Waarom dat veilig is: een regel krijgt pas een nummer als hij al vastgelegd is, en altijd een hoger nummer dan elk
+nummer dat eerder is uitgedeeld. Een client heeft alleen nummers gezien die al uitgedeeld waren. Een regel die later
+zichtbaar wordt, krijgt dus een hoger nummer dan de cursor van elke client, en niemand mist hem. Langs welke weg de
+regel is vastgelegd, maakt niet uit: een gewone commit, een impliciete commit door DDL, een rauwe SQL-commit of een
+achtergrondtaak. De schrijver hoeft niets te doen. Een eerdere opzet nummerde vlak voor de commit, in
+`frappe.db.before_commit`; twee rondes van Sol op PR #16 vonden steeds een commitroute buiten die haak om, of een
+opruimhaak die werk van de volgende transactie wiste. Die opzet is daarom vervallen.
+
+- De veger commit zijn nummers vóór het lezen. Leest hij in dezelfde transactie en mislukt de commit daarna, dan kan
+  een client een nummer gezien hebben dat later aan een andere regel gaat.
+- Zonder regels met nummer 0 neemt de veger geen slot: eerst een gewone lezing, en alleen bij een treffer het slot en
+  de vergrendelende lezing. Lezers wachten dus alleen op elkaar als er iets te nummeren is.
+- De vergrendelende lezing ziet de laatst vastgelegde stand. Met `innodb_snapshot_isolation` aan (MariaDB 11.8)
+  begint de veger in een verse transactie, en bij fout 1020 probeert hij het een paar keer opnieuw.
 
 - `wijzigingen()` filtert en sorteert op `commitnummer` in plaats van `name`. `volgnummer` en `cursor` in het antwoord
   worden het commitnummer. De cursor is de laatste regel van de pagina vóór het filter op een deling (zoals nu), en
@@ -686,7 +695,7 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 | K13 | Eerst vergelijk-en-schrijf op de server (`bij_conflict=weiger`), dan pas samenvoegen in de desktop-sync | Zonder atomair vergelijk-en-schrijf moet de client een conflictkopie achteraf opruimen, en dat kan niet veilig (review Sol, 5 november) | Een tussenweg met de bestaande API: samenvoegen vóór het uploaden en de conflictkopie daarna in de prullenbak |
 | K14 | Verwijzingen naar knopen van een ander object tellen als anker, niet als inhoud | Anders gaat een herplaatsing (wand onder een andere verdieping) verloren als de plaatsingen gelijk zijn (review Sol) | Alleen inhoudshashes: eenvoudiger, maar verliest data |
 | K15 | De regel in de wijzigingenlijst in dezelfde transactie als de handeling; push, haak en meldingen erna | Een versie zonder regel mist de sync en de haak (review Sol) | Alles na de commit: dan kan een uitval een regel kosten |
-| K16 | Een commitnummer, uitgedeeld vlak voor de commit onder een kort slot op één tellerregel | Volgnummers komen nu in invoegvolgorde, niet in commitvolgorde, en een client kan regels missen; zo volgt de veiligheid uit de commitvolgorde, en blijven paginering en bestaande cursors werken (review Sol, ronde 2 en 3) | Een cursor die vóór een jong gat stopt: veilig alleen als geen transactie langer duurt dan de tijdgrens (een taak in `long` mag 25 minuten), en hij breekt de paginering |
+| K16 | Een commitnummer, uitgedeeld bij het lezen: een veger nummert vastgelegde regels met nummer 0 onder een kort slot op één tellerregel, en commit vóór het lezen | Volgnummers komen in invoegvolgorde, niet in zichtbaarheidsvolgorde, en een client kan regels missen; de veger geeft een laat zichtbare regel altijd een hoger nummer dan elke uitgedeelde cursor, langs welke commitroute de regel ook kwam (review Sol, ontwerp ronde 2 en 3; PR #16 ronde 1 en 2) | Nummeren vlak voor de commit (`before_commit`): elke commitroute buiten die haak laat een regel zonder nummer; een cursor die vóór een jong gat stopt: veilig alleen bij een tijdgrens die een taak in `long` (25 minuten) niet haalt |
 | K17 | Gedeelde ankers krijgen de verzameling van hun ankers als identiteit; twijfel is een conflict | Een gekozen vertegenwoordiger verspringt als een programma een plaatsing splitst (review Sol) | Een vaste keuze, bijv. het kleinste anker |
 | K18 | Na samenvoegen de boom controleren: geen kring, niets wat bereikbaar was raakt los | Twee geldige herindelingen kunnen samen een kring maken, terwijl elke cardinaliteit klopt (review Sol, ronde 3) | Alleen cardinaliteiten uit het schema controleren |
 | K19 | De basis is het id van de versieregel (`versie_id`), niet het versienummer | Een nummer kon terugkomen of dubbel worden uitgegeven, ook vóór de invoering, op manieren die achteraf niet vast te stellen zijn (review Sol, rondes 10 tot en met 13); het id komt nooit terug en de inhoud van een regel verandert nooit | Een nummer dat nooit terugkomt, met een patch die de huidige versie hernummert boven een berekende bovengrens: elke bovengrens bleek een gat te hebben |
