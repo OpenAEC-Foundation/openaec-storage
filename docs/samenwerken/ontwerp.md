@@ -229,6 +229,19 @@ Valt het proces uit na de commit, dan is de push of de melding weg, maar de rege
 mee in elke push en elke haakaanroep. Elke weg komt zo langs dezelfde plek: browser, desktop-app, batch, WebDAV en
 uploadlink.
 
+**De cursor mag niet voorbij een open transactie schuiven.** Frappe deelt het volgnummer uit bij het invoegen, via
+een sequence zonder cache (`frappe/database/sequence.py`), dus in de volgorde van invoegen en niet van committen.
+Voorbeeld: transactie A krijgt 41 en blijft open, B krijgt 42 en commit. Een client leest 42 en bewaart cursor 42.
+Daarna commit A. `wijzigingen(sinds=42)` vraagt `name > 42` (`api.py` r. 858) en ziet 41 nooit. Dit raakt de
+desktop-sync nu al; alleen de volledige ronde elke 10 minuten vangt het op.
+
+Oplossing (stap 4b): `wijzigingen()` geeft de regels zoals nu, maar de teruggegeven `cursor` stopt vóór het eerste
+gat in de volgnummers dat jonger is dan een vaste tijd T (standaard 15 minuten, langer dan de langste transactie).
+Een gat ontstaat door een open transactie of door een teruggedraaide; de leeftijd van een gat is de leeftijd van de
+eerste regel erna. Een gat ouder dan T telt als teruggedraaid. Regels na het gat komen bij de volgende aanvraag dus
+opnieuw mee; een client verwerkt elke regel op volgnummer en slaat een regel die hij al had over. Verplichte
+databaseproeven: commit in omgekeerde volgorde voor twee bestanden, en een teruggedraaide transactie.
+
 ### 5.5 API-overzicht
 
 Alles onder `/api/method/openaec_storage.samenwerken.<methode>`, met de inlog van de gebruiker. Rechten volgen
@@ -283,9 +296,13 @@ elk een eigen plaatsing met dezelfde inhoud. Wand W staat relatief aan de plaats
 verplaatst P. Op inhoud lijkt ons gelijk aan de basis, en de herplaatsing van ons zou verdwijnen. Daarom: een knoop
 waar een object rechtstreeks naar verwijst (bijv. `ObjectPlacement`, `Representation`) is een *anker* van dat object,
 met als identiteit `(GlobalId, attribuut, positie)`. Verwijst een knoop van W naar een anker van een ánder object,
-dan telt die verwijzing als het anker, niet als de inhoud. Zo is "W hangt nu onder Q" een wijziging van W. Een knoop
-die meer objecten rechtstreeks gebruiken, krijgt een vaste keuze en telt als gedeeld; bij twijfel geeft de
-bibliotheek een conflict.
+dan telt die verwijzing als het anker, niet als de inhoud. Zo is "W hangt nu onder Q" een wijziging van W.
+
+Een knoop die meer objecten rechtstreeks gebruiken (IFC staat gedeelde plaatsingen toe), heeft als identiteit de
+gesorteerde verzameling van al zijn ankers. Er is geen gekozen vertegenwoordiger. Splitst of deelt een kant zo'n
+knoop anders, dan verandert die identiteit, en telt het als een wijziging van die kant. Wijzigde de andere kant
+hetzelfde attribuut, dan is het een conflict. Kan de schrijver een gedeeld anker niet eenduidig naar één knoop in het
+resultaat vertalen, dan is het ook een conflict.
 
 **Vluchtige velden.** Alleen velden die bij elk opslaan veranderen, tellen niet mee: in `IfcOwnerHistory` de
 tijdstempels en de velden over de laatste wijziging, en in de HEADER de tijdstempel. De rest van de keten telt wel
@@ -308,13 +325,24 @@ waarde.
 | De ene verwijderde, de andere wijzigde | Conflict |
 | Na samenvoegen wijst iets naar een verwijderd object | Conflict |
 | Na samenvoegen heeft een object meer relaties dan het schema toestaat (een INVERSE met bovengrens 1, bijv. een wand in twee verdiepingen), terwijl dat in ons en in hun elk klopte | Conflict |
-| Een object hing in de basis via een relatie aan iets, hangt na samenvoegen nergens meer aan, en een kant wijzigde het (bijv. ons verwijdert een wand met zijn eigenschapsrelatie, hun wijzigt die eigenschappenset) | Conflict |
+| Na samenvoegen voldoet een samengevoegde verzameling niet aan de grenzen uit het schema (bijv. ons haalt A en hun haalt B uit `RelatedElements = {A, B}`: leeg, terwijl minstens 1 nodig is) | Conflict |
+| De koppeling tussen een object en een definitie (eigenschappenset, type, materiaal, classificatie, document: `IfcRelDefines*` en `IfcRelAssociates*`) bestond in de basis en verdween door de ene kant, terwijl de andere kant die definitie wijzigde | Conflict |
 | Onbekend schema of een geval dat de bibliotheek niet kent | Conflict |
 
-Deze gevallen zijn verplichte tests van de bibliotheek, met de voorbeelden uit de review van Sol: de wand die onder
+De koppelregel werkt per object, niet per definitie. Voorbeeld: wanden W1 en W2 delen eigenschappenset P. Ons
+verwijdert W1 (en haalt W1 uit de relatie); hun zet de brandwerendheid in P van 30 naar 60 minuten. P hangt nog aan
+W2, maar de koppeling W1–P verdween door ons, terwijl hun P wijzigde: conflict. Komen het verdwijnen van de koppeling
+en de wijziging van de definitie van dezelfde kant, dan is het geen conflict: die toestand komt helemaal uit één
+kant. Een verdiepingsrelatie (`IfcRelContainedInSpatialStructure`) of een volgorde in een planning
+(`IfcRelSequence`) is geen definitie: een andere verdiepingsnaam bij hun en een verplaatste wand bij ons geven samen
+geen conflict.
+
+Deze gevallen zijn verplichte tests van de bibliotheek, met de voorbeelden uit de reviews van Sol: de wand die onder
 een andere verdieping gaat hangen (de herplaatsing van ons blijft), de wand die via twee nieuwe relaties in twee
-verdiepingen komt (conflict), de losgeraakte eigenschappenset (conflict) en een gewijzigde auteur in OPS (de auteur
-van hun blijft).
+verdiepingen komt (conflict), de verwijderde wand met zijn eigenschappenset (conflict), de gedeelde eigenschappenset
+van W1 en W2 (conflict), de lege `RelatedElements` (conflict), bewust losmaken en wijzigen door één kant (geen
+conflict), een gedeelde plaatsing die een kant splitst (geen stil verlies) en een gewijzigde auteur in OPS (de auteur
+van hun blijft). Elk geval in IFC2X3, IFC4 en IFC4X3, waar het schema dat toelaat.
 
 Bij een conflict is er standaard geen nieuwe versie maar een rapport per object en attribuut, met de waarden van
 basis, ons en hun. De client maakt dan een conflictkopie, zoals nu, en zet het rapport ernaast. Later kan een scherm
@@ -455,6 +483,8 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 | K13 | Eerst vergelijk-en-schrijf op de server (`bij_conflict=weiger`), dan pas samenvoegen in de desktop-sync | Zonder atomair vergelijk-en-schrijf moet de client een conflictkopie achteraf opruimen, en dat kan niet veilig (review Sol, 5 november) | Een tussenweg met de bestaande API: samenvoegen vóór het uploaden en de conflictkopie daarna in de prullenbak |
 | K14 | Verwijzingen naar knopen van een ander object tellen als anker, niet als inhoud | Anders gaat een herplaatsing (wand onder een andere verdieping) verloren als de plaatsingen gelijk zijn (review Sol) | Alleen inhoudshashes: eenvoudiger, maar verliest data |
 | K15 | De regel in de wijzigingenlijst in dezelfde transactie als de handeling; push, haak en meldingen erna | Een versie zonder regel mist de sync en de haak (review Sol) | Alles na de commit: dan kan een uitval een regel kosten |
+| K16 | De cursor van `wijzigingen()` stopt vóór een jong gat in de volgnummers; regels kunnen dubbel komen | Volgnummers komen in invoegvolgorde, niet in commitvolgorde; zonder dit mist een client regels (review Sol) | De ruimte vergrendelen bij elke wijziging, zodat commits op volgorde gaan: kost veel bij parallelle uploads |
+| K17 | Gedeelde ankers krijgen de verzameling van hun ankers als identiteit; twijfel is een conflict | Een gekozen vertegenwoordiger verspringt als een programma een plaatsing splitst (review Sol) | Een vaste keuze, bijv. het kleinste anker |
 | K12 | Live samen bewerken (C) pas later | Vraagt dat elke app zijn model als wijzigingen per object uitdrukt, en een besluit over het transport | Nu al een sessiedienst: zonder app die hem gebruikt, is hij niet te testen |
 
 ## 7. Volgorde van bouwen
@@ -467,6 +497,7 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 | 2 | Bibliotheek: IFC lezen, objectmodel, verschil | openaec-cloud-desktop | Nee |
 | 3 | Bibliotheek: samenvoegen, schrijven, opslaan-lus, met een proef van 8 clients tegelijk in het geheugen | openaec-cloud-desktop | Nee |
 | 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
+| 4b | Storage: de cursor van `wijzigingen()` schuift niet voorbij nog niet zichtbare regels (§5.4) | openaec-storage | Nee |
 | 5 | Desktop-sync: IFC samenvoegen via de opslaan-lus, en de proef met twee clients tegen een echte openaec-storage-server (met stap 4), als script met log | openaec-cloud-desktop | Nee |
 | 6 | Storage: gebeurtenissen (push en haak, issue #7), `zet_terug`, `activiteit` | openaec-storage | Deels: push vraagt socket.io in de kern |
 | 7 | Aanwezigheid | openaec-storage of kern | Ja |
@@ -476,7 +507,7 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 | 11 | `verschil` en handhaven op de server | openaec-storage | Ja: hulpprogramma naast Frappe |
 | 12 | Live samen bewerken | kern en apps | Ja |
 
-Stap 2 tot en met 5 bouw ik nu. Stap 6 en verder wachten tot de kern gelezen is.
+Stap 2 tot en met 5 (met 4b) bouw ik nu. Stap 6 en verder wachten tot de kern gelezen is.
 
 ## 8. Welke schermen er later op kunnen
 
