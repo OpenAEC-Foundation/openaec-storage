@@ -9,6 +9,7 @@
   "map",
   "naam",
   "huidige_versie",
+  "hoogste_versie",
   "grootte",
   "mime",
   "verwijderd_op",
@@ -52,6 +53,14 @@
    "label": "Huidige versie",
    "default": "0",
    "read_only": 1
+  },
+  {
+   "fieldname": "hoogste_versie",
+   "fieldtype": "Int",
+   "label": "Hoogste versie",
+   "default": "0",
+   "read_only": 1,
+   "description": "Het hoogste volgnummer dat dit bestand ooit kreeg. Versienummers gaan alleen omhoog en komen nooit terug, ook niet als verplaatsen met overschrijven de huidige versie verlaagde."
   },
   {
    "fieldname": "grootte",
@@ -133,7 +142,7 @@
    "description": "Waar het bestand vandaan kwam als het automatisch is gespiegeld (bijv. File:<naam> bij een projectbijlage)."
   }
  ],
- "modified": "2026-10-28 12:00:00.000000",
+ "modified": "2026-11-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Opslagbestand",

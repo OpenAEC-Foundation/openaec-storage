@@ -14,6 +14,7 @@ import requests
 from frappe.tests import IntegrationTestCase
 
 from openaec_storage import api, s3
+from openaec_storage.patches import hoogste_versie_invullen
 from openaec_storage.tests.hulp import OPSLAGINSTELLINGEN, NagebootsteS3, foutcode, gebruiker, ruim_op, ruimte, upload
 
 WACHT = 30  # seconden: hoogstens zo lang wachten op een thread of een sein
@@ -489,6 +490,107 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		self.assertNotEqual(r["bestand"], f2)
 		self.assertEqual([v.samengevoegd_uit for v in api.versies(bestand=r["bestand"])], [None])
 		self.assertEqual(self.volgnummers(f2), [1])
+
+	# --- versienummers gaan alleen omhoog en komen nooit terug -------------------------------------------
+
+	def planning_met_twee_versies(self) -> str:
+		"""Anna's planning.ifc (F1): versie 1, en versie 2 met inhoud A."""
+		f1 = upload(self.ruimte, "planning.ifc", b"een")["bestand"]
+		upload(self.ruimte, "planning.ifc", b"inhoud A", basis_versie=1)
+		return f1
+
+	def piet_verplaatst_over_een_ander(self, f1: str, herstellen: bool = True) -> None:
+		"""Piet verplaatst F1 met overschrijven over ander.ifc: versie 2 gaat naar ander.ifc, F1 staat als versie 1 in
+		de prullenbak. Daarna herstelt hij F1."""
+		frappe.set_user(self.piet)
+		try:
+			upload(self.ruimte, "ander.ifc", b"ander")
+			api.verplaats(bestand=f1, naam="ander.ifc", overschrijf=1)
+			if herstellen:
+				api.herstel(bestand=f1)
+		finally:
+			frappe.set_user(self.anna)
+
+	def versies_van(self, bestand: str) -> tuple:
+		return frappe.db.get_value("Opslagbestand", bestand, ["huidige_versie", "hoogste_versie"])
+
+	def test_versienummer_komt_na_verplaatsen_en_herstellen_niet_terug(self):
+		f1 = self.planning_met_twee_versies()
+		# Anna begint haar upload terwijl F1 nog op versie 2 staat (de vroege controle laat hem door).
+		met_weiger = start(self.ruimte, "planning.ifc", b"oud werk van anna", basis_versie=2, basis_bestand=f1, bij_conflict="weiger")
+		self.piet_verplaatst_over_een_ander(f1, herstellen=False)
+		self.assertEqual(self.versies_van(f1), (1, 2))
+		frappe.set_user(self.piet)
+		api.herstel(bestand=f1)
+		b = upload(self.ruimte, "planning.ifc", b"inhoud B", basis_versie=1)
+		frappe.set_user(self.anna)
+		# B wordt versie 3, niet opnieuw versie 2.
+		self.assertEqual((b["bestand"], b["versie"], b["conflict"]), (f1, 3, False))
+		self.assertEqual(self.volgnummers(f1), [1, 3])
+		# Anna werkte offline vanuit F1 versie 2 (inhoud A); dat paar wijst nu naar niets.
+		self.assertEqual(foutcode(self, api.VerouderdeBasis, api.upload_klaar, **met_weiger), "verouderde_basis")
+		self.assertEqual(self.basis_in_antwoord(), (3, f1))
+		code = foutcode(
+			self, api.VerouderdeBasis, start, self.ruimte, "planning.ifc", b"oud werk van anna", basis_versie=2, basis_bestand=f1, bij_conflict="weiger"
+		)
+		self.assertEqual(code, "verouderde_basis")
+		self.assertEqual(self.basis_in_antwoord(), (3, f1))
+		(k,) = api.upload_klein_bytes(
+			self.ruimte, [item("planning.ifc", b"oud", basis_versie=2, basis_bestand=f1, bij_conflict="weiger")], {"f0": b"oud"}
+		)["resultaten"]
+		self.assertEqual((k["ok"], k["foutcode"], k["huidige_versie"], k["huidig_bestand"]), (False, "verouderde_basis", 3, f1))
+		r = api.upload_klaar(**start(self.ruimte, "planning.ifc", b"oud werk van anna", basis_versie=2, basis_bestand=f1))
+		self.assertTrue(r["conflict"])
+		self.assertNotEqual(r["bestand"], f1)
+		self.assertEqual(self.volgnummers(f1), [1, 3])
+		self.assertEqual(self.inhoud(f1, 3), b"inhoud B")
+
+	def test_verplaatsen_met_overschrijven_geeft_het_doel_het_nummer_na_het_hoogste(self):
+		f1 = self.planning_met_twee_versies()
+		self.piet_verplaatst_over_een_ander(f1)
+		self.assertEqual(self.versies_van(f1), (1, 2))
+		los = upload(self.ruimte, "los.ifc", b"los")["bestand"]
+		r = api.verplaats(bestand=los, naam="planning.ifc", overschrijf=1)
+		self.assertEqual((r["bestand"], r["versie"]), (f1, 3))
+		self.assertEqual(self.volgnummers(f1), [1, 3])
+		self.assertEqual(self.versies_van(f1), (3, 3))
+
+	def test_hoogste_versie_zakt_niet_bij_opslaan(self):
+		"""Ook wie het bestand als document opslaat (bijv. via /api/resource), kan `hoogste_versie` niet verlagen."""
+		f1 = self.planning_met_twee_versies()
+		frappe.set_user(self.piet)
+		doc = frappe.get_doc("Opslagbestand", f1)
+		doc.huidige_versie, doc.hoogste_versie = 1, 0
+		doc.save()
+		frappe.set_user(self.anna)
+		self.assertEqual(self.versies_van(f1), (1, 2))
+		self.assertEqual(upload(self.ruimte, "planning.ifc", b"drie", basis_versie=1)["versie"], 3)
+
+	def test_patch_geeft_een_al_verplaatst_bestand_een_veilige_bovengrens(self):
+		f1 = self.planning_met_twee_versies()
+		self.piet_verplaatst_over_een_ander(f1, herstellen=False)
+		ander = self.actief("ander.ifc")
+		gewoon = upload(self.ruimte, "gewoon.ifc", b"g")["bestand"]
+		api.verwijder(bestand=gewoon)
+		api.herstel(bestand=gewoon)
+		stil = upload(self.ruimte, "stil.ifc", b"s")["bestand"]
+		ander_id = frappe.db.get_value("Opslagbestand", {"ruimte": self.ruimte, "naam": "ander.ifc"}, "name")
+		# Zoals vóór deze versie: geen hoogste_versie (alleen de database, zonder het document).
+		frappe.db.sql("update `tabOpslagbestand` set hoogste_versie = 0 where ruimte = %s", self.ruimte)
+		hoogste_versie_invullen.execute()
+		# F1: huidige 1 + één keer verplaatst = 2. Gewoon verwijderd telt ook mee (te veel, dus veilig).
+		self.assertEqual(
+			[self.versies_van(b) for b in (f1, gewoon, stil, ander_id)], [(1, 2), (1, 2), (1, 1), (2, 2)]
+		)
+		self.assertEqual(ander, ["ander.ifc"])
+		frappe.set_user(self.piet)
+		api.herstel(bestand=f1)
+		b = upload(self.ruimte, "planning.ifc", b"inhoud B", basis_versie=1)
+		frappe.set_user(self.anna)
+		self.assertEqual((b["bestand"], b["versie"]), (f1, 3))
+		# Nog een keer draaien verlaagt niets (het kan hoogstens een nummer overslaan).
+		hoogste_versie_invullen.execute()
+		self.assertGreaterEqual(self.versies_van(f1)[1], 3)
 
 
 # --- gelijktijdig: twee echte databaseverbindingen ------------------------------------------------------

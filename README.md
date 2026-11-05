@@ -362,6 +362,19 @@ WebDAV-gateway, browser, uploadlink). `mogelijkheden` geeft `bij_conflict_weiger
 | `basis_bestand` | `upload_start`, en per bestand in `upload_klein` | Het id van het bestand waarop de client werkte. Een versienummer is alleen uniek binnen één bestand: zonder dit veld wordt een upload met `basis_versie=1` versie 2 van elk bestand dat nu op de plek zo heet, ook als dat een ander bestand is (Anna werkt offline aan F1; Piet verwijdert F1 en maakt onder dezelfde naam F2; Anna's oude inhoud zou F2 versie 2 worden). Met `basis_bestand` komt er alleen een nieuwe versie als het bestand op de plek `basis_bestand` is én `basis_versie` de huidige versie is. Staat er een ander bestand: met `"kopie"` een conflictkopie, met `"weiger"` 409 `verouderde_basis` met `huidig_bestand` (het id van dat bestand). Staat er niets (verwijderd, verplaatst of hernoemd): met `"kopie"` een nieuw bestand, met `"weiger"` 409 `verouderde_basis` met `huidig_bestand` en `huidige_versie` null. `samengevoegd_uit` geldt dan niet. Zonder `basis_bestand` verandert er niets |
 | `samengevoegd_uit` | `upload_start` (JSON), en per bestand in `upload_klein` | `{"basis": n, "hun": m}`: deze inhoud is een samenvoeging van versie n (de gemeenschappelijke basis) en versie m van het bestand, met `m` gelijk aan `basis_versie`. Twee gehele getallen, `n < m`, en beide versies bestaan; anders 417 `ongeldige_samenvoeging`. Het komt op de nieuwe versie (`Bestandsversie.samengevoegd_uit`) en staat in `versies` (`samengevoegd_uit` per versie, of null). Niet op een conflictkopie of een nieuw bestand: die versies horen bij een ander bestand. In de wijzigingenlijst blijft het een gewone `gewijzigd` |
 
+**Versienummers gaan alleen omhoog.** De versienummers van een bestand gaan alleen omhoog en komen nooit terug. Een
+paar (bestand, versie) wijst dus altijd naar dezelfde inhoud, of naar niets. `verplaats` met overschrijven verlaagt
+de huidige versie van de bron (zijn laatste versie wordt de volgende versie van het doel); zonder deze regel kreeg de
+volgende upload na `herstel` dat nummer opnieuw. Voorbeeld: Anna werkt offline vanuit F1 versie 2. Piet verplaatst F1
+met overschrijven over een ander bestand, herstelt F1 (nu versie 1) en uploadt B: dat werd opnieuw F1 versie 2, en
+Anna's upload met `basis_bestand` F1 en `basis_versie` 2 overschreef B stil. Nu onthoudt `Opslagbestand.hoogste_versie`
+het hoogste nummer dat het bestand ooit kreeg; het volgende nummer is `max(huidige_versie, hoogste_versie) + 1` (bij
+uploaden en voor het doel van `verplaats`), dus B wordt versie 3 en Anna krijgt een conflict. `hoogste_versie` zakt
+nooit, ook niet bij opslaan via `/api/resource`. De patch `hoogste_versie_invullen` geeft bestaande bestanden
+`huidige_versie` plus het aantal regels `verwijderd` voor dat bestand in de wijzigingenlijst: een veilige bovengrens
+(elke verlaging is precies 1 en logt zo'n regel; een gewone verwijdering telt ook mee, en een overgeslagen nummer kan
+geen kwaad).
+
 **Vastleggen onder een slot.** Een nieuwe versie (of een nieuw bestand) wordt vastgelegd in `_registreer`. Die
 vergrendelt eerst de regel van het bestaande bestand en zijn slot (`Opslagvergrendeling`, nu met een index op
 `bestand`), en vergelijkt daarna `basis_versie` met de huidige versie. Komt er een nieuw bestand of een

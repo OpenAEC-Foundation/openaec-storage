@@ -669,11 +669,22 @@ def _registreer(info: dict) -> dict:
 	return _nieuwe_versie(info, doc, "nieuw", None, conflict=conflict)
 
 
+def _volgende_versie(bestand) -> int:
+	"""Het volgende volgnummer van een bestand (een document of rij met `huidige_versie` en `hoogste_versie`).
+
+	Versienummers van een bestand gaan alleen omhoog en komen nooit terug: een paar (bestand, versie) wijst altijd naar
+	dezelfde inhoud, of naar niets. `verplaats` met overschrijven verlaagt de huidige versie van de bron (zijn laatste
+	versie gaat naar het doel); na `herstel` zou de volgende upload dat nummer anders opnieuw krijgen. Daarom telt ook
+	`hoogste_versie`, het hoogste nummer dat het bestand ooit kreeg. Wie een nummer uitgeeft, zet `hoogste_versie` erop
+	bij, onder het slot op de regel van het bestand."""
+	return max(cint(bestand.huidige_versie), cint(bestand.get("hoogste_versie"))) + 1
+
+
 def _nieuwe_versie(info: dict, doc, soort: str, samengevoegd: dict | None, conflict: bool) -> dict:
 	"""De volgende versie van `doc` (al vergrendeld, of net aangemaakt) met de inhoud uit `info`, en de regel in de
 	wijzigingenlijst."""
 	ruimte = info["ruimte"]
-	volgnummer = cint(doc.huidige_versie) + 1
+	volgnummer = _volgende_versie(doc)
 	frappe.get_doc(
 		{
 			"doctype": "Bestandsversie",
@@ -690,7 +701,7 @@ def _nieuwe_versie(info: dict, doc, soort: str, samengevoegd: dict | None, confl
 			"samengevoegd_uit": json.dumps(samengevoegd) if samengevoegd else None,
 		}
 	).insert(ignore_permissions=True)
-	doc.huidige_versie = volgnummer
+	doc.huidige_versie = doc.hoogste_versie = volgnummer
 	doc.grootte = info["grootte"]
 	doc.save(ignore_permissions=True)
 	_log(ruimte, soort, "Opslagbestand", doc.name, doc.naam)
@@ -793,21 +804,33 @@ def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int 
 	_weiger_als_vergrendeld(doel.name, "Het doel is vergrendeld door {0}")
 	# De huidige versie van de bron wordt de volgende versie van het doel. Heeft de bron oudere versies, dan gaat
 	# hij daarmee naar de prullenbak (niets gaat verloren); anders verdwijnt hij.
-	volgnummer = cint(doel.huidige_versie) + 1
+	doel = frappe.db.get_value(
+		"Opslagbestand", doel.name, ["name", "huidige_versie", "hoogste_versie"], as_dict=True, for_update=True
+	)
+	volgnummer = _volgende_versie(doel)
 	versie = frappe.db.get_value(
 		"Bestandsversie", {"bestand": bron.name, "volgnummer": bron.huidige_versie}, ["name", "grootte"], as_dict=True
 	)
 	frappe.db.set_value("Bestandsversie", versie.name, {"bestand": doel.name, "volgnummer": volgnummer})
-	frappe.db.set_value("Opslagbestand", doel.name, {"huidige_versie": volgnummer, "grootte": versie.grootte})
+	frappe.db.set_value(
+		"Opslagbestand", doel.name, {"huidige_versie": volgnummer, "hoogste_versie": volgnummer, "grootte": versie.grootte}
+	)
 	frappe.db.delete("Opslagvergrendeling", {"bestand": bron.name})
 	vorige = frappe.db.get_value(
 		"Bestandsversie", {"bestand": bron.name}, ["volgnummer", "grootte"], order_by="volgnummer desc", as_dict=True
 	)
 	if vorige:
+		# De huidige versie zakt; het hoogste nummer blijft staan (zie _volgende_versie).
+		hoogste = max(cint(frappe.db.get_value("Opslagbestand", bron.name, "hoogste_versie")), cint(bron.huidige_versie))
 		frappe.db.set_value(
 			"Opslagbestand",
 			bron.name,
-			{"huidige_versie": vorige.volgnummer, "grootte": vorige.grootte, "verwijderd_op": now_datetime()},
+			{
+				"huidige_versie": vorige.volgnummer,
+				"hoogste_versie": hoogste,
+				"grootte": vorige.grootte,
+				"verwijderd_op": now_datetime(),
+			},
 		)
 	else:
 		frappe.db.delete("Opslagbestand", {"name": bron.name})
