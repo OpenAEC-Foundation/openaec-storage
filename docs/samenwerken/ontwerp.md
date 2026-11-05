@@ -212,7 +212,7 @@ Nieuw (namen zijn een voorstel):
 
 | DocType | Velden | Waarvoor |
 |---|---|---|
-| `Bestandsversie` (uitbreiding) | `samengevoegd_uit` (JSON: `{basis, hun}` met versienummers), `samenvoegrapport` (JSON, kort) | Zien dat versie 14 een samenvoeging is van 12 (basis), 13 (hun) en de upload van Piet |
+| `Bestandsversie` (uitbreiding) | `samengevoegd_uit` (JSON: `{basis, hun}` met de `versie_id` van die regels, nooit versienummers), `samenvoegrapport` (JSON, kort) | Zien dat versie 14 een samenvoeging is van 12 (basis), 13 (hun) en de upload van Piet |
 | `Opslagopmerking` | `ruimte`, `bestand`, `versie` (waarop geschreven), `draad` (Link naar de eerste opmerking; leeg = nieuwe draad), `tekst`, `anker` (JSON, zie §5.9), `status` (`open`, `opgelost`; alleen op de eerste), `opgelost_door`, `opgelost_op`, `bewerkt_op`, `verwijderd_op`, `bcf_guid` | Opmerkingen en reacties |
 | `Opmerkingvermelding` (tabel) | `gebruiker`, `heeft_toegang` | Wie er met @ genoemd is, en of die het bestand mag lezen |
 | `Objectuitcheck` | `ruimte`, `bestand`, `gebruiker`, `objecten` (JSON-lijst GlobalIds), `omschrijving` (bijv. "kolommen verdieping 3"), `apparaat`, `verloopt` | Uitchecken per object (§5.7) |
@@ -229,8 +229,13 @@ Nu schrijft elke handeling zelf een regel in de wijzigingenlijst (`_log`). Voors
 **dezelfde transactie** als de handeling, zoals `_log` nu. Zo bestaat er nooit een versie zonder regel, of een regel
 zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
 
-1. een push via `frappe.publish_realtime` naar de kamer van het bestand (`doctype="Opslagbestand", docname=…`) en
-   van de ruimte. Frappe controleert bij het abonneren het leesrecht met onze `has_permission`;
+1. een push via `frappe.publish_realtime` naar de **persoonlijke kamer** (`user=…`) van elke gebruiker die het
+   bestand **op dat moment** mag lezen. De server bepaalt dat bij elke aflevering opnieuw (rol, deling, deellink,
+   gearchiveerde ruimte, `buiten_deling`). Een kamer per bestand of per ruimte gebruikt het ontwerp niet: Frappe
+   controleert het recht daar alleen bij het abonneren, en een ingetrokken deling haalt niemand uit de kamer (review
+   Sol, hele ontwerp, 5 november: na het intrekken bleef het lidmaatschap bestaan). De push bevat alleen wat nodig is
+   om iets op te halen (soort, bestand, de `name` van de regel); de inhoud haalt de client met een gewone aanroep, die
+   het recht weer controleert. De kosten: één bericht per lezer per gebeurtenis (zie §12 voor veel deelnemers);
 2. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
    app houdt de handeling niet tegen;
 3. meldingen aan de volgers (§5.10), gebundeld.
@@ -315,15 +320,15 @@ Alles onder `/api/method/openaec_storage.samenwerken.<onderwerp>.<methode>` (é�
 | `meld_aanwezig(bestand, modus, app?, apparaat?, sessie?)` | lezen | Ik heb het bestand open (`bekijken` of `bewerken`). Elke 30 s herhalen. Geeft `sessie` en de lijst van aanwezigen |
 | `meld_weg(sessie)` | — | Ik sluit het bestand |
 | `aanwezig(bestand)` | lezen | `[{gebruiker, naam, modus, app, apparaat, sinds}]` |
-| `opmerkingen(bestand, status?, versie?)` | lezen | Draden met reacties; per draad ook `anker_status` (§5.9) |
-| `plaats_opmerking(bestand, tekst, anker?, versie?, draad?)` | lezen (zie keuze K7) | Nieuwe opmerking of reactie; @noemen in de tekst als `@gebruiker@voorbeeld.nl` |
+| `opmerkingen(bestand, status?, versie_id?)` | lezen | Draden met reacties; per draad ook `anker_status` (§5.9) |
+| `plaats_opmerking(bestand, tekst, anker?, versie_id?, draad?)` | lezen (zie keuze K7) | Nieuwe opmerking of reactie; @noemen in de tekst als `@gebruiker@voorbeeld.nl` |
 | `wijzig_opmerking`, `verwijder_opmerking` | eigen opmerking | — |
 | `los_op(draad)`, `heropen(draad)` | lezen | Status van een draad |
 | `volg(doel_doctype, doel, soorten?)`, `ontvolg(…)`, `mijn_volgers()` | lezen | Volgen |
 | `checkout_objecten(bestand, objecten, omschrijving?, uren?)` | schrijven | Uitchecken per object; weigert met `object_uitgecheckt` en de lijst als een ander er al een heeft |
 | `geef_objecten_vrij(bestand, objecten?)` | eigen uitcheck (of beheerder) | Alles of een deel vrijgeven |
 | `uitgecheckte_objecten(bestand)` | lezen | `[{gebruiker, objecten, omschrijving, verloopt}]` |
-| `zet_terug(bestand, versie)` | schrijven | Nieuwe versie die gelijk is aan een oude (kopie in S3, geen upload) |
+| `zet_terug(bestand, versie_id, basis_versie_id)` | schrijven | Nieuwe versie die gelijk is aan een oude (kopie in S3, geen upload) |
 | `verschil(bestand, van_versie, naar_versie)` | lezen | Verschil per object (§5.6); later, als de server de bibliotheek kan draaien |
 | `activiteit(bestand, start?, aantal?)` | lezen | Versies, opmerkingen, sloten en delingen van één bestand, nieuwste eerst |
 
@@ -375,7 +380,18 @@ Uitbreiding van de bestaande API:
     bij het bestand hoort. `lees(basis)` geeft dus altijd de inhoud waar de client vanuit werkte, of een duidelijke
     fout.
   - Lijsten, `wijzigingen()`, `versies()`, `download()` en het antwoord van een upload geven `versie_id` mee. Het
-    volgnummer blijft, voor mensen.
+    volgnummer blijft, voor mensen. Elk contract dat naar een versie verwijst (`samengevoegd_uit`, `zet_terug`, het
+    anker van een opmerking, `bestand.nieuwe_versie`), gebruikt `versie_id`. Een bron die verplaatst is of niet meer
+    toegankelijk, geeft een duidelijke fout; er is geen terugval op het nummer.
+  - **Ook verwijderen is voorwaardelijk.** Een client die een bestand op de server verwijdert omdat het lokaal weg
+    is (de sync, ook uitgesteld of na offline werken), stuurt de versie mee waarvan hij uitging:
+    `verwijder(bestand, basis_versie_id)`. De server controleert dat onder hetzelfde slot als een upload. Is de
+    huidige versie een andere, dan blijft het bestand staan en antwoordt de server `verouderde_basis`; de client
+    vergelijkt opnieuw (meestal: de nieuwe versie downloaden, want een ander werkte verder). Voorbeeld: B wist F1
+    lokaal en zijn scan ziet F1 op V1; daarna slaat A V2 op; B's verwijdering wordt geweigerd en F1 met V2 blijft in
+    het actieve dossier. Een verwijdering door een mens in de browser mag zonder basis. Zolang de server dit niet
+    kent (de server ligt stil, §9), haalt de sync vlak voor het verwijderen de huidige versie opnieuw op en stopt bij
+    een verschil. Dat verkleint het gat, maar sluit het niet (review Sol, hele ontwerp, 5 november).
   - `verplaats` leest het doel met een slot, zodat twee verplaatsingen tegelijk geen dubbel nummer meer uitgeven. Een
     nummer kan na verplaatsen, herstellen en opnieuw uploaden nog terugkomen. Dat is verwarrend voor mensen, maar niet
     meer onveilig. `zet_terug` maakt altijd een nieuwe versie.
@@ -397,7 +413,7 @@ Uitbreiding van de bestaande API:
 - `mogelijkheden()` krijgt `samenwerken: {aanwezigheid, opmerkingen, volgen, objectuitcheck, bij_conflict_weiger,
   verschil}` zodat een client weet wat de server kent.
 
-Gebeurtenissen via push (soort en inhoud): `bestand.nieuwe_versie {bestand, versie, door, samengevoegd}`,
+Gebeurtenissen via push (soort en inhoud): `bestand.nieuwe_versie {bestand, versie_id, door, samengevoegd}`,
 `bestand.aanwezigheid {bestand, aanwezigen}`, `bestand.opmerking {bestand, draad, opmerking, door}`,
 `bestand.uitgecheckt` en `bestand.vrijgegeven` (slot per bestand), `bestand.objecten_uitgecheckt` en
 `bestand.objecten_vrijgegeven {bestand, gebruiker, aantal}`.
@@ -473,6 +489,7 @@ waarde.
 | Na samenvoegen voldoet een samengevoegde verzameling niet aan de grenzen uit het schema (bijv. ons haalt A en hun haalt B uit `RelatedElements = {A, B}`: leeg, terwijl minstens 1 nodig is) | Conflict |
 | Een definitie gold in de basis voor een object, de ene kant haalde hem weg (of verwijderde het object), en de andere kant wijzigde die definitie terwijl hij daar nog voor het object gold (zie de koppelregel hieronder) | Conflict |
 | Na samenvoegen zit er een kring in de boom (`IfcRelAggregates`, `IfcRelNests`, `IfcRelContainedInSpatialStructure`), of is een object dat in ons én in hun vanaf het project bereikbaar was, dat niet meer | Conflict |
+| Na samenvoegen zit er een kring in de volgorde van taken (`IfcRelSequence`): ons legt A→B, hun B→A. Elke kant is apart berekenbaar; samen kan de planning niet meer gerekend worden (OPS: `CPMSolver.ts` geeft dan een fout zonder berekende taken) (review Sol, hele ontwerp, 5 november) | Conflict |
 | Na samenvoegen zit er een kring in een plaatsingsketen (`IfcLocalPlacement.PlacementRelTo`): ons plaatst P ten opzichte van Q, hun Q ten opzichte van P | Conflict |
 | Onbekend schema of een geval dat de bibliotheek niet kent | Conflict |
 
@@ -631,17 +648,24 @@ Handhaven gaat in twee treden:
 Een app kiest zelf hoe hij een groep objecten maakt: een verdieping met alles erin, een type, een selectie in 3D,
 een tak van taken in een planning.
 
+**Welke objecten een wijziging raakt.** De lijst gewijzigde GlobalIds uit het verschil is niet genoeg. Voorbeeld:
+alleen de brandwerendheid van wand W wijzigt; het verschil meldt de GlobalId van de eigenschappenset, niet W. Een
+wijziging raakt daarom ook elk object waarvoor de gewijzigde definitie geldt, volgens de koppelregel van §5.6 (via
+`IfcRelDefines*`, `IfcRelAssociates*` en het type, ook indirect). Eén gedeelde bepaling geldt voor uitchecken
+(trede 1 en 2) en voor `anker_status` van opmerkingen (§5.9) (review Sol, hele ontwerp, 5 november).
+
 ### 5.8 Aanwezigheid
 
 Een client meldt `meld_aanwezig` bij het openen en daarna elke 30 seconden. Na 90 seconden zonder melding vervalt de
 sessie. De server bewaart sessies alleen in Redis, niet in de database: het is vluchtige data. Bij elke wijziging in
-de lijst stuurt de server `bestand.aanwezigheid` naar de kamer van het bestand. De desktop-sync kan later ook
+de lijst stuurt de server `bestand.aanwezigheid` naar de persoonlijke kamers van wie het bestand op dat moment mag
+lezen (dezelfde regel als in §5.4). De desktop-sync kan later ook
 aanwezigheid melden voor een bestand dat lokaal open staat (bijv. via de Office-lockbestanden `~$naam` of een slot
 van het besturingssysteem).
 
 ### 5.9 Opmerkingen
 
-Een draad hoort bij een bestand en een versie. Het `anker` zegt waar in het bestand:
+Een draad hoort bij een bestand en een versie (`versie_id`). Het `anker` zegt waar in het bestand:
 
 | Soort bestand | Anker (voorbeeld) |
 |---|---|
@@ -684,12 +708,18 @@ verwijzingen naar §5.13 en §5.14 blijven kloppen.
 ### 5.13 Offline
 
 De desktop-sync werkt offline door. Bij weer online gaat elke upload door de opslaan-lus: samenvoegen waar het kan,
-een conflictkopie met rapport waar het niet kan. Uitgecheckte objecten bewaart de client in zijn stand, zodat hij ook
+een conflictkopie met rapport waar het niet kan. Een verwijdering uit de offline tijd gaat met haar basis naar de
+server (§5.5, "Ook verwijderen is voorwaardelijk"); werkte een ander intussen verder, dan blijft het bestand staan. Uitgecheckte objecten bewaart de client in zijn stand, zodat hij ook
 offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
 
 ### 5.14 Rechten en veiligheid
 
 - Alles volgt `vereis_op_plek`: rol in de ruimte of deling, gearchiveerde ruimte alleen lezen, `buiten_deling`.
+- Elke nieuwe DocType (opmerkingen, uitchecks, volgers, gebeurtenissen) krijgt dezelfde bescherming als versieregels:
+  de controller weigert, niet alleen `has_permission`, want een Frappe-`DocShare` kan een weigering van
+  `has_permission` overrulen. Per DocType zijn er negatieve proeven voor lezen, lijst en wijzigen langs de algemene
+  routes van Frappe (`/api/resource`, `frappe.client`), ook met een achtergebleven `DocShare` na het intrekken van de
+  opslagdeling.
 - Een deellink zonder account (soort `link`) kan geen opmerkingen plaatsen en ziet geen aanwezigheid: er is geen
   persoon om te tonen of te melden.
 - De samenvoegbibliotheek leest onbetrouwbare invoer. Ze mag nooit vastlopen of crashen op een kapot bestand, en ze
