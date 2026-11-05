@@ -572,6 +572,7 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		)["resultaten"]
 		self.assertEqual((k["ok"], k["bestand"], k["versie"], k["versie_id"]), (True, bestand, 2, self.regel(bestand, 2)))
 		self.assertEqual(self.huidig(bestand), (2, k["versie_id"]))
+		self.assertEqual([(v.versie_id, v.huidig) for v in api.versies(bestand=bestand)], [(k["versie_id"], True), (regel, False)])
 		(d,) = api.download_klein([bestand])["bestanden"]
 		self.assertEqual((d["versie"], d["versie_id"]), (2, k["versie_id"]))
 		(d,) = api.download_klein([{"bestand": bestand, "versie_id": regel}])["bestanden"]
@@ -697,6 +698,12 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		self.assertEqual(self.volgnummers(f0), [1, 2, 3])
 		self.assertEqual(self.quotum(), quotum, "het quotum verandert niet: dezelfde regels, geen kopie")
 		self.assertEqual((self.inhoud(f0), self.inhoud(f0, 3)), (b"inhoud B", b"inhoud A"))
+		# Review Sol op 74f1663: `versies` zette A (3) boven B (2), alsof A de nieuwste was. Nu staat de huidige (B)
+		# eerst en is ze herkenbaar; daarna de rest op nummer.
+		self.assertEqual(
+			[(v.versie_id, v.volgnummer, v.huidig) for v in api.versies(bestand=f0)],
+			[(regel_b, 2, True), (regel_a, 3, False), (self.regel(f0, 1), 1, False)],
+		)
 		# Een tweede keer de patch: niets verandert.
 		stand = self.stand()
 		huidige_versie_id_invullen.execute()
@@ -830,7 +837,8 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 
 	def versieregel(self) -> tuple:
 		"""Een bestand van Anna met twee versies: (bestand, de regel van versie 1, zijn s3_sleutel). Versie 1 is niet de
-		huidige: daar wijst geen link naar, dus alleen de haak in `rechten.heeft_recht` houdt wissen tegen."""
+		huidige: daar wijst geen link naar, dus alleen de haak in `rechten.heeft_recht` en de controller houden wissen
+		tegen."""
 		bestand = upload(self.ruimte, "plan.ifc", b"een")["bestand"]
 		upload(self.ruimte, "plan.ifc", b"twee", basis_versie=1)
 		regel = self.regel(bestand, 1)
@@ -917,6 +925,76 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		)
 		self.assertEqual(code, "verouderde_basis")
 		self.basis_id_in_antwoord()
+
+	def test_schrijvende_deling_op_een_versieregel_wijzigt_niets(self):
+		"""Review Sol op 74f1663: Frappe kijkt na de weigering van de haak nog naar een expliciete deling. Met een
+		schrijvende DocShare op versieregel V verving Piet (een gewone schrijver) via `frappe.client.set_value` de
+		`s3_sleutel` van V door die van B; `download(…, versie_id=V)` gaf daarna B, en een upload vanuit A met basis V werd
+		gewoon versie 2 (geen conflict). De controller weigert het wijzigen nu."""
+		import frappe.client
+		import frappe.share
+
+		f = upload(self.ruimte, "plan.ifc", b"inhoud A")["bestand"]
+		v = self.huidig_id(f)
+		sleutel_v = frappe.db.get_value("Bestandsversie", v, "s3_sleutel")
+		g = upload(self.ruimte, "ander.ifc", b"inhoud B")["bestand"]
+		sleutel_b = frappe.db.get_value("Bestandsversie", self.huidig_id(g), "s3_sleutel")
+		vanuit_a = start(self.ruimte, "plan.ifc", b"A, bewerkt", basis_bestand=f, basis_versie_id=v, bij_conflict="weiger")
+		frappe.set_user("Administrator")
+		frappe.share.add_docshare("Bestandsversie", v, self.piet, write=1, flags={"ignore_share_permission": True})
+		frappe.set_user(self.piet)
+		# De haak weigert, maar de deling geeft het recht toch: alleen de controller houdt het tegen.
+		self.assertTrue(frappe.has_permission("Bestandsversie", "write", v))
+		with self.assertRaises(frappe.PermissionError):
+			frappe.client.set_value("Bestandsversie", v, "s3_sleutel", sleutel_b)
+		doc = frappe.get_doc("Bestandsversie", v).as_dict()
+		doc["s3_sleutel"] = sleutel_b
+		with self.assertRaises(frappe.PermissionError):
+			frappe.client.save(json.dumps(doc, default=str))
+		frappe.set_user(self.anna)
+		self.assertEqual(frappe.db.get_value("Bestandsversie", v, "s3_sleutel"), sleutel_v)
+		self.assertEqual(self.lees(f, v), b"inhoud A")
+		# De basis V is nog echt A: de upload vanuit A wordt terecht versie 2.
+		r = api.upload_klaar(**vanuit_a)
+		self.assertEqual((r["versie"], r["conflict"]), (2, False))
+
+	def test_administrator_wijzigt_maakt_en_wist_geen_versieregel(self):
+		"""De Administrator komt niet langs de haak; de controller weigert ook hem, langs elke route. Ook servercode die
+		een bestaande regel als document opslaat of wist (met `ignore_permissions`), krijgt een weigering: de server
+		wijzigt een regel alleen met `frappe.db.set_value`."""
+		import frappe.client
+		from frappe.api import v2
+
+		bestand, regel, sleutel = self.versieregel()
+		frappe.set_user("Administrator")
+		doc = frappe.get_doc("Bestandsversie", regel).as_dict()
+		doc["s3_sleutel"] = "ander"
+
+		def als_server(actie):
+			regeldoc = frappe.get_doc("Bestandsversie", regel)
+			regeldoc.s3_sleutel = "ander"
+			getattr(regeldoc, actie)(ignore_permissions=True)
+
+		for naam, functie, args, data in (
+			("server: save", als_server, ("save",), None),
+			("server: delete", als_server, ("delete",), None),
+			("set_value", frappe.client.set_value, ("Bestandsversie", regel, "s3_sleutel", "ander"), None),
+			("save", frappe.client.save, (json.dumps(doc, default=str),), None),
+			("insert", frappe.client.insert, (self.nieuwe_regel(bestand),), None),
+			("delete", frappe.client.delete, ("Bestandsversie", regel), None),
+			("v2 PATCH", v2.update_doc, ("Bestandsversie", regel), {"s3_sleutel": "ander"}),
+			("v2 DELETE", v2.delete_doc, ("Bestandsversie", regel), {}),
+		):
+			frappe.local.form_dict = frappe._dict(data or {})
+			with self.subTest(naam), self.assertRaises(frappe.PermissionError):
+				functie(*args)
+		frappe.set_user(self.anna)
+		self.onveranderd(bestand, regel, sleutel)
+
+	def test_versieregel_is_geen_api(self):
+		"""Review Sol op 74f1663: `_versieregel` stond los op de API, maar controleert zelf geen rechten."""
+		self.assertNotIn(api._versieregel, frappe.whitelisted)
+		self.assertIn(api.download, frappe.whitelisted)
 
 
 # --- gelijktijdig: twee echte databaseverbindingen ------------------------------------------------------
@@ -1269,14 +1347,15 @@ class TestGelijktijdig(Hulp, IntegrationTestCase):
 	def test_twee_verplaatsingen_van_dezelfde_bron_naar_twee_doelen(self):
 		"""Ronde 13: twee verplaatsingen van bron S tegelijk, naar F en naar H. Zonder slot op de bron las de tweede
 		dezelfde versieregel R en hing hem van F verder naar H, zonder `verwijderd` voor F. Nu wacht de tweede op het
-		slot op S en verplaatst niets."""
+		slot op S en verplaatst niets. Beide verzoeken lopen langs de gewone route, onder het standaardniveau van de
+		verbinding: `verplaats` neemt zelf een eigen transactie (zie de test hierna)."""
 		f = self.basis("f.ifc")
 		h = self.basis("h.ifc")
 		bron = self.basis("s.tmp")
 		r = self.huidig(bron)[1]
 		a, b, stand = self.wissel(
-			onder_read_committed(lambda: api.verplaats(bestand=bron, naam="f.ifc", overschrijf=1)),
-			onder_read_committed(lambda: api.verplaats(bestand=bron, naam="h.ifc", overschrijf=1)),
+			lambda: api.verplaats(bestand=bron, naam="f.ifc", overschrijf=1),
+			lambda: api.verplaats(bestand=bron, naam="h.ifc", overschrijf=1),
 			b_langs_registreer=False,
 			waar="_volgende_versie",
 		)
@@ -1296,8 +1375,8 @@ class TestGelijktijdig(Hulp, IntegrationTestCase):
 		s2 = self.basis("s2.tmp")
 		r1, r2 = self.huidig(s1)[1], self.huidig(s2)[1]
 		a, b, stand = self.wissel(
-			onder_read_committed(lambda: api.verplaats(bestand=s1, naam="d.ifc", overschrijf=1)),
-			onder_read_committed(lambda: api.verplaats(bestand=s2, naam="d.ifc", overschrijf=1)),
+			lambda: api.verplaats(bestand=s1, naam="d.ifc", overschrijf=1),
+			lambda: api.verplaats(bestand=s2, naam="d.ifc", overschrijf=1),
 			b_langs_registreer=False,
 			waar="_volgende_versie",
 		)
@@ -1309,19 +1388,83 @@ class TestGelijktijdig(Hulp, IntegrationTestCase):
 		self.assertEqual([frappe.db.get_value("Bestandsversie", r, "volgnummer") for r in (r1, r2)], [2, 3])
 		self.assertFalse(stand["klaar"], f"B wachtte niet op het slot op het doel: {stand}")
 
+	def test_upload_en_verplaatsen_over_hetzelfde_doel(self):
+		"""Review Sol op 74f1663: A uploadt naar D; B verplaatst tegelijk een tijdelijk bestand over D (opslaan via
+		WebDAV). Op MariaDB 11.8 met `innodb_snapshot_isolation` wachtte B op het slot op D en kreeg daarna fout 1020
+		(QueryDeadlockError, in de gateway een HTTP 500), en bleef het tijdelijke bestand staan. Geen READ COMMITTED in
+		de test: B is een gewoon verzoek onder het standaardniveau van de verbinding."""
+		print(f"\n  isolatieniveau: {api._isolatie()}; innodb_snapshot_isolation: {frappe.db.sql('select @@innodb_snapshot_isolation')[0][0]}")
+		doel = self.basis("d.ifc")
+		tijdelijk = upload(self.ruimte, "d.tmp", b"via webdav")["bestand"]
+		regel = self.huidig(tijdelijk)[1]
+		van_anna = start(self.ruimte, "d.ifc", b"van anna", basis_versie=1)
+		a, b, stand = self.wissel(
+			lambda: api.upload_klaar(**van_anna),
+			lambda: api.verplaats(bestand=tijdelijk, naam="d.ifc", overschrijf=1),
+			b_langs_registreer=False,
+		)
+		self.assertIsNone(a.fout, repr(a.fout))
+		self.assertEqual((a.resultaat["versie"], a.resultaat["conflict"]), (2, False))
+		self.assertIsNone(b.fout, f"het verplaatsen mislukte: {b.fout!r}")
+		self.assertEqual((b.resultaat["bestand"], b.resultaat["versie"], b.resultaat["versie_id"]), (doel, 3, regel))
+		self.assertEqual(self.volgnummers(doel), [1, 2, 3])
+		self.assertEqual(self.huidig(doel), (3, regel))
+		self.assertEqual((self.inhoud(doel), self.inhoud(doel, 2)), (b"via webdav", b"van anna"))
+		self.assertFalse(frappe.db.exists("Opslagbestand", tijdelijk), "het tijdelijke bestand bleef staan")
+		self.assertFalse(stand["klaar"], f"B wachtte niet op het slot op het doel: {stand}")
+
+	def test_tweede_afronding_van_hetzelfde_token_ruimt_de_versie_niet_op(self):
+		"""Review Sol op 74f1663: twee verzoeken van Anna ronden hetzelfde uploadtoken af (bijv. opnieuw na een
+		time-out). Beide voltooiden de upload in S3; A legde versie 2 vast; B wachtte op het bestand, kreeg terecht
+		`verouderde_basis`, en ruimde daarna de sleutel op: dat was ook die van A's versie 2. Nu wacht B op de afronding
+		van A en vindt hij daarna geen token meer, zoals bij een afronding na de eerste."""
+		bestand = self.basis()
+		v1 = self.huidig(bestand)[1]
+		van_anna = start(
+			self.ruimte, "plan.ifc", b"van anna", basis_bestand=bestand, basis_versie_id=v1, bij_conflict="weiger"
+		)
+		sleutel = sleutel_van(van_anna)
+		a, b, stand = self.wissel(
+			lambda: api.upload_klaar(**van_anna),
+			lambda: api.upload_klaar(**van_anna),
+			gebruiker_b=self.anna,
+			b_langs_registreer=False,
+		)
+		self.assertIsNone(a.fout, repr(a.fout))
+		self.assertEqual((a.resultaat["versie"], a.resultaat["conflict"]), (2, False))
+		self.assertEqual(self.volgnummers(bestand), [1, 2])
+		self.assertEqual(frappe.db.get_value("Bestandsversie", a.resultaat["versie_id"], "s3_sleutel"), sleutel)
+		self.assertTrue(self.bestaat_in_s3(sleutel), f"het object van versie 2 is weg; B: {b.fout!r}")
+		self.assertIsInstance(b.fout, frappe.PermissionError, f"B: {b.fout!r} {b.resultaat}")
+		self.assertIn("Upload onbekend of verlopen", str(b.fout))
+		self.assertEqual(self.inhoud(bestand), b"van anna")
+		self.assertFalse(stand["klaar"], f"B wachtte niet op de afronding van A: {stand}")
+
+	def test_tweede_afronding_via_de_uploadlink_geeft_geen_tweede_bestand(self):
+		"""Hetzelfde voor de uploadlink: zonder slot op het token wachtte B op de map, en maakte hij na A een tweede
+		bestand ("nieuw (2).ifc") met hetzelfde object in de opslag."""
+		from openaec_storage import delen
+
+		link = api.deel(doel_doctype="Opslagmap", doel=self.map, rechten="uploaden")
+		frappe.set_user("Guest")
+		try:
+			begin = delen.upload_start(token=link["token"], naam="nieuw.ifc", grootte=len(b"van buiten"))
+			antwoord = requests.put(begin["delen"][0]["url"], data=b"van buiten", timeout=30)
+			antwoord.raise_for_status()
+		finally:
+			frappe.set_user(self.anna)
+		stukken = [{"nummer": 1, "etag": antwoord.headers["ETag"]}]
+
+		def afronden():
+			return delen.upload_klaar(token=link["token"], upload=begin["upload"], delen=stukken)
+
+		a, b, stand = self.wissel(afronden, afronden, gebruiker_b="Guest", b_langs_registreer=False, waar="_log")
+		self.assertIsNone(a.fout, repr(a.fout))
+		self.assertEqual(a.resultaat["naam"], "nieuw.ifc")
+		self.assertIsInstance(b.fout, frappe.PermissionError, f"B: {b.fout!r} {b.resultaat}")
+		self.assertEqual(self.actief("nieuw.ifc", self.map), ["nieuw.ifc"])
+		self.assertFalse(stand["klaar"], f"B wachtte niet op de afronding van A: {stand}")
+
+
 def cint_of(waarde) -> int:
 	return int(waarde or 0)
-
-
-def onder_read_committed(functie):
-	"""`functie` in een transactie onder READ COMMITTED, zoals `_eigen_transactie`: een verbinding die op een slot
-	wachtte, leest daarna de nieuwe stand in plaats van een fout 1020 te krijgen. Op deze testserver vangt
-	`innodb_snapshot_isolation` een verouderde lezing ook zonder slot op; op een server zonder die instelling niet.
-	Zo toont de test wat het slot zelf doet."""
-
-	def binnen():
-		api._zet_isolatie("READ COMMITTED")
-		frappe.db.commit()
-		return functie()
-
-	return binnen

@@ -47,6 +47,7 @@ from openaec_storage.rechten import (
 
 UPLOAD_SLEUTEL = "openaec_storage:upload:"
 UPLOAD_GELDIG_SECONDEN = 7 * 24 * 3600
+AFRONDEN_WACHT = 60  # seconden: zo lang wacht een tweede afronding van hetzelfde uploadtoken op de eerste
 BRONNEN = ("web", "sync", "webdav", "api")
 SLOT_UREN = 8
 BIJ_CONFLICT = ("kopie", "weiger")
@@ -442,10 +443,13 @@ def bladeren(ruimte: str | None = None, map: str | None = None, deling: str | No
 
 @frappe.whitelist()
 def versies(bestand: str) -> list[dict]:
-	"""Alle versies, de nieuwste eerst. `versie_id`: het id van de versieregel (de basis voor `basis_versie_id` en
-	`download(…, versie_id)`). `samengevoegd_uit` (`{basis, hun}` of null): de versie is een samenvoeging van die twee
-	versies van dit bestand, door de maker."""
-	_bestand(bestand, "read")
+	"""Alle versies: de huidige eerst, daarna de rest met het hoogste nummer eerst. `versie_id`: het id van de
+	versieregel (de basis voor `basis_versie_id` en `download(…, versie_id)`). `huidig`: deze regel is nu de inhoud
+	van het bestand. Gewoonlijk heeft de huidige het hoogste nummer; alleen na een herstelling door de patch
+	`huidige_versie_id_invullen` (twee regels op één nummer) kan een oudere regel een hoger nummer hebben.
+	`samengevoegd_uit` (`{basis, hun}` of null): de versie is een samenvoeging van die twee versies van dit bestand,
+	door de maker."""
+	doc = _bestand(bestand, "read")
 	rijen = frappe.get_all(
 		"Bestandsversie",
 		filters={"bestand": bestand},
@@ -454,8 +458,10 @@ def versies(bestand: str) -> list[dict]:
 		ignore_permissions=True,
 	)
 	for rij in rijen:
+		rij.huidig = rij.versie_id == doc.huidige_versie_id
 		if isinstance(rij.samengevoegd_uit, str):
 			rij.samengevoegd_uit = json.loads(rij.samengevoegd_uit) if rij.samengevoegd_uit.strip() else None
+	rijen.sort(key=lambda rij: not rij.huidig)  # stabiel: de rest blijft op nummer
 	return rijen
 
 
@@ -623,10 +629,49 @@ def _herbruikbare_blokken(
 
 @frappe.whitelist()
 def upload_klaar(upload: str, delen) -> dict:
-	"""Rond de upload af en registreer de versie (of een conflictkopie)."""
-	info = frappe.cache.get_value(UPLOAD_SLEUTEL + (upload or ""))
+	"""Rond de upload af en registreer de versie (of een conflictkopie). Eén afronding per uploadtoken tegelijk (zie
+	`een_afronding`): een tweede wacht op de eerste en krijgt daarna "Upload onbekend of verlopen"."""
+	info = _uploadinfo(UPLOAD_SLEUTEL, upload)
 	if not info or info["gebruiker"] != frappe.session.user:
 		frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
+	with een_afronding(upload):
+		info = _uploadinfo(UPLOAD_SLEUTEL, upload, vers=True)
+		if not info or info["gebruiker"] != frappe.session.user:
+			frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
+		return _rond_upload_af(upload, info, delen)
+
+
+def _uploadinfo(voorvoegsel: str, upload: str | None, vers: bool = False) -> dict | None:
+	"""De gegevens van een uploadtoken. Met `vers` uit Redis zelf, niet uit de kopie die dit verzoek al las."""
+	return frappe.cache.get_value(voorvoegsel + (upload or ""), use_local_cache=not vers)
+
+
+@contextmanager
+def een_afronding(upload: str):
+	"""Eén afronding tegelijk per uploadtoken (ook voor de uploadlink, `delen.upload_klaar`).
+
+	Een client kan `upload_klaar` twee keer sturen met hetzelfde token (bijv. opnieuw na een time-out). Zonder slot
+	voltooien beide de upload in S3, legt de eerste een versie vast, en krijgt de tweede daarna bijv. `verouderde_basis`
+	en ruimt hij "zijn" object op: dat is dezelfde sleutel als die van de versie van de eerste. Daarom wacht de tweede
+	op een slot met de naam van het token, en leest hij daarna het token opnieuw (vers, zie `_uploadinfo`). Is de
+	eerste klaar, dan is het token weg, zoals bij een afronding na de eerste.
+
+	Het slot is een slot van MariaDB op naam (`get_lock`). Het hoort bij de databaseverbinding, niet bij de transactie:
+	het blijft over de commits van `_eigen_transactie` heen staan, en het verdwijnt als de verbinding wegvalt.
+	`upload` komt uit de cache van de server (de aanroeper las het token al), dus de naam is hoogstens 64 tekens."""
+	if frappe.db.db_type != "mariadb":
+		yield
+		return
+	naam = "oa_upload:" + upload
+	if not cint(frappe.db.sql("select get_lock(%s, %s)", (naam, AFRONDEN_WACHT))[0][0]):
+		frappe.throw(_("Deze upload wordt al afgerond; probeer het zo opnieuw"))
+	try:
+		yield
+	finally:
+		frappe.db.sql("select release_lock(%s)", naam)
+
+
+def _rond_upload_af(upload: str, info: dict, delen) -> dict:
 	# Opnieuw: een deling kan intussen zijn ingetrokken of verlopen (dan een nette fout, ook midden in een sync).
 	vereis_op_plek(info["ruimte"], info["map"], "write", _bestaand_id(info["ruimte"], info["map"], info["naam"]))
 	mapsjablonen.controleer_upload(info["ruimte"], info["map"], info["naam"])
@@ -789,7 +834,6 @@ def _nieuwe_versie(info: dict, doc, soort: str, samengevoegd: dict | None, confl
 # --- downloaden --------------------------------------------------------------------------------------
 
 
-@frappe.whitelist()
 def _versieregel(doc, versie=None, versie_id=None, velden=("name", "s3_sleutel")):
 	"""De versieregel van een bestand: met `versie_id` precies die regel, met `versie` die met dat nummer, anders de
 	huidige. Hoort de regel met `versie_id` niet (meer) bij het bestand (bijv. met verplaatsen naar een ander bestand
@@ -904,12 +948,22 @@ def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int 
 		return {"bestand": bron.name, "naam": naam, "versie": cint(bron.huidige_versie), "versie_id": bron.huidige_versie_id}
 
 	_weiger_als_vergrendeld(doel.name, "Het doel is vergrendeld door {0}")
-	# De huidige versieregel van de bron wordt de volgende versie van het doel. Heeft de bron oudere versies, dan gaat
-	# hij daarmee naar de prullenbak (niets gaat verloren); anders verdwijnt hij.
-	# Eerst een slot op de regels van doel en bron, in volgorde van id. Zonder slot gaven twee verplaatsingen tegelijk
-	# naar hetzelfde doel hetzelfde nummer uit, en hingen twee verplaatsingen van dezelfde bron naar verschillende
-	# doelen dezelfde versieregel eerst aan het ene en dan aan het andere doel. Wie als tweede komt, ziet de nieuwe
-	# stand (of krijgt een fout van de database) en verplaatst niets.
+	# In een eigen transactie, zoals een upload (zie `_eigen_transactie`): wie op het slot op het doel wachtte (bijv.
+	# op een upload naar het doel), leest daarna de nieuwe stand. In de momentopname van het verzoek gaf de
+	# vergrendelende lezing hieronder dan fout 1020 (MariaDB 11.8, `innodb_snapshot_isolation`), en bleef het tijdelijke
+	# bestand van een opslaan via WebDAV staan.
+	with _eigen_transactie():
+		return _overschrijf(bron, doel, naam)
+
+
+def _overschrijf(bron, doel, naam: str) -> dict:
+	"""`verplaats` met overschrijven: de huidige versieregel van de bron wordt de volgende versie van het doel. Heeft
+	de bron oudere versies, dan gaat hij daarmee naar de prullenbak (niets gaat verloren); anders verdwijnt hij.
+
+	Eerst een slot op de regels van doel en bron, in volgorde van id. Zonder slot gaven twee verplaatsingen tegelijk
+	naar hetzelfde doel hetzelfde nummer uit, en hingen twee verplaatsingen van dezelfde bron naar verschillende doelen
+	dezelfde versieregel eerst aan het ene en dan aan het andere doel. Wie als tweede komt, ziet de nieuwe stand en
+	verplaatst niets (de bron is weg of veranderd), of krijgt het volgende nummer (hetzelfde doel)."""
 	rijen = {
 		r.name: r
 		for r in frappe.db.sql(
