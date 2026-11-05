@@ -405,22 +405,48 @@ zetten. De eigen invoer van ons heeft bij een geslaagde samenvoeging nooit als l
 desktop-sync bewaart die daarom lokaal (in `.openaec/`, de laatste paar per bestand) voordat hij het lokale bestand
 door het resultaat vervangt. Lukt samenvoegen niet, dan gaat ons als conflictkopie naar de server, zoals nu.
 
-**Terugzetten in de lokale map.** De gebruiker kan opnieuw opslaan terwijl de sync samenvoegt. Voorbeeld: de sync
-leest de planning met taak A op 2, de gebruiker zet A op 3 en slaat op, en de samengevoegde versie (met A op 2) komt
-op de server. Die versie mag de lokale A op 3 niet wegdrukken. Daarom:
+**Terugzetten in de lokale map.** De gebruiker kan opnieuw opslaan terwijl de sync samenvoegt, en een programma kan
+het bestand nog open hebben. Voorbeeld: de sync leest de planning met taak A op 2, de gebruiker zet A op 3 en slaat
+op, en de samengevoegde versie (met A op 2) komt op de server. Die versie mag de lokale A op 3 niet wegdrukken.
+Daarom:
 
-1. Samenvoegen werkt met een vaste momentopname S van het lokale bestand (inhoud en hash), bewaard in `.openaec/`.
-2. De sync overschrijft nooit een lokaal bestand. Hij verplaatst het eerst naar `.openaec/` (één rename) en
-   controleert daar of de inhoud nog S is. Zo ja, dan zet hij het resultaat op de lege plek, met een rename die
-   weigert als daar intussen weer een bestand staat. Zo nee, of als die rename weigert, dan zet hij het lokale
-   bestand terug (of laat hij het nieuwe staan) en blijft het resultaat alleen op de server.
-3. De sync registreert alleen wat hij echt verwerkte. Staat het resultaat lokaal, dan is de toestand "versie N, deze
-   inhoud". Bleef de nieuwere lokale versie staan, dan is de toestand "server op N, lokaal afgeleid van S". De volgende
-   ronde voegt dan samen met S als basis, het lokale bestand als ons en N als hun. N bevat S al, dus het verschil tussen
-   S en N is alleen het werk van de collega. Er ontstaat geen vals conflict met onze eigen tussenstand.
-4. Verplichte proef in stap 5: lezen, de gebruiker slaat opnieuw op, de upload slaagt, terugzetten. Daarna staan
-   zowel de wijziging van de collega als de laatste lokale wijziging in de volgende versie, en nergens is een lokaal
-   bestand verloren.
+1. **De opslaan-lus schrijft het lokale bestand niet.** Samenvoegen werkt met een vaste momentopname S van het lokale
+   bestand (inhoud en hash, bewaard in `.openaec/`). Na een geslaagde upload van resultaat N legt de sync vast:
+   "server op N, lokaal afgeleid van S". Het lokale bestand blijft wat het is.
+2. **De volgende ronde beslist met die toestand.** Is het lokale bestand nog S, dan is het een gewone download van N.
+   Is het lokale bestand intussen L (de gebruiker sloeg op), dan voegt de sync samen met basis S, ons L en hun de
+   huidige serverversie, en schrijft met `schrijf_als` tegen het versienummer van die serverversie. Is de server
+   intussen verder (een derde schreef), dan weigert `schrijf_als` en draait de lus gewoon opnieuw, met het nieuwe
+   versienummer als basis. S is als basis veilig, omdat N alle wijzigingen van S bevat: de desktop-sync voegt alleen
+   samen zonder automatische keuze bij een conflict; bij een conflict wordt er niets geschreven maar een
+   conflictkopie gemaakt.
+3. **Eén veilige vervangroutine voor elke lokale vervanging**, ook de gewone download, die dit gat nu al heeft:
+   - Eerst verplaatst de sync het lokale bestand naar `.openaec/bron/` (één rename). Lukt dat niet (Windows weigert
+     bij een programma dat het bestand zonder `FILE_SHARE_DELETE` open heeft), dan wacht de vervanging tot een
+     volgende ronde, en blijft de toestand staan.
+   - Daarna controleert hij of de verplaatste bron nog de verwachte inhoud heeft. Zo niet, dan zet hij haar terug als
+     dat kan, en anders wordt ze verwerkt zoals in het laatste punt hieronder.
+   - Dan plaatst hij de nieuwe inhoud met een bewerking die weigert als er op het pad intussen weer een bestand staat
+     (een harde link van een tijdelijk bestand, of `renameat2` met `RENAME_NOREPLACE`, `renamex_np` met `RENAME_EXCL`,
+     of `MoveFileExW` zonder `MOVEFILE_REPLACE_EXISTING`). De gewone `std::fs::rename` van Rust vervangt een bestaand
+     doel en is hier dus niet goed. Weigert de plaatsing, dan blijft het nieuwe bestand van de gebruiker staan als
+     lokale wijziging, afgeleid van S.
+   - Tot slot kijkt hij of een proces de verplaatste bron nog open heeft (Linux: `/proc/<pid>/fd` van de eigen
+     processen; macOS: `proc_pidinfo`; Windows: de Restart Manager, `RmGetList`). Zo ja, of kan hij het niet
+     vaststellen, dan is de bron een **levende bron**: ze blijft in `.openaec/bron/` staan, de sync bewaakt haar, en
+     een wijziging erin (een programma dat via zijn open verbinding schreef) is een lokale wijziging, afgeleid van de
+     inhoud die de bron had. Die gaat door dezelfde opslaan-lus. Een levende bron valt nooit onder het opruimen; pas
+     als geen proces haar meer open heeft en haar inhoud verwerkt is, mag ze weg.
+4. **Verplichte proeven in stap 5:** lezen, de gebruiker slaat opnieuw op, de upload slaagt, de volgende ronde (beide
+   wijzigingen in de volgende versie); een programma dat na de inhoudscontrole via zijn al open verbinding schrijft
+   (de wijziging komt via de levende bron alsnog op de server); een geweigerde eerste verplaatsing (lokale inhoud en
+   toestand blijven); een bestand dat vlak vóór de plaatsing op het pad verschijnt (het blijft staan). Op elk
+   platform dat de desktop-app ondersteunt.
+
+Een grens die blijft: een programma dat een bestand helemaal inleest, het daarna sluit en later zijn oude inhoud
+opslaat, werkt vanuit een oudere versie zonder dat de sync dat kan zien. Dat gat bestaat nu ook bij elke gewone
+download. De bescherming daartegen is uitchecken en aanwezigheid (§5.7, §5.8), en een programma dat via de werkplek
+of de bibliotheek zelf samenvoegt.
 
 **Wat het niet doet.** Geen geometrie begrijpen: een wand die aan beide kanten anders verplaatst is, is een conflict,
 ook als de plaatsingen elkaar niet raken. Geen .ifczip en .ifcxml (nog). Geen DWG of PDF: die blijven bij uitchecken
