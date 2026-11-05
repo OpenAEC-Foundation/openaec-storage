@@ -79,10 +79,24 @@ Wat ontbreekt voor samenwerken:
 - **Geen terugzetten van een versie** in één stap. Nu: de oude versie downloaden en opnieuw uploaden.
 - **Uitchecken alleen per bestand.** In een groot model blokkeert één persoon iedereen.
 
-Gevonden risico (vermoeden, nog te meten): `_registreer` leest de huidige versie zonder de regel van het bestand te
-vergrendelen. De uploadlink (`delen.py` r. 260) doet dat wel, met `select … for update`. Komen twee uploads met
-dezelfde basis bijna tegelijk binnen, dan kan het afhangen van het isolatieniveau van de database of de tweede een
-conflictkopie wordt, een fout geeft, of de eerste stil overschrijft. De proef met twee clients (§7, stap 4) meet dit.
+Gevonden risico (vermoeden, nog te meten): `_registreer` vergelijkt de basis met de huidige versie zonder eerst de
+regel van het bestand te vergrendelen. De uploadlink (`delen.py` r. 260) vergrendelt wel, met `select … for update`.
+Frappe beschermt deels: `Document.save()` roept `check_if_latest()` aan, die de regel met `for update` leest en de
+wijzigingstijd vergelijkt (ook met `ignore_permissions`). Wat er bij twee uploads met dezelfde basis gebeurt, hangt
+daardoor af van het moment van lezen en van het isolatieniveau van de database:
+
+- Onder REPEATABLE READ (de standaard van MariaDB) wordt de tweede een conflictkopie, of hij krijgt een
+  `TimestampMismatchError`. Stil overschrijven volgt daar niet uit. Wel krijgt de client dan een fout in plaats van
+  de beloofde conflictkopie.
+- Onder READ COMMITTED kan de eerste controle verouderd zijn voordat `get_doc()` de nieuwere versie leest. Dan kan
+  de tweede upload een gewone nieuwe versie worden, op een verouderde basis.
+- Twee uploads van een *nieuw* bestand met dezelfde naam in dezelfde map: beide zien geen bestaand bestand en voegen
+  allebei een `Opslagbestand` toe. `check_if_latest` helpt daar niet, want het is een insert.
+
+Stap 4 (§7) toetst deze volgordes met een test die twee databaseverbindingen echt laat wisselen, en meet welk
+isolatieniveau Frappe gebruikt. Voor `bij_conflict="weiger"` is een atomaire vergelijking hoe dan ook nodig. Stap 4
+legt een nieuwe versie daarom vast onder een slot op het bestand (of op de map, bij een nieuw bestand). De proef met
+twee clients (stap 5) meet het daarna nog eens langs de echte HTTP-weg.
 
 ## 3. Wat Microsoft 365 doet
 
@@ -200,16 +214,20 @@ Nieuw (namen zijn een voorstel):
 ### 5.4 Gebeurtenissen: één weg voor alles wat verandert
 
 Nu schrijft elke handeling zelf een regel in de wijzigingenlijst (`_log`). Voorstel: één functie
-`gebeurtenis(soort, ruimte, doel_doctype, doel, naam, gegevens)` die na de commit van de transactie vier dingen doet:
+`gebeurtenis(soort, ruimte, doel_doctype, doel, naam, gegevens)`. Die schrijft de regel in `Opslagwijziging` in
+**dezelfde transactie** als de handeling, zoals `_log` nu. Zo bestaat er nooit een versie zonder regel, of een regel
+zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
 
-1. een regel in `Opslagwijziging` (zoals nu, met dezelfde cursor voor de sync);
-2. een push via `frappe.publish_realtime` naar de kamer van het bestand (`doctype="Opslagbestand", docname=…`) en
+1. een push via `frappe.publish_realtime` naar de kamer van het bestand (`doctype="Opslagbestand", docname=…`) en
    van de ruimte. Frappe controleert bij het abonneren het leesrecht met onze `has_permission`;
-3. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
+2. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
    app houdt de handeling niet tegen;
-4. meldingen aan de volgers (§5.10), gebundeld.
+3. meldingen aan de volgers (§5.10), gebundeld.
 
-Elke weg komt zo langs dezelfde plek: browser, desktop-app, batch, WebDAV en uploadlink.
+Valt het proces uit na de commit, dan is de push of de melding weg, maar de regel staat er. Wie niets mag missen
+(een andere app via de haak, de sync), leest de wijzigingenlijst vanaf zijn cursor; het volgnummer van de regel gaat
+mee in elke push en elke haakaanroep. Elke weg komt zo langs dezelfde plek: browser, desktop-app, batch, WebDAV en
+uploadlink.
 
 ### 5.5 API-overzicht
 
@@ -258,8 +276,21 @@ zijn, komt uit de EXPRESS-schema's van IFC2X3, IFC4 en IFC4X3.
 **Inhoud zonder nummers.** Elke knoop krijgt een inhoudshash: type en attributen, met een verwijzing naar een knoop
 vervangen door de hash van die knoop, en een verwijzing naar een object door zijn GlobalId. De nummers `#123` doen
 niet mee. Dat is nodig, want OPS nummert bij elk opslaan alles opnieuw (`ifcWriter.ts`, `addLine`), terwijl de
-GlobalIds gelijk blijven (`issueGuid`). Getallen en strings worden gelijk gemaakt (`1.` = `1.0`), en
-`IfcOwnerHistory` telt niet mee, want die verandert bij elk opslaan.
+GlobalIds gelijk blijven (`issueGuid`). Getallen en strings worden gelijk gemaakt (`1.` = `1.0`).
+
+**Ankers: knopen van een ander object.** Een inhoudshash alleen is niet genoeg. Voorbeeld: verdiepingen P en Q hebben
+elk een eigen plaatsing met dezelfde inhoud. Wand W staat relatief aan de plaatsing van P. Ons hangt W onder Q, hun
+verplaatst P. Op inhoud lijkt ons gelijk aan de basis, en de herplaatsing van ons zou verdwijnen. Daarom: een knoop
+waar een object rechtstreeks naar verwijst (bijv. `ObjectPlacement`, `Representation`) is een *anker* van dat object,
+met als identiteit `(GlobalId, attribuut, positie)`. Verwijst een knoop van W naar een anker van een ánder object,
+dan telt die verwijzing als het anker, niet als de inhoud. Zo is "W hangt nu onder Q" een wijziging van W. Een knoop
+die meer objecten rechtstreeks gebruiken, krijgt een vaste keuze en telt als gedeeld; bij twijfel geeft de
+bibliotheek een conflict.
+
+**Vluchtige velden.** Alleen velden die bij elk opslaan veranderen, tellen niet mee: in `IfcOwnerHistory` de
+tijdstempels en de velden over de laatste wijziging, en in de HEADER de tijdstempel. De rest van de keten telt wel
+mee. OPS bewaart de auteur en de organisatie van een planning in `IFCPERSON` en `IFCORGANIZATION` achter
+`IfcOwnerHistory` (`ifcWriter.ts` r. 388, `ifcReader.ts` r. 1397). Een wijziging daarvan mag niet verloren gaan.
 
 **Verschil.** Per GlobalId: toegevoegd, verwijderd of gewijzigd, en bij gewijzigd per attribuut de oude en nieuwe
 waarde.
@@ -276,6 +307,14 @@ waarde.
 | Beide wijzigden hetzelfde gewone attribuut of een LIST anders | Conflict |
 | De ene verwijderde, de andere wijzigde | Conflict |
 | Na samenvoegen wijst iets naar een verwijderd object | Conflict |
+| Na samenvoegen heeft een object meer relaties dan het schema toestaat (een INVERSE met bovengrens 1, bijv. een wand in twee verdiepingen), terwijl dat in ons en in hun elk klopte | Conflict |
+| Een object hing in de basis via een relatie aan iets, hangt na samenvoegen nergens meer aan, en een kant wijzigde het (bijv. ons verwijdert een wand met zijn eigenschapsrelatie, hun wijzigt die eigenschappenset) | Conflict |
+| Onbekend schema of een geval dat de bibliotheek niet kent | Conflict |
+
+Deze gevallen zijn verplichte tests van de bibliotheek, met de voorbeelden uit de review van Sol: de wand die onder
+een andere verdieping gaat hangen (de herplaatsing van ons blijft), de wand die via twee nieuwe relaties in twee
+verdiepingen komt (conflict), de losgeraakte eigenschappenset (conflict) en een gewijzigde auteur in OPS (de auteur
+van hun blijft).
 
 Bij een conflict is er standaard geen nieuwe versie maar een rapport per object en attribuut, met de waarden van
 basis, ons en hun. De client maakt dan een conflictkopie, zoals nu, en zet het rapport ernaast. Later kan een scherm
@@ -287,9 +326,16 @@ van hun komt, krijgt nieuwe nummers achteraan. Zo blijft de delta per blok klein
 **De opslaan-lus.** Eén trait met drie methodes: `huidige()`, `lees(versie)` en `schrijf_als(basis, inhoud)`, die
 weigert als de basis verouderd is. De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen,
 schrijf opnieuw met de nieuwe basis; geef op na enkele pogingen. openaec-storage en Nextcloud passen allebei op die
-trait. Zolang `bij_conflict="weiger"` er niet is, gebruikt de desktop-sync de bestaande weg: hij vergelijkt eerst
-`info(bestand).huidige_versie` met zijn basis en voegt vóór het uploaden samen. Komt er toch een conflictkopie
-(iemand was net sneller), dan voegt hij die alsnog samen en zet hij de kopie in de prullenbak.
+trait. Een slot van een ander is een aparte weigering: daar helpt samenvoegen niet, en de lus probeert het niet.
+
+De desktop-sync gebruikt de lus alleen bij een server die `bij_conflict="weiger"` kent (`mogelijkheden()`). Bij een
+oudere server blijft alles zoals nu: een conflictkopie. Er is geen tussenweg die een conflictkopie achteraf
+samenvoegt en opruimt; zo'n opruimactie kan niet veilig vaststellen dat er niets verloren gaat.
+
+**Wat er bewaard blijft.** De versie van hun en de nieuwe, samengevoegde versie staan op de server en zijn terug te
+zetten. De eigen invoer van ons heeft bij een geslaagde samenvoeging nooit als losse versie op de server gestaan. De
+desktop-sync bewaart die daarom lokaal (in `.openaec/`, de laatste paar per bestand) voordat hij het lokale bestand
+door het resultaat vervangt. Lukt samenvoegen niet, dan gaat ons als conflictkopie naar de server, zoals nu.
 
 **Wat het niet doet.** Geen geometrie begrijpen: een wand die aan beide kanten anders verplaatst is, is een conflict,
 ook als de plaatsingen elkaar niet raken. Geen .ifczip en .ifcxml (nog). Geen DWG of PDF: die blijven bij uitchecken
@@ -352,11 +398,9 @@ van verzenden: na het intrekken van een deling stopt het.
 
 ### 5.11 Later: live samen bewerken
 
-Een sessie per bestand op de server. Clients sturen wijzigingen als `{object, attribuut, waarde}`. De server nummert
-ze, bewaart ze kort en stuurt ze naar alle deelnemers. Iedereen past ze in dezelfde volgorde toe, dus iedereen heeft
-dezelfde stand. Per attribuut wint de laatste wijziging. Om de paar minuten, en bij de laatste die weggaat, schrijft
-een client een gewone versie weg via de opslaan-lus. Waarom later: elke app moet zijn model in die wijzigingen kunnen
-uitdrukken, en het transport (socket.io van Frappe of een eigen dienst) hangt af van de kern.
+Live samen bewerken in dezelfde app (manier C) bouwt op hetzelfde objectmodel: een wijziging is "attribuut X van
+object G kreeg waarde W". Het vraagt dat elke app zijn model zo uitdrukt, en een besluit over het transport in de
+kern. Het valt buiten deze ronde.
 
 ### 5.12 Opslag via Nextcloud
 
@@ -388,8 +432,8 @@ offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
   persoon om te tonen of te melden.
 - De samenvoegbibliotheek leest onbetrouwbare invoer. Ze mag nooit vastlopen of crashen op een kapot bestand, en ze
   heeft grenzen voor diepte en grootte.
-- Een samengevoegde versie is een gewone nieuwe versie: de versies van ons en hun blijven bestaan en zijn terug te
-  zetten. Er gaat niets verloren.
+- Een samengevoegde versie is een gewone nieuwe versie. De versie van hun blijft bestaan en is terug te zetten. De
+  eigen invoer van ons staat lokaal bewaard (§5.6, "Wat er bewaard blijft"), of als conflictkopie op de server.
 
 ## 6. Keuzes
 
@@ -399,7 +443,7 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 |---|---|---|---|
 | K1 | Samenvoegen op GlobalId en inhoud, niet op STEP-nummer | OPS en andere programma's nummeren bij elk opslaan opnieuw; de GlobalId blijft (IFC eist dat) | ifcmerge-aanpak op `#nummers`: werkt alleen met programma's die de nummers laten staan (Bonsai) |
 | K2 | Eigen STEP-lezer in Rust, geen IfcOpenShell | Moet in de desktop-app en later in de browser (WebAssembly) draaien, zonder C++-afhankelijkheid; we hebben alleen de graaf nodig, geen geometrie | IfcOpenShell (Python/C++): zwaar om mee te leveren in Tauri en in de browser |
-| K3 | Samenvoegen eerst in de client, later ook op de server | Werkt meteen met de bestaande API, offline en met Nextcloud; de server hoeft niets nieuws te draaien | Alleen op de server: werkt niet met Nextcloud en vraagt eerst een besluit over de kern |
+| K3 | Samenvoegen eerst in de client, later ook op de server | Werkt offline en met Nextcloud; de server hoeft alleen vergelijk-en-schrijf te kennen | Alleen op de server: werkt niet met Nextcloud en vraagt eerst een besluit over de kern |
 | K4 | Bij een conflict standaard geen automatische keuze, maar een conflictkopie met rapport | Een verkeerde automatische keuze in een model kost meer dan een kopie; zo gaat er nooit iets verloren | "Laatste wint" per attribuut: sneller, maar stil verlies |
 | K5 | De bibliotheek staat in openaec-cloud-desktop (`crates/openaec-samenvoegen`) | Daar zitten de Rust-code, de sync en de conflicten al; los van `openaec-sync`, dus ook bruikbaar voor de server en de apps | In openaec-storage naast `gateway/`: dichter bij de server, maar de eerste gebruiker is de desktop-app |
 | K6 | Eigen `Opslagopmerking` in plaats van Frappe `Comment` | We hebben anker, versie, draad, status en BCF nodig; `Comment` heeft dat niet | Frappe `Comment`: bestaat al met @noemen in de desk, maar zonder plek in het bestand |
@@ -408,6 +452,9 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 | K9 | Uitchecken per object eerst bij de bron gehandhaafd, op de server pas met de bibliotheek | Handhaven op de server vraagt het verschil bij elke upload; dat kan pas als de server de bibliotheek draait | Meteen op de server: blokkeert op een besluit over de kern |
 | K10 | Eén gebeurtenisfunctie voor wijzigingenlijst, push, haak en meldingen | Elke weg (browser, sync, WebDAV, batch, uploadlink) komt langs dezelfde plek; niets wordt vergeten | Per functie apart: zo ontstaan nu al gaten (geen haak, geen push) |
 | K11 | `bij_conflict="weiger"` als optie, standaard blijft de conflictkopie | Bestaande clients (desktop, WebDAV, browser) veranderen niet | Het gedrag van `upload_klaar` voor iedereen veranderen: breekt oudere desktop-apps |
+| K13 | Eerst vergelijk-en-schrijf op de server (`bij_conflict=weiger`), dan pas samenvoegen in de desktop-sync | Zonder atomair vergelijk-en-schrijf moet de client een conflictkopie achteraf opruimen, en dat kan niet veilig (review Sol, 5 november) | Een tussenweg met de bestaande API: samenvoegen vóór het uploaden en de conflictkopie daarna in de prullenbak |
+| K14 | Verwijzingen naar knopen van een ander object tellen als anker, niet als inhoud | Anders gaat een herplaatsing (wand onder een andere verdieping) verloren als de plaatsingen gelijk zijn (review Sol) | Alleen inhoudshashes: eenvoudiger, maar verliest data |
+| K15 | De regel in de wijzigingenlijst in dezelfde transactie als de handeling; push, haak en meldingen erna | Een versie zonder regel mist de sync en de haak (review Sol) | Alles na de commit: dan kan een uitval een regel kosten |
 | K12 | Live samen bewerken (C) pas later | Vraagt dat elke app zijn model als wijzigingen per object uitdrukt, en een besluit over het transport | Nu al een sessiedienst: zonder app die hem gebruikt, is hij niet te testen |
 
 ## 7. Volgorde van bouwen
@@ -419,8 +466,8 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 | 1 | Dit ontwerp | openaec-storage | Nee |
 | 2 | Bibliotheek: IFC lezen, objectmodel, verschil | openaec-cloud-desktop | Nee |
 | 3 | Bibliotheek: samenvoegen, schrijven, opslaan-lus, met een proef van 8 clients tegelijk in het geheugen | openaec-cloud-desktop | Nee |
-| 4 | Desktop-sync: IFC samenvoegen bij een conflict, en de proef met twee clients tegen een echte openaec-storage-server, als script met log | openaec-cloud-desktop | Nee |
-| 5 | Storage: een nieuwe versie veilig vastleggen bij gelijktijdige uploads (als stap 4 het risico uit §2 bevestigt), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
+| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
+| 5 | Desktop-sync: IFC samenvoegen via de opslaan-lus, en de proef met twee clients tegen een echte openaec-storage-server (met stap 4), als script met log | openaec-cloud-desktop | Nee |
 | 6 | Storage: gebeurtenissen (push en haak, issue #7), `zet_terug`, `activiteit` | openaec-storage | Deels: push vraagt socket.io in de kern |
 | 7 | Aanwezigheid | openaec-storage of kern | Ja |
 | 8 | Opmerkingen met @noemen en anker | openaec-storage of kern | Ja |
