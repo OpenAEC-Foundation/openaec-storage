@@ -98,16 +98,39 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		frappe.set_user(self.anna)
 		frappe.local.response.pop("foutcode", None)
 		frappe.local.response.pop("huidige_versie", None)
+		frappe.local.response.pop("huidig_bestand", None)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
 		frappe.local.response.pop("huidige_versie", None)
+		frappe.local.response.pop("huidig_bestand", None)
 		frappe.db.delete("Opslagvergrendeling")
 		self.s3.stop()
 		ruim_op()
 
 	def huidige_versie_in_antwoord(self):
 		return frappe.local.response.pop("huidige_versie", None)
+
+	def basis_in_antwoord(self) -> tuple:
+		"""`huidige_versie` en `huidig_bestand` uit het antwoord; beide moeten er staan (ook als ze null zijn)."""
+		self.assertIn("huidige_versie", frappe.local.response)
+		self.assertIn("huidig_bestand", frappe.local.response)
+		return frappe.local.response.pop("huidige_versie"), frappe.local.response.pop("huidig_bestand")
+
+	def vervangen_door_piet(self, naam: str = "planning.ifc") -> tuple[str, str]:
+		"""Het tegenvoorbeeld: Anna's bestand (F1, versie 1); Piet verwijdert F1 en maakt onder dezelfde naam een
+		nieuw bestand (F2, versie 1)."""
+		f1 = upload(self.ruimte, naam, b"van anna")["bestand"]
+		f2 = self.piet_vervangt(f1, naam)
+		return f1, f2
+
+	def piet_vervangt(self, f1: str, naam: str = "planning.ifc") -> str:
+		frappe.set_user(self.piet)
+		try:
+			api.verwijder(bestand=f1)
+			return upload(self.ruimte, naam, b"van piet")["bestand"]
+		finally:
+			frappe.set_user(self.anna)
 
 	def drie_versies(self, naam: str = "plan.ifc") -> str:
 		"""Versie 1 van Anna, 2 en 3 van Piet."""
@@ -124,6 +147,7 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		m = api.mogelijkheden()
 		self.assertIs(m["bij_conflict_weiger"], True)
 		self.assertIs(m["samengevoegd_uit"], True)
+		self.assertIs(m["basis_bestand"], True)
 
 	def test_zonder_bij_conflict_blijft_een_verouderde_basis_een_conflictkopie(self):
 		bestand = upload(self.ruimte, "plan.ifc", b"een")["bestand"]
@@ -253,6 +277,7 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		self.assertEqual(self.volgnummers(a), [1, 2])
 		self.assertEqual(self.volgnummers(c), [1])
 		self.assertNotIn("huidige_versie", frappe.local.response)
+		self.assertNotIn("huidig_bestand", frappe.local.response)
 		# Alleen wat vastgelegd is, staat in de opslag: de kopie, b.txt v2 en d.txt.
 		self.assertEqual(self.aantal_in_s3(), voor + 3)
 
@@ -328,6 +353,142 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		)
 		self.assertTrue(r["conflict"])
 		self.assertEqual([v.samengevoegd_uit for v in api.versies(bestand=r["bestand"])], [None])
+
+	# --- basis_bestand: een versienummer is alleen uniek binnen één bestand ------------------------------
+
+	def test_zonder_basis_bestand_telt_alleen_het_versienummer_zoals_voorheen(self):
+		"""Het tegenvoorbeeld zonder `basis_bestand`: Anna's oude inhoud wordt versie 2 van Piets nieuwe bestand,
+		zonder conflict. Zo was het, en zo blijft het voor een client die `basis_bestand` niet meestuurt."""
+		_f1, f2 = self.vervangen_door_piet()
+		r = api.upload_klaar(**start(self.ruimte, "planning.ifc", b"oud van anna", basis_versie=1, bij_conflict="weiger"))
+		self.assertEqual((r["bestand"], r["versie"], r["conflict"]), (f2, 2, False))
+		_g1, g2 = self.vervangen_door_piet("rooster.txt")
+		(k,) = api.upload_klein_bytes(
+			self.ruimte, [item("rooster.txt", b"oud", basis_versie=1, bij_conflict="weiger")], {"f0": b"oud"}
+		)["resultaten"]
+		self.assertEqual((k["ok"], k["bestand"], k["versie"], k["conflict"]), (True, g2, 2, False))
+
+	def test_basis_bestand_ander_bestand_met_weiger_bij_upload_start(self):
+		f1, f2 = self.vervangen_door_piet()
+		code = foutcode(
+			self, api.VerouderdeBasis, start, self.ruimte, "planning.ifc", b"oud van anna", basis_versie=1, basis_bestand=f1, bij_conflict="weiger"
+		)
+		self.assertEqual(code, "verouderde_basis")
+		self.assertEqual(self.basis_in_antwoord(), (1, f2))
+		self.assertEqual(self.volgnummers(f2), [1])
+		self.assertEqual(self.inhoud(f2), b"van piet")
+
+	def test_basis_bestand_ander_bestand_met_weiger_bij_upload_klaar(self):
+		"""Onder het slot: Anna begint terwijl F1 er nog staat, Piet vervangt het voordat zij afrondt."""
+		f1 = upload(self.ruimte, "planning.ifc", b"van anna")["bestand"]
+		mijn = start(self.ruimte, "planning.ifc", b"oud van anna", basis_versie=1, basis_bestand=f1, bij_conflict="weiger")
+		sleutel = sleutel_van(mijn)
+		f2 = self.piet_vervangt(f1)
+		self.assertEqual(foutcode(self, api.VerouderdeBasis, api.upload_klaar, **mijn), "verouderde_basis")
+		self.assertEqual(self.basis_in_antwoord(), (1, f2))
+		self.assertFalse(self.bestaat_in_s3(sleutel), "het object van de geweigerde upload staat nog in de opslag")
+		self.assertEqual(self.volgnummers(f2), [1])
+		self.assertEqual(self.actief("planning.ifc"), ["planning.ifc"])
+		self.assertEqual(self.inhoud(f2), b"van piet")
+
+	def test_basis_bestand_ander_bestand_met_kopie_bij_upload_klaar(self):
+		f1 = upload(self.ruimte, "planning.ifc", b"van anna")["bestand"]
+		voor = start(self.ruimte, "planning.ifc", b"oud van anna", basis_versie=1, basis_bestand=f1)
+		f2 = self.piet_vervangt(f1)
+		na = start(self.ruimte, "planning.ifc", b"nog eens", basis_versie=1, basis_bestand=f1, bij_conflict="kopie")
+		for r in (api.upload_klaar(**voor), api.upload_klaar(**na)):
+			self.assertTrue(r["conflict"])
+			self.assertIn("(conflict", r["naam"])
+			self.assertNotIn(r["bestand"], (f1, f2))
+			self.assertEqual(r["versie"], 1)
+		self.assertEqual(self.volgnummers(f2), [1])
+		self.assertEqual(self.inhoud(f2), b"van piet")
+		self.assertEqual(len(self.actief("planning.ifc")), 3)
+
+	def test_basis_bestand_ander_bestand_in_upload_klein(self):
+		f1, f2 = self.vervangen_door_piet("planning.txt")
+		bestanden = [
+			(item("planning.txt", b"w", basis_versie=1, basis_bestand=f1, bij_conflict="weiger"), b"w"),
+			(item("planning.txt", b"k", basis_versie=1, basis_bestand=f1), b"k"),
+			(item("planning.txt", b"k2", basis_versie=1, basis_bestand=f1, bij_conflict="kopie"), b"k2"),
+		]
+		r = api.upload_klein_bytes(self.ruimte, [i for i, _ in bestanden], {f"f{n}": d for n, (_, d) in enumerate(bestanden)})[
+			"resultaten"
+		]
+		self.assertEqual(
+			(r[0]["ok"], r[0]["foutcode"], r[0]["huidige_versie"], r[0]["huidig_bestand"]), (False, "verouderde_basis", 1, f2)
+		)
+		for kopie in r[1:]:
+			self.assertTrue(kopie["ok"], kopie)
+			self.assertTrue(kopie["conflict"])
+			self.assertNotIn(kopie["bestand"], (f1, f2))
+		self.assertEqual(self.volgnummers(f2), [1])
+		self.assertEqual(self.inhoud(f2), b"van piet")
+		self.assertNotIn("huidig_bestand", frappe.local.response)
+
+	def test_basis_bestand_weg_en_niets_op_de_plek(self):
+		f1 = upload(self.ruimte, "planning.ifc", b"van anna")["bestand"]
+		met_weiger = start(self.ruimte, "planning.ifc", b"oud", basis_versie=1, basis_bestand=f1, bij_conflict="weiger")
+		met_kopie = start(self.ruimte, "planning.ifc", b"oud", basis_versie=1, basis_bestand=f1)
+		frappe.set_user(self.piet)
+		api.verwijder(bestand=f1)
+		frappe.set_user(self.anna)
+		# Met weiger: verouderde_basis, en er staat geen bestand (huidig_bestand null). Bij het begin, bij het afronden
+		# en in upload_klein.
+		code = foutcode(
+			self, api.VerouderdeBasis, start, self.ruimte, "planning.ifc", b"oud", basis_versie=1, basis_bestand=f1, bij_conflict="weiger"
+		)
+		self.assertEqual(code, "verouderde_basis")
+		self.assertEqual(self.basis_in_antwoord(), (None, None))
+		self.assertEqual(foutcode(self, api.VerouderdeBasis, api.upload_klaar, **met_weiger), "verouderde_basis")
+		self.assertEqual(self.basis_in_antwoord(), (None, None))
+		(k,) = api.upload_klein_bytes(
+			self.ruimte, [item("planning.ifc", b"oud", basis_versie=1, basis_bestand=f1, bij_conflict="weiger")], {"f0": b"oud"}
+		)["resultaten"]
+		self.assertEqual((k["ok"], k["foutcode"], k["huidige_versie"], k["huidig_bestand"]), (False, "verouderde_basis", None, None))
+		self.assertEqual(self.actief("planning.ifc"), [])
+		# Met kopie: een nieuw bestand, zoals zonder basis_bestand.
+		r = api.upload_klaar(**met_kopie)
+		self.assertEqual((r["naam"], r["versie"], r["conflict"]), ("planning.ifc", 1, False))
+		self.assertNotEqual(r["bestand"], f1)
+		g1 = upload(self.ruimte, "rooster.txt", b"r1")["bestand"]
+		api.verwijder(bestand=g1)
+		(k,) = api.upload_klein_bytes(
+			self.ruimte, [item("rooster.txt", b"r2", basis_versie=1, basis_bestand=g1)], {"f0": b"r2"}
+		)["resultaten"]
+		self.assertEqual((k["ok"], k["naam"], k["versie"], k["conflict"]), (True, "rooster.txt", 1, False))
+		self.assertNotEqual(k["bestand"], g1)
+
+	def test_basis_bestand_gelijk_aan_het_bestand_op_de_plek(self):
+		bestand = upload(self.ruimte, "plan.ifc", b"een")["bestand"]
+		r = api.upload_klaar(**start(self.ruimte, "plan.ifc", b"twee", basis_versie=1, basis_bestand=bestand, bij_conflict="weiger"))
+		self.assertEqual((r["bestand"], r["versie"], r["conflict"]), (bestand, 2, False))
+		(k,) = api.upload_klein_bytes(
+			self.ruimte, [item("plan.ifc", b"drie", basis_versie=2, basis_bestand=bestand, bij_conflict="weiger")], {"f0": b"drie"}
+		)["resultaten"]
+		self.assertEqual((k["ok"], k["bestand"], k["versie"]), (True, bestand, 3))
+		# Hetzelfde bestand met een verouderde versie: zoals voorheen, nu met huidig_bestand erbij.
+		code = foutcode(
+			self, api.VerouderdeBasis, start, self.ruimte, "plan.ifc", b"x", basis_versie=1, basis_bestand=bestand, bij_conflict="weiger"
+		)
+		self.assertEqual(code, "verouderde_basis")
+		self.assertEqual(self.basis_in_antwoord(), (3, bestand))
+
+	def test_samengevoegd_uit_geldt_niet_voor_een_ander_bestand(self):
+		"""Anna voegde versie 1 en 2 van F1 samen; intussen staat er F2 (alleen versie 1). Met `basis_bestand` wordt
+		het een conflictkopie zonder samenvoeging, geen `ongeldige_samenvoeging` op versies van F2."""
+		f1 = upload(self.ruimte, "planning.ifc", b"een")["bestand"]
+		upload(self.ruimte, "planning.ifc", b"twee", basis_versie=1)
+		f2 = self.piet_vervangt(f1)
+		r = api.upload_klaar(
+			**start(
+				self.ruimte, "planning.ifc", b"een+twee", basis_versie=2, basis_bestand=f1, samengevoegd_uit='{"basis": 1, "hun": 2}'
+			)
+		)
+		self.assertTrue(r["conflict"])
+		self.assertNotEqual(r["bestand"], f2)
+		self.assertEqual([v.samengevoegd_uit for v in api.versies(bestand=r["bestand"])], [None])
+		self.assertEqual(self.volgnummers(f2), [1])
 
 
 # --- gelijktijdig: twee echte databaseverbindingen ------------------------------------------------------
