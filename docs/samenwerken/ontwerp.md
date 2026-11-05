@@ -628,16 +628,14 @@ Zodra de kern leesbaar is, lees ik eerst die repo en pas ik dit ontwerp en de pl
 
 ## 10. Issues voor de owner van de kern
 
-Deze komen als issues in openaec-storage, zoals #2 tot en met #7:
+Deze staan als issues in openaec-storage, zoals #2 tot en met #7:
 
-1. Werkplek: aanwezigheid en gebeurtenissen van een bestand aan een tool doorgeven.
-2. Werkplek: samenvoegen bij opslaan vanuit een tool (bibliotheek in WebAssembly of op de server).
-3. Realtime in de SuperCloud: draait socket.io, en kan de desktop-app er met een token bij?
-4. Server: een Rust-hulpprogramma naast Frappe kunnen draaien voor `verschil` en samenvoegen.
-5. Eén systeem voor opmerkingen op bestanden en BIM-issues (BCF).
-6. Meldingen: één plek voor meldingen en e-mailbundels in de SuperCloud.
-
-De links komen hier zodra de issues er zijn.
+1. #10 Werkplek: aanwezigheid en gebeurtenissen van een bestand aan een tool doorgeven.
+2. #11 Werkplek: samenvoegen bij opslaan vanuit een tool, in plaats van een conflictkopie.
+3. #12 Realtime in de SuperCloud: draait socket.io, en kan de desktop-app er met een token bij?
+4. #13 Server: een Rust-hulpprogramma naast Frappe voor verschil en samenvoegen van IFC.
+5. #14 Eén systeem voor opmerkingen op bestanden en BIM-issues (BCF).
+6. #15 Meldingen: één plek voor meldingen en e-mailbundels in de SuperCloud.
 
 ## 11. Bronnen
 
