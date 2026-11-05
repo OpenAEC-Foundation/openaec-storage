@@ -182,7 +182,8 @@ te lezen.
 | `quotum_ruimte_vol` | 417 | Het eigen quotum van de ruimte is vol |
 | `map_alleen_lezen` | 403 | Wijzigen in een alleen-lezenmap zonder beheerder van de ruimte te zijn |
 | `bestand_vergrendeld` | 403 | Verwijderen, verplaatsen of hernoemen van een bestand dat een ander heeft vergrendeld, of een map verwijderen waarin zo'n bestand staat; ook een upload met `bij_conflict: "weiger"` naar zo'n bestand (zie Vergelijk-en-schrijf) |
-| `verouderde_basis` | 409 | Upload met `bij_conflict: "weiger"` waarvan `basis_versie` niet (meer) de huidige versie is, of waarvan `basis_bestand` niet (meer) het bestand op de plek is; `huidige_versie` en `huidig_bestand` staan naast de foutcode (allebei null als er geen bestand op de plek staat). Geen conflictkopie (zie Vergelijk-en-schrijf) |
+| `verouderde_basis` | 409 | Upload met `bij_conflict: "weiger"` waarvan de basis niet (meer) de huidige versie is: met `basis_versie_id` een versieregel van dit bestand die niet de huidige is; zonder, een `basis_versie` die niet de huidige is of een `basis_bestand` dat niet (meer) het bestand op de plek is. `huidige_versie`, `huidige_versie_id` en `huidig_bestand` staan naast de foutcode (alle drie null als er geen bestand op de plek staat). Geen conflictkopie (zie Vergelijk-en-schrijf) |
+| `onbekende_basis` | 409 | De versieregel van de basis (`basis_versie_id`) hoort niet (meer) bij het bestand op de plek: een ander bestand met dezelfde naam, geen bestand, of de regel ging met verplaatsen naar een ander bestand. Bij uploaden met `bij_conflict: "weiger"` (met `huidige_versie`, `huidige_versie_id` en `huidig_bestand`), en bij `download(…, versie_id)` en `download_klein` met een `versie_id` die niet bij het bestand hoort. Samenvoegen vanuit die basis kan niet: de client maakt een conflictkopie |
 | `ongeldige_samenvoeging` | 417 | `samengevoegd_uit` klopt niet: geen `{"basis": n, "hun": m}` met gehele getallen, `basis` niet kleiner dan `hun`, `hun` niet gelijk aan `basis_versie`, of een van beide versies bestaat niet voor dit bestand |
 | `extensie_niet_toegestaan` | 417 | Bestandssoort niet toegestaan in deze map |
 | `ongeldige_naam` | 417 | Naam die niet kan (zie Geldige namen): nieuw bestand, nieuwe map, hernoemen of verplaatsen |
@@ -275,7 +276,7 @@ Alle methodes onder `/api/method/openaec_storage.api.<methode>`, met de inlog va
 
 | Methode | Parameters | Antwoord |
 |---|---|---|
-| `gedeeld_met_mij` | — | `[{deling, doel_doctype, doel, naam, ruimte, ruimte_naam, rechten, gedeeld_door, gedeeld_door_naam, sinds, verloopt, al_lid, rol}]`, nieuwste eerst; `rechten` is `lezen`, `schrijven` of `beheren`. Een gedeeld bestand heeft ook `map`, `grootte` en `versie` |
+| `gedeeld_met_mij` | — | `[{deling, doel_doctype, doel, naam, ruimte, ruimte_naam, rechten, gedeeld_door, gedeeld_door_naam, sinds, verloopt, al_lid, rol}]`, nieuwste eerst; `rechten` is `lezen`, `schrijven` of `beheren`. Een gedeeld bestand heeft ook `map`, `grootte`, `versie` en `versie_id` |
 | `bladeren` | `deling`, `map?` (leeg = de gedeelde map) | `{mappen, bestanden}` zoals altijd |
 | `boom` | `deling`, `start?`, `aantal?` | als hierboven, met `wortel` (de gedeelde map; zelf niet in `mappen`, de mappen direct eronder hebben hem als `bovenliggende`) |
 | `wijzigingen` | `deling`, `sinds?`, `limiet?` | `{cursor, meer, wijzigingen}`: alleen de wijzigingen over de gedeelde map, een map eronder (ook een verwijderde) of een bestand daarin; de cursor loopt over de hele ruimte |
@@ -335,11 +336,11 @@ onder `/api/method/openaec_storage.api.<methode>`, met de inlog van de gebruiker
 
 | Methode | Parameters | Antwoord |
 |---|---|---|
-| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true, deling: true, zoek_pad: true, overdracht_van_opslag: true, kopieer: true, bij_conflict_weiger: true, samengevoegd_uit: true, basis_bestand: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg. `deling`: de parameter `deling` (zie Gedeeld met mij) bestaat; `zoek_pad` en `overdracht_van_opslag`: zie Delen vanuit de desktop-app en Overdrachten; `bij_conflict_weiger`, `samengevoegd_uit` en `basis_bestand`: zie Vergelijk-en-schrijf |
-| `boom` | `ruimte`, `start?` (0), `aantal?` (10 000, hoogstens 50 000), `deling?` | `{mappen: [{name, naam, bovenliggende, modified}], bestanden: [{name, naam, map, grootte, huidige_versie, modified}], meer}`: alle mappen en een pagina bestanden (op `name`), zonder de prullenbak. Zonder `deling` alleen voor leden van de ruimte; met `deling` alles onder de gedeelde map, plus `wortel` |
+| `mogelijkheden` | — | `{upload_klein: {max_bestand, max_aantal, max_bytes}, download_klein: {…}, boom: true, maak_mappen: true, deling: true, zoek_pad: true, overdracht_van_opslag: true, kopieer: true, bij_conflict_weiger: true, samengevoegd_uit: true, basis_bestand: true, basis_versie_id: true}`. Een oudere server kent deze methode niet; de app gebruikt dan de gewone weg. `deling`: de parameter `deling` (zie Gedeeld met mij) bestaat; `zoek_pad` en `overdracht_van_opslag`: zie Delen vanuit de desktop-app en Overdrachten; `bij_conflict_weiger`, `samengevoegd_uit`, `basis_bestand` en `basis_versie_id`: zie Vergelijk-en-schrijf |
+| `boom` | `ruimte`, `start?` (0), `aantal?` (10 000, hoogstens 50 000), `deling?` | `{mappen: [{name, naam, bovenliggende, modified}], bestanden: [{name, naam, map, grootte, huidige_versie, versie_id, modified}], meer}`: alle mappen en een pagina bestanden (op `name`), zonder de prullenbak. Zonder `deling` alleen voor leden van de ruimte; met `deling` alles onder de gedeelde map, plus `wortel` |
 | `maak_mappen` (POST) | `ruimte`, `paden` (lijst mappaden met `/`, hoogstens 1000), `deling?` (dan zijn de paden binnen de gedeelde map) | `{mappen: {pad: map}, fouten: {pad: {fout, foutcode}}}`; ontbrekende mappen (ook tussenliggende) worden aangemaakt zoals bij `maak_map`, bestaande hergebruikt (hoofdletters maken niet uit) |
-| `upload_klein` (POST, multipart/form-data) | `ruimte`, `bron?` (`sync`), `deling?` (dan zijn `pad` en `map` binnen de gedeelde map), `bestanden` (JSON-lijst: per bestand `naam`, `map` (id) of `pad` (mappad; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash` (BLAKE3 van de inhoud), `basis_versie?`, `basis_bestand?`, `sha256?`, `bij_conflict?`, `samengevoegd_uit?` (zie Vergelijk-en-schrijf), `veld`), en de inhoud: alles achter elkaar in één bestandsveld `inhoud` (gesneden op `grootte`; zo doet de desktop-app het) of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd | `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} \| {index, ok: false, fout, foutcode, huidige_versie?}]}`, in de volgorde van `bestanden`; `huidige_versie` bij `verouderde_basis` |
-| `download_klein` | `bestanden` (lijst bestand-id's of `{bestand, versie}`) | `{bestanden: [{index, ok: true, bestand, naam, versie, grootte, blokhash, inhoud (base64)} \| {index, ok: false, fout, foutcode}]}`; de inhoud komt tegelijk uit S3 |
+| `upload_klein` (POST, multipart/form-data) | `ruimte`, `bron?` (`sync`), `deling?` (dan zijn `pad` en `map` binnen de gedeelde map), `bestanden` (JSON-lijst: per bestand `naam`, `map` (id) of `pad` (mappad; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash` (BLAKE3 van de inhoud), `basis_versie?`, `basis_bestand?`, `basis_versie_id?`, `sha256?`, `bij_conflict?`, `samengevoegd_uit?` (zie Vergelijk-en-schrijf), `veld`), en de inhoud: alles achter elkaar in één bestandsveld `inhoud` (gesneden op `grootte`; zo doet de desktop-app het) of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256` wordt de ontvangen inhoud gecontroleerd | `{resultaten: [{index, ok: true, bestand, naam, versie, versie_id, conflict, map} \| {index, ok: false, fout, foutcode, huidige_versie?, huidige_versie_id?, huidig_bestand?}]}`, in de volgorde van `bestanden`; `huidige_versie`, `huidige_versie_id` en `huidig_bestand` bij `verouderde_basis` en `onbekende_basis` |
+| `download_klein` | `bestanden` (lijst bestand-id's, `{bestand, versie}` of `{bestand, versie_id}`) | `{bestanden: [{index, ok: true, bestand, naam, versie, versie_id, grootte, blokhash, inhoud (base64)} \| {index, ok: false, fout, foutcode}]}`; de inhoud komt tegelijk uit S3 |
 
 Grenzen: hoogstens 1 MiB per bestand, en 64 bestanden of 16 MiB per verzoek (`KLEIN_MAX_*` in `api.py`). Een groter
 bestand gaat langs de gewone weg in delen van 8 MiB. Bij `upload_klein` schrijft de server de inhoud zelf naar S3
@@ -353,14 +354,63 @@ staan en mislukt alleen dat bestand.
 Standaard wordt een upload met een verouderde `basis_versie` een conflictkopie naast het origineel. Een client die
 zelf kan samenvoegen (de opslaan-lus uit het ontwerp "samenwerken", §5.6), vraagt in plaats daarvan: schrijf alleen
 als de basis nog de huidige versie is. Zonder deze parameters verandert er niets voor bestaande clients (desktop-app,
-WebDAV-gateway, browser, uploadlink). `mogelijkheden` geeft `bij_conflict_weiger: true`, `samengevoegd_uit: true` en
-`basis_bestand: true`.
+WebDAV-gateway, browser, uploadlink). `mogelijkheden` geeft `bij_conflict_weiger: true`, `samengevoegd_uit: true`,
+`basis_bestand: true` en `basis_versie_id: true`.
 
 | Parameter | Bij | Wat |
 |---|---|---|
 | `bij_conflict` | `upload_start`, en per bestand in `upload_klein` | `"kopie"` (standaard): conflictkopie zoals altijd. `"weiger"`: geen conflictkopie, maar 409 met de foutcode `verouderde_basis` en `huidige_versie` naast de foutcode (in `upload_klein` per bestand `{index, ok: false, fout, foutcode: "verouderde_basis", huidige_versie}`). Ook zonder `basis_versie` naar een bestand dat er al is. Een slot van een ander geeft 403 `bestand_vergrendeld`, ook zonder kopie; dat gaat vóór `verouderde_basis`, want opnieuw samenvoegen helpt daar niet. `upload_start` weigert al als het op dat moment al zo is (dan hoeft de inhoud niet geüpload te worden); `upload_klaar` vergelijkt daarna opnieuw onder een slot, ruimt bij een weigering het object in de opslag en de upload-token op, en de client begint opnieuw met `upload_start`. Is het bestand intussen verwijderd of verplaatst, dan wordt het zonder `basis_bestand` een nieuw bestand, zoals zonder `weiger` |
 | `basis_bestand` | `upload_start`, en per bestand in `upload_klein` | Het id van het bestand waarop de client werkte. Een versienummer is alleen uniek binnen één bestand: zonder dit veld wordt een upload met `basis_versie=1` versie 2 van elk bestand dat nu op de plek zo heet, ook als dat een ander bestand is (Anna werkt offline aan F1; Piet verwijdert F1 en maakt onder dezelfde naam F2; Anna's oude inhoud zou F2 versie 2 worden). Met `basis_bestand` komt er alleen een nieuwe versie als het bestand op de plek `basis_bestand` is én `basis_versie` de huidige versie is. Staat er een ander bestand: met `"kopie"` een conflictkopie, met `"weiger"` 409 `verouderde_basis` met `huidig_bestand` (het id van dat bestand). Staat er niets (verwijderd, verplaatst of hernoemd): met `"kopie"` een nieuw bestand, met `"weiger"` 409 `verouderde_basis` met `huidig_bestand` en `huidige_versie` null. `samengevoegd_uit` geldt dan niet. Zonder `basis_bestand` verandert er niets |
 | `samengevoegd_uit` | `upload_start` (JSON), en per bestand in `upload_klein` | `{"basis": n, "hun": m}`: deze inhoud is een samenvoeging van versie n (de gemeenschappelijke basis) en versie m van het bestand, met `m` gelijk aan `basis_versie`. Twee gehele getallen, `n < m`, en beide versies bestaan; anders 417 `ongeldige_samenvoeging`. Het komt op de nieuwe versie (`Bestandsversie.samengevoegd_uit`) en staat in `versies` (`samengevoegd_uit` per versie, of null). Niet op een conflictkopie of een nieuw bestand: die versies horen bij een ander bestand. In de wijzigingenlijst blijft het een gewone `gewijzigd` |
+| `basis_versie_id` | `upload_start`, en per bestand in `upload_klein` | Het id van de versieregel waaruit de client werkte (`versie_id`, zie hieronder). Dan vergelijkt de server de regel, niet het nummer. Is de regel de huidige van het bestand op de plek (en dat bestand `basis_bestand`, als dat meekomt), dan een nieuwe versie. Hoort de regel bij dit bestand maar is ze niet de huidige: met `"weiger"` 409 `verouderde_basis`. Hoort ze er niet (meer) bij (een ander bestand op de plek, geen bestand, of de regel ging met verplaatsen naar een ander bestand): met `"weiger"` 409 `onbekende_basis`. Met `"kopie"` in beide gevallen een conflictkopie (of een nieuw bestand als er niets staat). Zonder `basis_versie_id` blijft de vergelijking op `basis_versie` (en `basis_bestand`), zoals hierboven |
+
+**De basis is de versieregel, niet haar nummer.** Een versienummer bleek geen veilige basis (ontwerp "samenwerken"
+§5.5, K19). Het kan terugkomen: verplaats F1 met overschrijven over een ander bestand (de huidige versie A gaat mee),
+herstel F1 en upload B, en "F1 versie 2" is B in plaats van A. En vóór het slot op het doel in `verplaats` konden twee
+verplaatsingen tegelijk twee regels hetzelfde nummer geven, of een regel van het ene doel naar het andere laten
+schuiven. Daarom is de basis het id van de versieregel (`Bestandsversie.name`, in de API `versie_id`). Dat id komt
+nooit terug (een hash, en geen code wist een versieregel), en de inhoud van een regel (`s3_sleutel`) verandert nooit:
+alleen `verplaats` hangt een regel aan een ander bestand, met een ander nummer.
+
+- `Opslagbestand.huidige_versie_id` is de regel die nu de inhoud is. De server zet hem overal waar hij `huidige_versie`
+  zet: bij een nieuwe versie, bij `verplaats` (het doel, en de bron die zakt) en bij de uploadlink. Wie het bestand
+  als document opslaat (bijv. via `/api/resource`), kan `huidige_versie` en `huidige_versie_id` niet veranderen.
+- `versie_id` staat in `bladeren`, `boom`, `versies`, `info`, `gedeeld_met_mij`, `wijzigingen` (de huidige regel van
+  het bestand nu; null bij een map), `download`, `download_klein` en de antwoorden van `upload_klaar`, `upload_klein`
+  en `verplaats`. Het volgnummer blijft, voor mensen.
+- `download(bestand, versie_id=…)` en `download_klein` met `{bestand, versie_id}` geven precies die regel, of 409
+  `onbekende_basis` als ze niet (meer) bij het bestand hoort. Zo leest de opslaan-lus altijd de inhoud waaruit hij
+  werkte, of krijgt hij een duidelijke fout. Zonder `versie_id` blijft alles zoals het was.
+- Versieregels zijn niet te maken, te wijzigen of te wissen via de algemene routes van Frappe (`/api/resource`,
+  `frappe.client.set_value`, `frappe.client.save`, `insert` en `delete`, API v2): de has_permission-haak
+  (`rechten.heeft_recht`) weigert voor `Bestandsversie` alles behalve lezen. Alleen de server schrijft ze, met
+  `ignore_permissions` of `db.set_value`: een nieuwe versie, `verplaats` (bestand en volgnummer) en het dossier
+  (`revisie` en `revisiestatus`, op de regel van `huidige_versie_id`).
+- `verplaats` met overschrijven vergrendelt de regels van doel en bron (in volgorde van id). Wie als tweede komt,
+  ziet de nieuwe stand: naar hetzelfde doel krijgt hij het volgende nummer, met dezelfde bron verplaatst hij niets.
+  Een nummer kan na verplaatsen, herstellen en opnieuw uploaden nog terugkomen. Dat is verwarrend voor mensen, maar
+  niet meer onveilig.
+
+Voorbeelden:
+
+- Anna werkt vanuit F1 (`versie_id` V1). Piet verwijdert F1 en maakt onder dezelfde naam F2. Anna's upload met
+  `basis_versie_id` V1 (met of zonder `basis_bestand` F1) geeft `onbekende_basis`: V1 hoort niet bij F2. Zonder
+  `basis_versie_id` (oude client) blijft het `verouderde_basis` met `basis_bestand`, zoals hierboven.
+- Anna werkt vanuit (F1, A). Piet verplaatst F1 over ander.ifc, herstelt F1 en uploadt B: weer F1 versie 2. Anna's
+  basis A geeft `onbekende_basis`, ook `download(F1, versie_id=A)`; A staat nu bij ander.ifc.
+- Twee regels A en B stonden (van vóór de invoering) allebei op (F0, 2). Na de patch is B de huidige en heeft A
+  versie 3. Anna's basis A geeft `verouderde_basis` met de huidige regel B, en `download(F0, versie_id=A)` geeft A:
+  zo kan de opslaan-lus A, B en haar werk samenvoegen en opslaan met basis B (versie 4).
+
+**Invoering.** De patch `huidige_versie_id_invullen` zet per bestand `huidige_versie_id` op de regel met
+`volgnummer = huidige_versie`. Er wordt niets hernummerd als er niets mis is, en er komt geen kopie in S3. Staan er
+twee of meer regels op één nummer, dan houdt de laatst gewijzigde (`modified`) het nummer en krijgen de andere een vrij
+nummer boven het hoogste van het bestand; op het huidige nummer wordt de laatst gewijzigde zo de huidige. Staat er
+geen regel op het huidige nummer (de regel schoof naar een ander bestand), dan wordt de hoogste bestaande regel de
+huidige (`huidige_versie` en `grootte` gaan mee). Een bestand zonder regels houdt `huidige_versie_id` leeg; een upload
+met een basis geeft dan `onbekende_basis`. De patch meldt elke herstelling in zijn uitvoer, en opnieuw draaien
+verandert niets. Het volgende nummer van een bestand ligt daarom boven de huidige versie én boven elke regel van het
+bestand.
 
 **Vastleggen onder een slot.** Een nieuwe versie (of een nieuw bestand) wordt vastgelegd in `_registreer`. Die
 vergrendelt eerst de regel van het bestaande bestand en zijn slot (`Opslagvergrendeling`, nu met een index op

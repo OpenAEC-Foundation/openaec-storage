@@ -55,7 +55,15 @@ ISOLATIENIVEAUS = ("READ UNCOMMITTED", "READ COMMITTED", "REPEATABLE READ", "SER
 
 class VerouderdeBasis(frappe.ValidationError):
 	"""Vergelijk-en-schrijf (`bij_conflict="weiger"`): de basis van de upload is niet meer de huidige versie. In het
-	antwoord staan de foutcode `verouderde_basis` en `huidige_versie`."""
+	antwoord staan de foutcode `verouderde_basis`, `huidige_versie`, `huidige_versie_id` en `huidig_bestand`."""
+
+	http_status_code = 409
+
+
+class OnbekendeBasis(frappe.ValidationError):
+	"""De versieregel van de basis (`basis_versie_id`) hoort niet (meer) bij het bestand: een ander bestand op de plek,
+	geen bestand, of de regel ging met verplaatsen naar een ander bestand. Foutcode `onbekende_basis`; samenvoegen
+	vanuit die basis kan niet, want de server weet niet waar de client vanuit werkte."""
 
 	http_status_code = 409
 
@@ -105,7 +113,7 @@ def _actief_bestand(ruimte: str, map: str | None, naam: str):
 	return frappe.db.get_value(
 		"Opslagbestand",
 		{"ruimte": ruimte, "map": map or ("is", "not set"), "naam": naam, "verwijderd_op": ("is", "not set")},
-		["name", "huidige_versie"],
+		["name", "huidige_versie", "huidige_versie_id"],
 		as_dict=True,
 	)
 
@@ -176,7 +184,10 @@ def _controleer_quotum(extra: int, ruimte: str | None = None) -> None:
 
 def _bestand(bestand: str, actie: str):
 	doc = frappe.db.get_value(
-		"Opslagbestand", bestand, ["name", "ruimte", "map", "naam", "huidige_versie", "verwijderd_op"], as_dict=True
+		"Opslagbestand",
+		bestand,
+		["name", "ruimte", "map", "naam", "huidige_versie", "huidige_versie_id", "verwijderd_op"],
+		as_dict=True,
 	)
 	if not doc:
 		frappe.throw(_("Bestand bestaat niet"), frappe.DoesNotExistError)
@@ -214,9 +225,26 @@ def _bij_conflict(waarde) -> str:
 	return waarde
 
 
-def _basis_bestand(waarde) -> str | None:
-	"""`basis_bestand` van een upload: het id van het Opslagbestand waarop de client werkte, of None."""
+def _basis_id(waarde) -> str | None:
+	"""Een id van een upload (`basis_bestand`: het Opslagbestand waarop de client werkte; `basis_versie_id`: de
+	versieregel waaruit hij werkte), of None."""
 	return (waarde.strip() if isinstance(waarde, str) else str(waarde or "")) or None
+
+
+def _vergelijk_basis(bestaand, basis_bestand: str | None, basis_versie_id: str) -> str:
+	"""Vergelijk de basis van een upload met het bestand op de plek (`bestaand`, met `name` en `huidige_versie_id`, of
+	None): "gelijk" (de versieregel is de huidige van dit bestand: een nieuwe versie mag), "verouderd" (de regel hoort
+	bij dit bestand maar is niet de huidige) of "onbekend" (de regel hoort niet (meer) bij dit bestand: een ander
+	bestand op de plek, geen bestand, of de regel ging met verplaatsen naar een ander bestand).
+
+	De basis is het id van de versieregel (`Bestandsversie.name`), niet het volgnummer: een nummer kan terugkomen
+	(verplaatsen met overschrijven, herstellen en opnieuw uploaden) en kon vóór het slot in `verplaats` dubbel worden
+	uitgegeven. Het id komt nooit terug (een hash; geen code wist een versieregel), en de inhoud van een regel
+	(`s3_sleutel`) verandert nooit; alleen `verplaats` hangt een regel aan een ander bestand, met een ander nummer."""
+	regel_van = frappe.db.get_value("Bestandsversie", basis_versie_id, "bestand")
+	if not bestaand or regel_van != bestaand.name or (basis_bestand and basis_bestand != bestaand.name):
+		return "onbekend"
+	return "gelijk" if basis_versie_id == bestaand.huidige_versie_id else "verouderd"
 
 
 def _weiger_samenvoeging(reden: str) -> None:
@@ -256,20 +284,36 @@ def _controleer_samenvoeging(bestand: str, samengevoegd: dict) -> None:
 		_weiger_samenvoeging(_("versie {0} of {1} bestaat niet voor dit bestand").format(samengevoegd["basis"], samengevoegd["hun"]))
 
 
-def _weiger_bij_conflict(bestaand, slot, basis_versie: int | None, basis_bestand: str | None = None) -> None:
+def _weiger_bij_conflict(
+	bestaand, slot, basis_versie: int | None, basis_bestand: str | None = None, basis: str | None = None
+) -> None:
 	"""Met `bij_conflict="weiger"`: weiger een upload naar een bestand dat een ander vergrendelde
-	(`bestand_vergrendeld`), of met een verouderde basis (`verouderde_basis`, met `huidige_versie` en `huidig_bestand`
-	naast de foutcode). `bestaand` is het actieve bestand op de plek, of None. De basis is verouderd als `basis_versie`
-	niet de huidige versie is, of als `basis_bestand` niet het bestand op de plek is: daar staat een ander bestand met
-	dezelfde naam (een versienummer is alleen uniek binnen één bestand), of geen. Een slot gaat vóór: daar helpt
-	opnieuw samenvoegen niet."""
+	(`bestand_vergrendeld`), met een onbekende basis (`onbekende_basis`) of met een verouderde basis
+	(`verouderde_basis`). Bij beide staan `huidig_bestand`, `huidige_versie` en `huidige_versie_id` naast de foutcode
+	(null als er geen bestand op de plek staat). `bestaand` is het actieve bestand op de plek, of None.
+
+	Met `basis_versie_id` is `basis` de uitkomst van `_vergelijk_basis`. Zonder (`basis` None) geldt de regel op
+	nummers: de basis is verouderd als `basis_versie` niet de huidige versie is, of als `basis_bestand` niet het bestand
+	op de plek is (daar staat een ander bestand met dezelfde naam, of geen). Een slot gaat vóór: daar helpt opnieuw
+	samenvoegen niet."""
 	if bestaand and slot and slot.gebruiker != frappe.session.user:
 		weiger(_("Dit bestand is vergrendeld door {0}").format(slot.gebruiker), "bestand_vergrendeld", frappe.PermissionError)
 	huidig = bestaand.name if bestaand else None
 	huidige = cint(bestaand.huidige_versie) if bestaand else None
 	frappe.local.response["huidige_versie"] = huidige
+	frappe.local.response["huidige_versie_id"] = (bestaand.huidige_versie_id or None) if bestaand else None
 	frappe.local.response["huidig_bestand"] = huidig
-	if basis_bestand and basis_bestand != huidig:
+	if basis == "onbekend":
+		weiger(
+			_("De versie waarop deze upload gebaseerd is, hoort niet (meer) bij het bestand op deze plek"),
+			"onbekende_basis",
+			OnbekendeBasis,
+		)
+	if basis == "verouderd":
+		reden = _("Dit bestand is intussen gewijzigd: de huidige versie is {0}").format(huidige)
+	elif basis == "gelijk":
+		reden = None
+	elif basis_bestand and basis_bestand != huidig:
 		reden = (
 			_("Op deze plek staat intussen een ander bestand met deze naam")
 			if huidig
@@ -280,7 +324,10 @@ def _weiger_bij_conflict(bestaand, slot, basis_versie: int | None, basis_bestand
 			huidige, basis_versie if basis_versie is not None else "-"
 		)
 	else:
+		reden = None
+	if not reden:
 		frappe.local.response.pop("huidige_versie", None)
+		frappe.local.response.pop("huidige_versie_id", None)
 		frappe.local.response.pop("huidig_bestand", None)
 		return
 	weiger(reden, "verouderde_basis", VerouderdeBasis)
@@ -298,15 +345,15 @@ def _vergrendel_plek(ruimte: str, map: str | None) -> None:
 
 
 def _vergrendel_bestand(ruimte: str, map: str | None, naam: str):
-	"""Het actieve bestand met deze naam op deze plek, met een slot op zijn regel (`name`, `huidige_versie` uit een
-	vergrendelende lezing), of None. De zoekactie is vers onder READ COMMITTED (`_eigen_transactie`). Is het bestand
+	"""Het actieve bestand met deze naam op deze plek, met een slot op zijn regel (`name`, `huidige_versie` en
+	`huidige_versie_id` uit een vergrendelende lezing), of None. De zoekactie is vers onder READ COMMITTED (`_eigen_transactie`). Is het bestand
 	tussen het zoeken en het slot verplaatst, hernoemd of verwijderd, dan wordt opnieuw gezocht."""
 	for _poging in range(3):
 		bestaand = _actief_bestand(ruimte, map, naam)
 		if not bestaand:
 			return None
 		rij = frappe.db.sql(
-			"""select name, huidige_versie from `tabOpslagbestand` where name = %s and ruimte = %s
+			"""select name, huidige_versie, huidige_versie_id from `tabOpslagbestand` where name = %s and ruimte = %s
 			and ifnull(map, '') = %s and naam = %s and verwijderd_op is null for update""",
 			(bestaand.name, ruimte, map or "", naam),
 			as_dict=True,
@@ -386,7 +433,7 @@ def bladeren(ruimte: str | None = None, map: str | None = None, deling: str | No
 	bestanden = frappe.get_all(
 		"Opslagbestand",
 		filters={"ruimte": ruimte, "map": map or ("is", "not set"), "verwijderd_op": ("is", "not set")},
-		fields=["name", "naam", "grootte", "huidige_versie", "mime", "modified"],
+		fields=["name", "naam", "grootte", "huidige_versie", "huidige_versie_id as versie_id", "mime", "modified"],
 		order_by="naam asc",
 		ignore_permissions=True,
 	)
@@ -395,13 +442,14 @@ def bladeren(ruimte: str | None = None, map: str | None = None, deling: str | No
 
 @frappe.whitelist()
 def versies(bestand: str) -> list[dict]:
-	"""Alle versies, de nieuwste eerst. `samengevoegd_uit` (`{basis, hun}` of null): de versie is een samenvoeging
-	van die twee versies van dit bestand, door de maker."""
+	"""Alle versies, de nieuwste eerst. `versie_id`: het id van de versieregel (de basis voor `basis_versie_id` en
+	`download(…, versie_id)`). `samengevoegd_uit` (`{basis, hun}` of null): de versie is een samenvoeging van die twee
+	versies van dit bestand, door de maker."""
 	_bestand(bestand, "read")
 	rijen = frappe.get_all(
 		"Bestandsversie",
 		filters={"bestand": bestand},
-		fields=["volgnummer", "grootte", "sha256", "bron", "maker", "creation", "samengevoegd_uit"],
+		fields=["name as versie_id", "volgnummer", "grootte", "sha256", "bron", "maker", "creation", "samengevoegd_uit"],
 		order_by="volgnummer desc",
 		ignore_permissions=True,
 	)
@@ -427,6 +475,7 @@ def upload_start(
 	bij_conflict: str | None = None,
 	samengevoegd_uit=None,
 	basis_bestand: str | None = None,
+	basis_versie_id: str | None = None,
 ) -> dict:
 	"""Begin een upload: geeft een upload-token en per te uploaden deel een ondertekende URL.
 
@@ -443,6 +492,15 @@ def upload_start(
 	bestand met deze naam (of geen), dan is de basis verouderd, ook als het versienummer gelijk is: met "kopie" een
 	conflictkopie (of een nieuw bestand als er niets staat), met "weiger" `verouderde_basis` met `huidig_bestand` (id of
 	null). Zonder `basis_bestand` telt alleen het versienummer, zoals eerder.
+
+	`basis_versie_id`: het id van de versieregel waaruit de client werkte (`versie_id` uit lijsten, `versies`,
+	`download` en het antwoord van een upload). Dan vergelijkt de server de regel, niet het nummer (zie
+	`_vergelijk_basis`): is de regel de huidige van het bestand op de plek (en dat bestand `basis_bestand`, als dat
+	meekomt), dan een nieuwe versie. Hoort de regel bij dit bestand maar is ze niet de huidige, dan met "weiger"
+	`verouderde_basis`. Hoort ze er niet (meer) bij (een ander bestand op de plek, geen bestand, of de regel ging met
+	verplaatsen naar een ander bestand), dan met "weiger" `onbekende_basis`. Met "kopie" wordt het in beide gevallen een
+	conflictkopie (of een nieuw bestand als er niets staat). Zonder `basis_versie_id` blijft de vergelijking op
+	`basis_versie` (oude clients).
 	"""
 	map = _controleer_map(ruimte, map)
 	bestaand_id = _bestaand_id(ruimte, map, naam)
@@ -450,22 +508,22 @@ def upload_start(
 	naam = _controleer_naam(naam, ruimte, map)
 	mapsjablonen.controleer_upload(ruimte, map, naam)
 	basis_versie = None if basis_versie in (None, "") else cint(basis_versie)
-	basis_bestand = _basis_bestand(basis_bestand)
+	basis_bestand = _basis_id(basis_bestand)
+	basis_versie_id = _basis_id(basis_versie_id)
 	bij_conflict = _bij_conflict(bij_conflict)
 	samengevoegd = _samengevoegd_uit(samengevoegd_uit, basis_versie)
+	bestaand = _actief_bestand(ruimte, map, naam) if bestaand_id else None
+	basis = _vergelijk_basis(bestaand, basis_bestand, basis_versie_id) if basis_versie_id else None
 	# Werkte de client op een ander bestand dan dat op de plek, dan wordt dit geen nieuwe versie (maar een
 	# conflictkopie, een nieuw bestand of een weigering), en geldt de samenvoeging niet.
-	if samengevoegd and (not basis_bestand or basis_bestand == bestaand_id):
+	if samengevoegd and basis != "onbekend" and (not basis_bestand or basis_bestand == bestaand_id):
 		if not bestaand_id:
 			_weiger_samenvoeging(_("er is hier geen bestand met deze naam"))
 		_controleer_samenvoeging(bestaand_id, samengevoegd)
-	if bij_conflict == "weiger" and (bestaand_id or basis_bestand):
+	if bij_conflict == "weiger" and (bestaand_id or basis_bestand or basis_versie_id):
 		# Vroeg weigeren spaart de upload; `upload_klaar` vergelijkt daarna nog eens onder een slot.
 		_weiger_bij_conflict(
-			_actief_bestand(ruimte, map, naam) if bestaand_id else None,
-			_actief_slot(bestaand_id) if bestaand_id else None,
-			basis_versie,
-			basis_bestand,
+			bestaand, _actief_slot(bestaand_id) if bestaand_id else None, basis_versie, basis_bestand, basis
 		)
 	# Een nieuwe versie van een bestaand bestand telt als bewerken (veiligheidsgrenzen, zie veiligheid.py).
 	if bestaand_id:
@@ -482,7 +540,9 @@ def upload_start(
 	if blokhashes is not None and len(blokhashes) != aantal:
 		frappe.throw(_("Aantal blokhashes klopt niet met de grootte"))
 
-	hergebruik = _herbruikbare_blokken(ruimte, map, naam, basis_versie, blok, grootte, blokhashes, basis_bestand)
+	hergebruik = _herbruikbare_blokken(
+		ruimte, map, naam, basis_versie, blok, grootte, blokhashes, basis_bestand, basis_versie_id
+	)
 	sleutel = s3.nieuwe_sleutel()
 	upload_id = s3.start_multipart(sleutel)
 	token = frappe.generate_hash(length=32)
@@ -505,6 +565,7 @@ def upload_start(
 			"bij_conflict": bij_conflict,
 			"samengevoegd_uit": samengevoegd,
 			"basis_bestand": basis_bestand,
+			"basis_versie_id": basis_versie_id,
 		},
 		expires_in_sec=UPLOAD_GELDIG_SECONDEN,
 	)
@@ -526,21 +587,26 @@ def _bestaand_id(ruimte: str, map: str | None, naam: str | None) -> str | None:
 	return bestaand.name if bestaand else None
 
 
-def _herbruikbare_blokken(ruimte, map, naam, basis_versie, blok, grootte, blokhashes, basis_bestand=None) -> list[dict]:
+def _herbruikbare_blokken(
+	ruimte, map, naam, basis_versie, blok, grootte, blokhashes, basis_bestand=None, basis_versie_id=None
+) -> list[dict]:
 	"""Blokken die gelijk zijn aan dezelfde positie in de basisversie: die kopieert de server zelf. Alleen uit het
-	bestand waarop de client werkte."""
-	if not blokhashes or basis_versie in (None, ""):
+	bestand waarop de client werkte, en alleen als de basis de huidige versie is."""
+	if not blokhashes or (basis_versie in (None, "") and not basis_versie_id):
 		return []
 	bestaand = _actief_bestand(ruimte, map, naam)
-	if not bestaand or cint(basis_versie) != cint(bestaand.huidige_versie):
-		return []
-	if basis_bestand and basis_bestand != bestaand.name:
-		return []
+	if basis_versie_id:
+		if _vergelijk_basis(bestaand, basis_bestand, basis_versie_id) != "gelijk":
+			return []
+		filters = basis_versie_id
+	else:
+		if not bestaand or cint(basis_versie) != cint(bestaand.huidige_versie):
+			return []
+		if basis_bestand and basis_bestand != bestaand.name:
+			return []
+		filters = {"bestand": bestaand.name, "volgnummer": cint(basis_versie)}
 	basis = frappe.db.get_value(
-		"Bestandsversie",
-		{"bestand": bestaand.name, "volgnummer": cint(basis_versie)},
-		["s3_sleutel", "grootte", "blokgrootte", "blokhashes"],
-		as_dict=True,
+		"Bestandsversie", filters, ["s3_sleutel", "grootte", "blokgrootte", "blokhashes"], as_dict=True
 	)
 	if not basis or cint(basis.blokgrootte) != blok or not basis.blokhashes:
 		return []
@@ -616,6 +682,9 @@ def _registreer(info: dict) -> dict:
 	(`{basis, hun}`, al gecontroleerd op vorm): beide versies moeten bestaan; het komt alleen op een nieuwe versie van
 	hetzelfde bestand, niet op een conflictkopie of een nieuw bestand.
 
+	`info["basis_versie_id"]` (optioneel): de versieregel waaruit de client werkte; dan vergelijkt `_vergelijk_basis`
+	de regel in plaats van het nummer (zie `upload_start`).
+
 	`info["basis_bestand"]` (optioneel): het bestand waarop de client werkte. Een nieuwe versie komt er alleen als het
 	bestand op de plek dat bestand is én de versie de huidige is; een versienummer is alleen uniek binnen één bestand.
 	Staat er een ander bestand met deze naam, dan een conflictkopie (of met "weiger" `verouderde_basis`). Staat er niets
@@ -624,40 +693,47 @@ def _registreer(info: dict) -> dict:
 	ruimte, map, naam = info["ruimte"], info["map"], info["naam"]
 	basis_versie = info.get("basis_versie")
 	basis_bestand = info.get("basis_bestand")
+	basis_versie_id = info.get("basis_versie_id")
 	weigeren = info.get("bij_conflict") == "weiger"
-	if basis_versie is None:
+	if basis_versie is None and not basis_versie_id:
 		# Zonder basis wordt het nooit een nieuwe versie van een bestaand bestand: een slot op dat bestand is niet
 		# nodig (kopiëren houdt via `_maak_map` al mappen vast en mag daarna geen bestand meer vragen).
 		bestaand = _actief_bestand(ruimte, map, naam)
 	else:
 		bestaand = _vergrendel_bestand(ruimte, map, naam)
 	conflict = bool(bestaand)
+	basis = _vergelijk_basis(bestaand, basis_bestand, basis_versie_id) if basis_versie_id else None
 	if bestaand:
-		zelfde_bestand = not basis_bestand or basis_bestand == bestaand.name
-		slot = _actief_slot(bestaand.name, for_update=basis_versie is not None)
+		if basis:
+			zelfde_bestand, basis_gelijk = basis != "onbekend", basis == "gelijk"
+		else:
+			zelfde_bestand = not basis_bestand or basis_bestand == bestaand.name
+			basis_gelijk = zelfde_bestand and basis_versie is not None and basis_versie == cint(bestaand.huidige_versie)
+		slot = _actief_slot(bestaand.name, for_update=basis_versie is not None or bool(basis_versie_id))
 		if info.get("samengevoegd_uit") and zelfde_bestand:
 			_controleer_samenvoeging(bestaand.name, info["samengevoegd_uit"])
 		slot_van_ander = bool(slot and slot.gebruiker != frappe.session.user)
-		if (
-			zelfde_bestand
-			and not slot_van_ander
-			and basis_versie is not None
-			and basis_versie == cint(bestaand.huidige_versie)
-		):
+		if basis_gelijk and not slot_van_ander:
 			doc = frappe.get_doc("Opslagbestand", bestaand.name, for_update=True)
 			return _nieuwe_versie(info, doc, "gewijzigd", info.get("samengevoegd_uit"), conflict=False)
 		if weigeren:
-			_weiger_bij_conflict(bestaand, slot, basis_versie, basis_bestand)
-	elif basis_bestand and weigeren:
+			_weiger_bij_conflict(bestaand, slot, basis_versie, basis_bestand, basis)
+	elif (basis_bestand or basis_versie_id) and weigeren:
 		# Het bestand waarop de client werkte, staat hier niet meer.
-		_weiger_bij_conflict(None, None, basis_versie, basis_bestand)
+		_weiger_bij_conflict(None, None, basis_versie, basis_bestand, basis)
 	# Er komt een nieuw bestand: met deze naam, of een conflictkopie.
 	_vergrendel_plek(ruimte, map)
 	if not conflict:
 		# Intussen door een ander vastgelegd (die had de plek, en is nu klaar)? Dan is dit een conflict.
 		ander = _actief_bestand(ruimte, map, naam)
 		if ander and weigeren:
-			_weiger_bij_conflict(ander, _actief_slot(ander.name), basis_versie, basis_bestand)
+			_weiger_bij_conflict(
+				ander,
+				_actief_slot(ander.name),
+				basis_versie,
+				basis_bestand,
+				_vergelijk_basis(ander, basis_bestand, basis_versie_id) if basis_versie_id else None,
+			)
 		conflict = bool(ander)
 	if conflict:
 		naam = _conflictnaam(ruimte, map, naam)
@@ -671,12 +747,22 @@ def _registreer(info: dict) -> dict:
 	return _nieuwe_versie(info, doc, "nieuw", None, conflict=conflict)
 
 
+def _volgende_versie(bestand: str, huidige_versie) -> int:
+	"""Het volgende volgnummer van een bestand (onder het slot op zijn regel): één boven de huidige versie en boven elke
+	regel van het bestand. Na de patch `huidige_versie_id_invullen` kan een regel boven de huidige versie staan (een
+	dubbel nummer kreeg een vrij nummer); zo wijst elk nummer van een bestand één regel aan. Een nummer kan na
+	verplaatsen met overschrijven, herstellen en opnieuw uploaden wel terugkomen; de basis is daarom het id van de
+	regel (zie `_vergelijk_basis`), niet het nummer."""
+	hoogste = frappe.db.sql("select max(volgnummer) from `tabBestandsversie` where bestand = %s", bestand)[0][0]
+	return max(cint(huidige_versie), cint(hoogste)) + 1
+
+
 def _nieuwe_versie(info: dict, doc, soort: str, samengevoegd: dict | None, conflict: bool) -> dict:
 	"""De volgende versie van `doc` (al vergrendeld, of net aangemaakt) met de inhoud uit `info`, en de regel in de
-	wijzigingenlijst."""
+	wijzigingenlijst. `versie_id` in het antwoord is het id van de nieuwe versieregel."""
 	ruimte = info["ruimte"]
-	volgnummer = cint(doc.huidige_versie) + 1
-	frappe.get_doc(
+	volgnummer = _volgende_versie(doc.name, doc.huidige_versie)
+	versie = frappe.get_doc(
 		{
 			"doctype": "Bestandsversie",
 			"bestand": doc.name,
@@ -693,24 +779,48 @@ def _nieuwe_versie(info: dict, doc, soort: str, samengevoegd: dict | None, confl
 		}
 	).insert(ignore_permissions=True)
 	doc.huidige_versie = volgnummer
+	doc.huidige_versie_id = versie.name
 	doc.grootte = info["grootte"]
 	doc.save(ignore_permissions=True)
 	_log(ruimte, soort, "Opslagbestand", doc.name, doc.naam)
-	return {"bestand": doc.name, "naam": doc.naam, "versie": volgnummer, "conflict": conflict}
+	return {"bestand": doc.name, "naam": doc.naam, "versie": volgnummer, "versie_id": versie.name, "conflict": conflict}
 
 
 # --- downloaden --------------------------------------------------------------------------------------
 
 
 @frappe.whitelist()
-def download(bestand: str, versie: int | None = None) -> dict:
-	"""Een ondertekende link naar een versie (standaard de huidige)."""
-	doc = _bestand(bestand, "read")
+def _versieregel(doc, versie=None, versie_id=None, velden=("name", "s3_sleutel")):
+	"""De versieregel van een bestand: met `versie_id` precies die regel, met `versie` die met dat nummer, anders de
+	huidige. Hoort de regel met `versie_id` niet (meer) bij het bestand (bijv. met verplaatsen naar een ander bestand
+	gegaan), dan 409 `onbekende_basis`: de client kan vanuit die basis niet samenvoegen."""
+	velden = ["name", "bestand", "volgnummer", *[v for v in velden if v not in ("name", "bestand", "volgnummer")]]
+	versie_id = _basis_id(versie_id)
+	if versie_id:
+		rij = frappe.db.get_value("Bestandsversie", versie_id, velden, as_dict=True)
+		if not rij or rij.bestand != doc.name:
+			weiger(_("Deze versie hoort niet (meer) bij dit bestand"), "onbekende_basis", OnbekendeBasis)
+		return rij
 	volgnummer = cint(versie) or cint(doc.huidige_versie)
-	sleutel = frappe.db.get_value("Bestandsversie", {"bestand": bestand, "volgnummer": volgnummer}, "s3_sleutel")
-	if not sleutel:
+	rij = frappe.db.get_value("Bestandsversie", {"bestand": doc.name, "volgnummer": volgnummer}, velden, as_dict=True)
+	if not rij:
 		frappe.throw(_("Versie bestaat niet"), frappe.DoesNotExistError)
-	return {"url": s3.download_url(sleutel, doc.naam), "versie": volgnummer, "geldig_seconden": s3.LINK_GELDIG_SECONDEN}
+	return rij
+
+
+@frappe.whitelist()
+def download(bestand: str, versie: int | None = None, versie_id: str | None = None) -> dict:
+	"""Een ondertekende link naar een versie: standaard de huidige, met `versie` die met dat nummer, met `versie_id`
+	precies die versieregel (of 409 `onbekende_basis` als ze niet (meer) bij het bestand hoort). Zo leest de opslaan-lus
+	altijd de inhoud waaruit hij werkte, of krijgt hij een duidelijke fout. `versie_id` staat ook in het antwoord."""
+	doc = _bestand(bestand, "read")
+	rij = _versieregel(doc, versie, versie_id)
+	return {
+		"url": s3.download_url(rij.s3_sleutel, doc.naam),
+		"versie": cint(rij.volgnummer),
+		"versie_id": rij.name,
+		"geldig_seconden": s3.LINK_GELDIG_SECONDEN,
+	}
 
 
 # --- prullenbak --------------------------------------------------------------------------------------
@@ -776,7 +886,7 @@ def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int 
 
 	doel = _actief_bestand(bron.ruimte, map, naam)
 	if doel and doel.name == bron.name:
-		return {"bestand": bron.name, "naam": naam, "versie": cint(bron.huidige_versie)}
+		return {"bestand": bron.name, "naam": naam, "versie": cint(bron.huidige_versie), "versie_id": bron.huidige_versie_id}
 	veiligheid.controleer(
 		"verplaatsen",
 		1,
@@ -791,36 +901,66 @@ def verplaats(bestand: str, naam: str, map: str | None = None, overschrijf: int 
 	if not doel:
 		frappe.db.set_value("Opslagbestand", bron.name, {"naam": naam, "map": map})
 		_log(bron.ruimte, "verplaatst", "Opslagbestand", bron.name, naam)
-		return {"bestand": bron.name, "naam": naam, "versie": cint(bron.huidige_versie)}
+		return {"bestand": bron.name, "naam": naam, "versie": cint(bron.huidige_versie), "versie_id": bron.huidige_versie_id}
 
 	_weiger_als_vergrendeld(doel.name, "Het doel is vergrendeld door {0}")
-	# De huidige versie van de bron wordt de volgende versie van het doel. Heeft de bron oudere versies, dan gaat
+	# De huidige versieregel van de bron wordt de volgende versie van het doel. Heeft de bron oudere versies, dan gaat
 	# hij daarmee naar de prullenbak (niets gaat verloren); anders verdwijnt hij.
-	# Met een slot op het doel: twee verplaatsingen tegelijk naar hetzelfde doel geven anders hetzelfde nummer uit.
-	doel = frappe.db.get_value("Opslagbestand", doel.name, ["name", "huidige_versie"], as_dict=True, for_update=True)
-	volgnummer = cint(doel.huidige_versie) + 1
-	versie = frappe.db.get_value(
-		"Bestandsversie", {"bestand": bron.name, "volgnummer": bron.huidige_versie}, ["name", "grootte"], as_dict=True
+	# Eerst een slot op de regels van doel en bron, in volgorde van id. Zonder slot gaven twee verplaatsingen tegelijk
+	# naar hetzelfde doel hetzelfde nummer uit, en hingen twee verplaatsingen van dezelfde bron naar verschillende
+	# doelen dezelfde versieregel eerst aan het ene en dan aan het andere doel. Wie als tweede komt, ziet de nieuwe
+	# stand (of krijgt een fout van de database) en verplaatst niets.
+	rijen = {
+		r.name: r
+		for r in frappe.db.sql(
+			"""select name, huidige_versie, huidige_versie_id, verwijderd_op from `tabOpslagbestand`
+			where name in (%s, %s) order by name for update""",
+			(bron.name, doel.name),
+			as_dict=True,
+		)
+	}
+	bron_nu, doel_nu = rijen.get(bron.name), rijen.get(doel.name)
+	if (
+		not bron_nu
+		or bron_nu.verwijderd_op
+		or not doel_nu
+		or doel_nu.verwijderd_op
+		or cint(bron_nu.huidige_versie) != cint(bron.huidige_versie)
+	):
+		frappe.throw(_("Dit bestand of het doel werd tegelijk gewijzigd; probeer het opnieuw"))
+	regel = bron_nu.huidige_versie_id or frappe.db.get_value(
+		"Bestandsversie", {"bestand": bron.name, "volgnummer": bron_nu.huidige_versie}, "name"
 	)
-	frappe.db.set_value("Bestandsversie", versie.name, {"bestand": doel.name, "volgnummer": volgnummer})
+	versie = frappe.db.get_value("Bestandsversie", regel, ["name", "bestand", "grootte"], as_dict=True) if regel else None
+	if not versie or versie.bestand != bron.name:
+		frappe.throw(_("De huidige versie van dit bestand ontbreekt"), frappe.DoesNotExistError)
+	volgnummer = _volgende_versie(doel_nu.name, doel_nu.huidige_versie)
+	frappe.db.set_value("Bestandsversie", versie.name, {"bestand": doel_nu.name, "volgnummer": volgnummer})
 	frappe.db.set_value(
-		"Opslagbestand", doel.name, {"huidige_versie": volgnummer, "grootte": versie.grootte}
+		"Opslagbestand",
+		doel_nu.name,
+		{"huidige_versie": volgnummer, "huidige_versie_id": versie.name, "grootte": versie.grootte},
 	)
 	frappe.db.delete("Opslagvergrendeling", {"bestand": bron.name})
 	vorige = frappe.db.get_value(
-		"Bestandsversie", {"bestand": bron.name}, ["volgnummer", "grootte"], order_by="volgnummer desc", as_dict=True
+		"Bestandsversie", {"bestand": bron.name}, ["name", "volgnummer", "grootte"], order_by="volgnummer desc", as_dict=True
 	)
 	if vorige:
 		frappe.db.set_value(
 			"Opslagbestand",
 			bron.name,
-			{"huidige_versie": vorige.volgnummer, "grootte": vorige.grootte, "verwijderd_op": now_datetime()},
+			{
+				"huidige_versie": vorige.volgnummer,
+				"huidige_versie_id": vorige.name,
+				"grootte": vorige.grootte,
+				"verwijderd_op": now_datetime(),
+			},
 		)
 	else:
 		frappe.db.delete("Opslagbestand", {"name": bron.name})
 	_log(bron.ruimte, "verwijderd", "Opslagbestand", bron.name, bron.naam)
-	_log(bron.ruimte, "gewijzigd", "Opslagbestand", doel.name, naam)
-	return {"bestand": doel.name, "naam": naam, "versie": volgnummer}
+	_log(bron.ruimte, "gewijzigd", "Opslagbestand", doel_nu.name, naam)
+	return {"bestand": doel_nu.name, "naam": naam, "versie": volgnummer, "versie_id": versie.name}
 
 
 def _submappen(map: str, ook_verwijderd: bool = False) -> list[str]:
@@ -1163,10 +1303,28 @@ def wijzigingen(ruimte: str | None = None, sinds: int = 0, limiet: int = 1000, d
 	meer = len(regels) == limiet
 	if wortel:
 		regels = _binnen_wortel(wortel, regels)
+	# Per bestand het id van zijn huidige versieregel nu (null bij een map of een bestand dat er niet meer is).
+	bestanden = list({r.doel for r in regels if r.doel_doctype == "Opslagbestand"})
+	versie_ids = (
+		dict(
+			frappe.get_all(
+				"Opslagbestand", filters={"name": ("in", bestanden)}, fields=["name", "huidige_versie_id"], as_list=True
+			)
+		)
+		if bestanden
+		else {}
+	)
 	return {
 		"cursor": cursor,
 		"meer": meer,
-		"wijzigingen": [{**r, "volgnummer": cint(r.pop("name"))} for r in regels],
+		"wijzigingen": [
+			{
+				**r,
+				"volgnummer": cint(r.pop("name")),
+				"versie_id": versie_ids.get(r.doel) if r.doel_doctype == "Opslagbestand" else None,
+			}
+			for r in regels
+		],
 	}
 
 
@@ -1233,6 +1391,7 @@ def info(bestand: str) -> dict:
 		"ruimte": doc.ruimte,
 		"map": doc.map,
 		"huidige_versie": cint(doc.huidige_versie),
+		"versie_id": doc.huidige_versie_id,
 		"verwijderd": bool(doc.verwijderd_op),
 		"vergrendeling": slot,
 	}
@@ -1492,7 +1651,7 @@ def gedeeld_met_mij() -> list[dict]:
 			continue
 		velden = ["naam", "verwijderd_op"]
 		if r.doel_doctype == "Opslagbestand":
-			velden += ["map", "grootte", "huidige_versie"]
+			velden += ["map", "grootte", "huidige_versie", "huidige_versie_id"]
 		doel = frappe.db.get_value(r.doel_doctype, r.doel, velden, as_dict=True)
 		if not doel or doel.verwijderd_op:
 			continue
@@ -1514,7 +1673,14 @@ def gedeeld_met_mij() -> list[dict]:
 			"rol": rollen.get(r.ruimte),
 		}
 		if r.doel_doctype == "Opslagbestand":
-			regel.update({"map": doel.map, "grootte": cint(doel.grootte), "versie": cint(doel.huidige_versie)})
+			regel.update(
+				{
+					"map": doel.map,
+					"grootte": cint(doel.grootte),
+					"versie": cint(doel.huidige_versie),
+					"versie_id": doel.huidige_versie_id,
+				}
+			)
 		per_doel[sleutel] = regel
 	return list(per_doel.values())
 
@@ -1804,7 +1970,9 @@ def mogelijkheden() -> dict:
 	`kopieer`: bestanden en mappen kopiëren naar een andere plek, ook in een andere ruimte; `bij_conflict_weiger`:
 	`bij_conflict="weiger"` bij `upload_start` en `upload_klein` (vergelijk-en-schrijf); `samengevoegd_uit`: een upload
 	kan zeggen dat hij een samenvoeging is van twee versies; `basis_bestand`: een upload kan zeggen op welk bestand hij
-	gebaseerd is (dan telt een ander bestand met dezelfde naam als verouderde basis)."""
+	gebaseerd is (dan telt een ander bestand met dezelfde naam als verouderde basis); `basis_versie_id`: de basis van
+	een upload kan het id van de versieregel zijn (`onbekende_basis` als die niet (meer) bij het bestand hoort), en
+	`download` en `download_klein` lezen een versie op `versie_id`."""
 	grenzen = {"max_bestand": KLEIN_MAX_BESTAND, "max_aantal": KLEIN_MAX_AANTAL, "max_bytes": KLEIN_MAX_BYTES}
 	return {
 		"upload_klein": grenzen,
@@ -1818,6 +1986,7 @@ def mogelijkheden() -> dict:
 		"bij_conflict_weiger": True,
 		"samengevoegd_uit": True,
 		"basis_bestand": True,
+		"basis_versie_id": True,
 	}
 
 
@@ -1871,7 +2040,7 @@ def boom(ruimte: str | None = None, start: int = 0, aantal: int = 10000, deling:
 	bestanden = frappe.get_all(
 		"Opslagbestand",
 		filters={"ruimte": ruimte, "verwijderd_op": ("is", "not set"), **filter_bestand},
-		fields=["name", "naam", "map", "grootte", "huidige_versie", "modified"],
+		fields=["name", "naam", "map", "grootte", "huidige_versie", "huidige_versie_id as versie_id", "modified"],
 		order_by="name asc",
 		limit_start=start,
 		limit_page_length=aantal + 1,
@@ -1973,11 +2142,13 @@ def _als_lijst(waarde) -> list:
 
 def _per_bestand(functie, *args) -> dict:
 	"""Voer `functie` uit voor één bestand van een batch: een weigering wordt het antwoord voor dat bestand (met de
-	foutcode, en bij `verouderde_basis` ook `huidige_versie` en `huidig_bestand`), zonder dat de
+	foutcode, en bij `verouderde_basis` en `onbekende_basis` ook `huidige_versie`, `huidige_versie_id` en
+	`huidig_bestand`), zonder dat de
 	batch stopt. Wat het bestand al in de database schreef, wordt teruggedraaid."""
 	frappe.db.savepoint("klein_bestand")
 	frappe.local.response.pop("foutcode", None)
 	frappe.local.response.pop("huidige_versie", None)
+	frappe.local.response.pop("huidige_versie_id", None)
 	frappe.local.response.pop("huidig_bestand", None)
 	try:
 		resultaat = functie(*args)
@@ -1990,13 +2161,14 @@ def _per_bestand(functie, *args) -> dict:
 			raise fout from None
 		foutcode = frappe.local.response.pop("foutcode", None)
 		huidige_versie = frappe.local.response.pop("huidige_versie", None)
+		huidige_versie_id = frappe.local.response.pop("huidige_versie_id", None)
 		huidig_bestand = frappe.local.response.pop("huidig_bestand", None)
 		frappe.clear_messages()
 		if not isinstance(fout, frappe.ValidationError | frappe.PermissionError | frappe.DoesNotExistError):
 			frappe.log_error(title="openaec_storage: bestand in batch mislukt")
 		uit = {"ok": False, "fout": str(fout) or fout.__class__.__name__, "foutcode": foutcode}
-		if foutcode == "verouderde_basis":
-			uit.update(huidige_versie=huidige_versie, huidig_bestand=huidig_bestand)
+		if foutcode in ("verouderde_basis", "onbekende_basis"):
+			uit.update(huidige_versie=huidige_versie, huidige_versie_id=huidige_versie_id, huidig_bestand=huidig_bestand)
 		return uit
 	return {"ok": True, **resultaat}
 
@@ -2058,7 +2230,8 @@ def _upload_een(
 				"blokhashes": [item["blokhash"]] if item.get("blokhash") else None,
 				"bij_conflict": bij_conflict,
 				"samengevoegd_uit": samengevoegd,
-				"basis_bestand": _basis_bestand(item.get("basis_bestand")),
+				"basis_bestand": _basis_id(item.get("basis_bestand")),
+				"basis_versie_id": _basis_id(item.get("basis_versie_id")),
 			}
 		)
 	except Exception:
@@ -2082,8 +2255,8 @@ def upload_klein_bytes(
 			),
 			"batch_te_groot",
 		)
-	# Bestanden met een basis_versie zijn nieuwe versies van bestaande: bewerken, als geheel tegen de grenzen.
-	bewerkt = [b for b in bestanden if b.get("basis_versie") not in (None, "")]
+	# Bestanden met een basis zijn nieuwe versies van bestaande: bewerken, als geheel tegen de grenzen.
+	bewerkt = [b for b in bestanden if b.get("basis_versie") not in (None, "") or b.get("basis_versie_id")]
 	if bewerkt:
 		veiligheid.controleer(
 			"bewerken", len(bewerkt), bron=bron, ruimte=ruimte, items=[{"soort": "bestand", "naam": b.get("naam")} for b in bewerkt]
@@ -2102,6 +2275,7 @@ def upload_klein_bytes(
 			# dit bestand mislukt; de app kan het opnieuw sturen.
 			frappe.local.response.pop("foutcode", None)
 			frappe.local.response.pop("huidige_versie", None)
+			frappe.local.response.pop("huidige_versie_id", None)
 			frappe.local.response.pop("huidig_bestand", None)
 			frappe.clear_messages()
 			frappe.log_error(title="openaec_storage: bestand in batch mislukt")
@@ -2117,13 +2291,14 @@ def upload_klein_bytes(
 def upload_klein(ruimte: str | None = None, bestanden=None, bron: str = "sync", deling: str | None = None) -> dict:
 	"""Veel kleine bestanden in één verzoek (multipart/form-data): `ruimte`, `bestanden` (JSON-lijst met per bestand
 	`naam`, `map` (id) of `pad` (mappad met '/'; ontbrekende mappen worden aangemaakt), `grootte`, `blokhash`
-	(BLAKE3 van de inhoud), `basis_versie?`, `basis_bestand?`, `sha256?`, `bij_conflict?`, `samengevoegd_uit?` (zie
-	`upload_start`) en `veld`) en de inhoud: alle bestanden achter elkaar in één bestandsveld `inhoud` (in de volgorde van `bestanden`,
+	(BLAKE3 van de inhoud), `basis_versie?`, `basis_bestand?`, `basis_versie_id?`, `sha256?`, `bij_conflict?`,
+	`samengevoegd_uit?` (zie `upload_start`) en `veld`) en de inhoud: alle bestanden achter elkaar in één bestandsveld `inhoud` (in de volgorde van `bestanden`,
 	gesneden op `grootte`), of per bestand een bestandsveld met de naam uit `veld` (standaard `f<index>`). Met `sha256`
 	wordt de ontvangen inhoud gecontroleerd. Hoogstens 1 MiB per bestand en 64 bestanden of 16 MiB per verzoek.
-	Antwoord: `{resultaten: [{index, ok: true, bestand, naam, versie, conflict, map} | {index, ok: false, fout,
-	foutcode, huidige_versie?, huidig_bestand?}]}`, in de volgorde van `bestanden` (`huidige_versie` en `huidig_bestand`
-	bij `verouderde_basis`, allebei null als er geen bestand op de plek staat). Met
+	Antwoord: `{resultaten: [{index, ok: true, bestand, naam, versie, versie_id, conflict, map} | {index, ok: false,
+	fout, foutcode, huidige_versie?, huidige_versie_id?, huidig_bestand?}]}`, in de volgorde van `bestanden`
+	(`huidige_versie`, `huidige_versie_id` en `huidig_bestand` bij `verouderde_basis` en `onbekende_basis`, alle drie
+	null als er geen bestand op de plek staat). Met
 	`deling` zijn `pad` en `map` binnen de gedeelde map. Elk bestand wordt apart vastgelegd: gaat er één mis, dan
 	blijven de andere staan."""
 	bestanden = _als_lijst(bestanden)
@@ -2149,23 +2324,17 @@ def upload_klein(ruimte: str | None = None, bestanden=None, bron: str = "sync", 
 def _download_een(item) -> dict:
 	bestand = item.get("bestand") if isinstance(item, dict) else item
 	versie = item.get("versie") if isinstance(item, dict) else None
+	versie_id = item.get("versie_id") if isinstance(item, dict) else None
 	doc = _bestand(bestand, "read")
-	volgnummer = cint(versie) or cint(doc.huidige_versie)
-	rij = frappe.db.get_value(
-		"Bestandsversie",
-		{"bestand": bestand, "volgnummer": volgnummer},
-		["s3_sleutel", "grootte", "blokhashes"],
-		as_dict=True,
-	)
-	if not rij:
-		frappe.throw(_("Versie bestaat niet"), frappe.DoesNotExistError)
+	rij = _versieregel(doc, versie, versie_id, ("s3_sleutel", "grootte", "blokhashes"))
 	if cint(rij.grootte) > KLEIN_MAX_BESTAND:
 		weiger(_("Dit bestand is te groot om samen met andere te downloaden"), "te_groot_voor_batch")
 	hashes = json.loads(rij.blokhashes) if rij.blokhashes else None
 	return {
 		"bestand": doc.name,
 		"naam": doc.naam,
-		"versie": volgnummer,
+		"versie": cint(rij.volgnummer),
+		"versie_id": rij.name,
 		"grootte": cint(rij.grootte),
 		"blokhash": hashes[0] if hashes else None,
 		"sleutel": rij.s3_sleutel,
@@ -2174,10 +2343,11 @@ def _download_een(item) -> dict:
 
 @frappe.whitelist()
 def download_klein(bestanden) -> dict:
-	"""Veel kleine bestanden in één antwoord: `bestanden` is een lijst bestand-id's (of `{bestand, versie}`).
+	"""Veel kleine bestanden in één antwoord: `bestanden` is een lijst bestand-id's (of `{bestand, versie}`, of
+	`{bestand, versie_id}`: precies die versieregel, of `onbekende_basis` als ze niet (meer) bij het bestand hoort).
 	Hoogstens 1 MiB per bestand en 64 bestanden of 16 MiB per verzoek; wat er niet meer bij past, krijgt de foutcode
 	`batch_te_groot` (vraag het in een volgend verzoek). Antwoord: `{bestanden: [{index, ok: true, bestand, naam,
-	versie, grootte, blokhash, inhoud (base64)} | {index, ok: false, fout, foutcode}]}`, in de volgorde van
+	versie, versie_id, grootte, blokhash, inhoud (base64)} | {index, ok: false, fout, foutcode}]}`, in de volgorde van
 	`bestanden`."""
 	import base64
 

@@ -272,7 +272,7 @@ def upload_klaar(token: str, upload: str, delen, wachtwoord: str | None = None, 
 				"grootte": info["grootte"],
 			}
 		).insert(ignore_permissions=True)
-		frappe.get_doc(
+		versie = frappe.get_doc(
 			{
 				"doctype": "Bestandsversie",
 				"bestand": doc.name,
@@ -285,6 +285,7 @@ def upload_klaar(token: str, upload: str, delen, wachtwoord: str | None = None, 
 				"blokgrootte": info["blokgrootte"],
 			}
 		).insert(ignore_permissions=True)
+		frappe.db.set_value("Opslagbestand", doc.name, "huidige_versie_id", versie.name, update_modified=False)
 		_log(deling.ruimte, "nieuw", "Opslagbestand", doc.name, naam)
 	frappe.cache.delete_value(UPLOAD_SLEUTEL + upload)
 	_meld_maker(deling, naam, (afzender or "").strip()[:140])
