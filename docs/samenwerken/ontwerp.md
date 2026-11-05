@@ -948,7 +948,7 @@ Doelen (voorstel van Claude, nog niet beoordeeld door Ethan):
 
 **Het probleem.** De bibliotheek leest de bestanden helemaal in, en houdt per versie een model in het geheugen.
 Samenvoegen heeft er vier: basis, ons, hun, en het resultaat voor de zelfcontrole. Metingen van P4
-(`docs/samenwerken/metingen.md` op `samenvoegen/p4-metingen` in openaec-cloud-desktop, commit `2ca0c40`, bibliotheek
+(`docs/samenwerken/metingen.md` op `samenvoegen/p4-metingen` in openaec-cloud-desktop, commit `daa7748`, bibliotheek
 `0655eda`, elke run onder een harde grens van 2 GB):
 
 | Model | Grootte | `voeg-samen` | Piekgeheugen |
@@ -959,8 +959,10 @@ Samenvoegen heeft er vier: basis, ons, hun, en het resultaat voor de zelfcontrol
 | Dicht | 6,3 GB | — | gestopt tijdens het inlezen; zonder grens zou `Fout::TeGroot` volgen (4 GiB of groter, `ontleden.rs` r. 157) |
 
 De invoer is een open model van buildingSMART (CC BY 4.0), vermenigvuldigd met nieuwe nummers en GlobalIds. Het
-geheugen volgt de formule 3,9 × de bytes + 670 bytes per knoop + 2,8 kB per object (een fit over 196 metingen).
-Doorgetrokken (schatting van P4) vraagt een dicht model van 1 GB 18,5 GB om samen te voegen, en een van 5 GB 92 GB. De
+geheugen volgt de formule 3,9 × de bytes + 670 bytes per knoop + 2,8 kB per object (een fit over 35 metingen tot
+174 MB). Doorgetrokken (schatting van P4) vraagt een dicht model van 1 GB 18,5 GB om samen te voegen, en een van 5 GB
+92 GB. Of echte modellen van die grootte hetzelfde doen, is niet gemeten; dat de opzet van nu niet tot meerdere GB
+gaat, wel (de regels van 1,2 en 6,3 GB hierboven). De
 tijd is het probleem niet: ongeveer 4 s per 100 MB, waarvan een derde de zelfcontrole. Ook het contract is op hele
 bestanden gebouwd: `Opslag::lees` geeft een `Vec<u8>` en `schrijf_als` neemt een `&[u8]` (`samenwerken.rs` r. 53-67).
 
@@ -984,8 +986,8 @@ objecten): 0,6 GB per versie. `verschil` heeft er twee, samenvoegen drie: ongeve
 - Elke client rekent de index zelf uit. Een index van een andere client kan fout zijn, door een fout of met opzet, en
   dan verdwijnt een wijziging stil. Een index van de server is alleen te vertrouwen als de server de bibliotheek draait
   (A6).
-- Status: `verschil_stromend` wordt gebouwd op `samenvoegen/gb-schaal` (openaec-cloud-desktop), met dezelfde uitkomst
-  als `verschil` op elke test. Samenvoegen is daar nog een plan (5 november, 16:10).
+- Status: `verschil_stromend` wordt gebouwd op `samenvoegen/gb-schaal` (openaec-cloud-desktop, PR #20), met dezelfde
+  uitkomst als `verschil` op elke test. Samenvoegen is daar nog een plan (5 november, 17:10).
 
 **G2. Alleen gewijzigde objecten lezen en samenvoegen.** Gelijke hash is gelijk. Alleen een object met een andere hash
 leest de bibliotheek uit het bestand, met zijn knopen, en daarop gelden de regels van §5.6. De schrijver kopieert de
