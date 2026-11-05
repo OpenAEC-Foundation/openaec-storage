@@ -101,8 +101,11 @@ twee clients (stap 5) meet het daarna nog eens langs de echte HTTP-weg.
 Een tweede gevonden risico (bevestigd door Sol in ronde 10): een versienummer kan terugkomen. `verplaats(…,
 overschrijf=1)` (`api.py` r. 509-523) verplaatst de laatste `Bestandsversie` van de bron naar het doel en zet de bron
 terug op het vorige volgnummer, in de prullenbak. `herstel()` (r. 443) maakt de bron weer actief, en `_registreer`
-telt vanaf dat lagere nummer verder. Dan wijst "F1 versie 2" eerst naar inhoud A en later naar inhoud B. Stap 4 lost
-dit op (§5.5).
+telt vanaf dat lagere nummer verder. Dan wijst "F1 versie 2" eerst naar inhoud A en later naar inhoud B. En
+`verplaats` leest het doel zonder slot (r. 487): twee verplaatsingen tegelijk naar hetzelfde doel geven twee regels
+hetzelfde nummer, en een regel kan zo van het ene doel naar het andere schuiven (Sol, rondes 12 en 13). De
+WebDAV-gateway gebruikt die route bij elk opslaan via een tijdelijk bestand (`gateway/src/fs.rs` r. 305). Stap 4 lost
+dit op door de basis niet meer op het nummer te laten steunen (§5.5).
 
 ## 3. Wat Microsoft 365 doet
 
@@ -293,55 +296,64 @@ Alles onder `/api/method/openaec_storage.samenwerken.<methode>`, met de inlog va
 
 Uitbreiding van de bestaande API:
 
-- `upload_start(…, basis_bestand?, bij_conflict="kopie" | "weiger", samengevoegd_uit?)`. Een versienummer is alleen
+- `upload_start(…, basis_bestand?, basis_versie_id?, bij_conflict="kopie" | "weiger", samengevoegd_uit?)`. Een versienummer is alleen
   uniek binnen één bestand. Daarom vergelijkt de server het paar (bestand, versie): `basis_bestand` is het id van het
   bestand waarop de client werkte. Voorbeeld: Anna werkt offline aan `planning.ifc` (bestand F1, versie 1). Piet
   verwijdert F1 en maakt onder dezelfde naam een nieuwe planning (F2, ook versie 1). Nu zoekt `_registreer` op naam
   (`_actief_bestand`, `api.py` r. 90) en vergelijkt alleen het nummer, dus Anna's oude planning wordt F2 versie 2,
-  zonder conflict. Met `basis_bestand=F1` ziet de server dat op die plek een ander bestand staat: dat is een
-  verouderde basis. Met `weiger` geeft `upload_klaar` bij een verouderde basis (ander nummer of ander bestand) een
-  fout met de foutcode `verouderde_basis`, met het huidige bestand en de huidige versie, in plaats van een
-  conflictkopie. Met `kopie` wordt het een conflictkopie, ook bij een ander bestand. Zonder `basis_bestand` blijft
-  de vergelijking zoals nu, dus bestaande clients merken niets. De vergelijking gebeurt onder het slot van stap 4,
-  dus atomair.
-- **Versienummers komen nooit terug.** Het paar (bestand, versie) is alleen een veilige basis als het altijd naar
-  dezelfde inhoud wijst, of naar niets. Voorbeeld van wat nu misgaat (§2): Anna werkt offline vanuit F1 versie 2
-  (inhoud A). Piet verplaatst F1 met overschrijven over een ander bestand; F1 staat daarna als versie 1 in de
-  prullenbak. Piet herstelt F1 en uploadt B: dat wordt opnieuw F1 versie 2. Anna uploadt met basis (F1, 2): beide
-  kloppen, en haar werk wordt versie 3 zonder conflict; B is dan stil overschreven. Daarom houdt `Opslagbestand` het
-  hoogste volgnummer bij dat ooit is uitgegeven, en elk nieuw nummer is één hoger dan dat (ook voor het doel van een
-  verplaatsing). Een verplaatsing mag `huidige_versie` van de bron verlagen, maar nooit dat hoogste nummer. In het
-  voorbeeld krijgt B dan versie 3, en Anna's basis (F1, 2) is verouderd. Een patch zet het veld voor bestaande
-  bestanden op een veilige bovengrens: een overgeslagen nummer kan geen kwaad, een te laag nummer wel. `zet_terug`
-  maakt altijd een nieuwe versie en verlaagt nooit een nummer.
-- **Eén keer bij de invoering.** Vóór stap 4 kon een paar al twee inhouden krijgen, langs meer dan één weg: een bron
-  van een verplaatsing met overschrijven die daarna hersteld werd, en twee verplaatsingen tegelijk naar hetzelfde doel.
-  Die lazen het doel zonder slot en gaven allebei hetzelfde volgende nummer uit (`api.py` r. 487-514); de
-  WebDAV-gateway verplaatst zo bij elk opslaan via een tijdelijk bestand (`gateway/src/fs.rs` r. 305). Welke paren
-  dat raakte, is achteraf niet zeker vast te stellen. Daarom geldt bij de invoering voor elk bestand hetzelfde:
-  1. De patch geeft de huidige versie een nummer N dat het bestand nooit eerder uitgaf, en zet `huidige_versie`, het
-     hoogste nummer en een grens op N. Het blijft dezelfde versieregel met dezelfde inhoud in S3; alleen het nummer
-     verandert. Er komt dus geen kopie in S3 en het quotum blijft gelijk. Staan er twee regels op het huidige nummer,
-     dan krijgt de laatst gewijzigde N; de andere blijft in de geschiedenis.
-  2. N is één hoger dan een veilige bovengrens: het aantal versieregels van het bestand plus het aantal regels
-     `verwijderd` voor het bestand in de wijzigingenlijst. Waarom dat een bovengrens is: elk nieuw nummer was één
-     hoger dan het nummer van een bestaande regel (of 0), dus het hoogste nummer ooit is hoogstens het aantal keren
-     dat er een nummer werd uitgegeven. Elke uitgifte hing één regel aan het bestand. Een regel ging er alleen af met
-     een verplaatsing met overschrijven, en die logt altijd `verwijderd` voor de bron (sinds die route bestaat,
-     commit 829eb23). De wijzigingenlijst wordt nergens opgeruimd, ook niet door de logopruiming van Frappe.
-  3. Een basis onder de grens is onzeker, ook als het paar gelijk lijkt aan de huidige versie. De server weigert hem
-     bij schrijven met de foutcode `onbekende_basis` (met `bij_conflict=kopie`: een conflictkopie) en bij
-     `download(…, als_basis=1)`. Een basis die niet (meer) bestaat, bijvoorbeeld een versie die met een verplaatsing
-     naar een ander bestand ging, krijgt dezelfde weigering. De geschiedenis blijft gewoon leesbaar zonder `als_basis`.
-  4. Wie het bestand na de patch ophaalt, krijgt versie N, en die basis is geldig. Opslaan werkt daarna dus gewoon.
-  5. Een openstaande overdracht die naar het oude nummer van de huidige versie wijst, krijgt in dezelfde patch N.
+  zonder conflict. Met `basis_bestand=F1` ziet de server dat op die plek een ander bestand staat: Anna's basis hoort
+  niet bij F2. Met `weiger` geeft `upload_klaar` dan een fout in plaats van een conflictkopie: `onbekende_basis` bij
+  een ander bestand, `verouderde_basis` bij een andere versie van hetzelfde bestand (zie het volgende punt), met het
+  huidige bestand en de huidige versie. Met `kopie` wordt het in beide gevallen een conflictkopie. Zonder
+  `basis_bestand` blijft de vergelijking zoals nu, dus bestaande clients merken niets. De vergelijking gebeurt onder
+  het slot van stap 4, dus atomair.
+- **De basis is de versieregel zelf, niet haar nummer.** Een versienummer bleek geen veilige identiteit (§2; reviews
+  van Sol, rondes 10 tot en met 13). Het kan terugkomen: verplaats een bestand met overschrijven, herstel het en
+  upload opnieuw, en "F1 versie 2" wijst naar andere inhoud. Twee verplaatsingen tegelijk naar hetzelfde doel geven
+  twee regels hetzelfde nummer, en een regel kan zelfs van het ene doel naar het andere schuiven. Welke nummers dat
+  vóór de invoering raakte, is achteraf niet vast te stellen. Daarom is de basis het id van de versieregel
+  (`Bestandsversie.name`, hier `versie_id`). Dat id is om twee redenen veilig, allebei nagelopen in de code en de
+  geschiedenis van `openaec_storage/`:
+  1. Het komt nooit terug: het is een willekeurige hash als primaire sleutel (`autoname: hash`), en geen code wist
+     een versieregel.
+  2. De inhoud van een versieregel verandert nooit: alleen `verplaats` wijzigt een regel, en dan alleen `bestand` en
+     `volgnummer`, nooit `s3_sleutel`. Nu mag een schrijver van de ruimte een versieregel nog via `/api/resource`
+     wijzigen of wissen; stap 4 sluit dat af, zodat het zo blijft.
 
-  Voorbeeld: Anna haalt (F0, 2) = A op en gaat offline. Daarna leggen twee verplaatsingen tegelijk A en B allebei
-  als (F0, 2) vast. De patch geeft B nummer 4 (twee regels, nul keer `verwijderd`, plus één). Anna's upload met basis
-  (F0, 2) krijgt een conflictkopie, en B blijft staan. Piet haalt F0 op als versie 4 en slaat gewoon op als versie 5.
-  Wat het kost: elke client ziet bij elk bestand één keer een nieuwe versie. Een client die lokaal niets wijzigde,
-  haalt het bestand opnieuw op, of neemt N zonder download over als de blokhashes van versie N gelijk zijn aan die
-  van het lokale bestand (dan is de inhoud gelijk). Wie offline wijzigde, krijgt één conflictkopie per bestand.
+  Wat er verandert:
+  - `Opslagbestand` krijgt `huidige_versie_id`: de regel die nu de inhoud is. De server zet hem overal waar hij
+    `huidige_versie` zet.
+  - `upload_start(…, basis_bestand, basis_versie_id, …)`: onder het slot vergelijkt de server `basis_bestand` met het
+    bestand op de plek en `basis_versie_id` met zijn `huidige_versie_id`. Klopt het, dan komt er een nieuwe versie.
+    Hoort de basisregel bij dit bestand maar is ze niet meer de huidige, dan `verouderde_basis`, met het huidige
+    bestand, nummer en `versie_id`. Hoort ze niet (meer) bij dit bestand (een ander bestand op de plek, of de regel
+    ging met een verplaatsing naar een ander bestand), dan `onbekende_basis`. Met `bij_conflict=kopie` wordt het in
+    beide gevallen een conflictkopie. Zonder `basis_versie_id` blijft de vergelijking op `basis_versie`, zoals nu:
+    oude clients houden hun gedrag, ook het risico van een teruggekomen nummer; de desktop-sync van stap 5 stuurt
+    altijd `basis_versie_id`.
+  - `download(bestand, versie_id=…)` geeft de inhoud van precies die regel, of `onbekende_basis` als ze niet (meer)
+    bij het bestand hoort. `lees(basis)` geeft dus altijd de inhoud waar de client vanuit werkte, of een duidelijke
+    fout.
+  - Lijsten, `wijzigingen()`, `versies()`, `download()` en het antwoord van een upload geven `versie_id` mee. Het
+    volgnummer blijft, voor mensen.
+  - `verplaats` leest het doel met een slot, zodat twee verplaatsingen tegelijk geen dubbel nummer meer uitgeven. Een
+    nummer kan na verplaatsen, herstellen en opnieuw uploaden nog terugkomen. Dat is verwarrend voor mensen, maar niet
+    meer onveilig. `zet_terug` maakt altijd een nieuwe versie.
+
+  **Invoering.** Er wordt niets hernummerd en er komt geen kopie in S3. De patch zet per bestand `huidige_versie_id`
+  op de regel met `volgnummer = huidige_versie`. Zijn dat er meer (twee verplaatsingen tegelijk), dan wordt de laatst
+  gewijzigde de huidige; de andere krijgen een vrij nummer boven het hoogste van het bestand, zodat elk nummer weer
+  één regel aanwijst. Is er geen (de regel schoof naar een ander bestand), dan wordt de hoogste bestaande regel van het
+  bestand de huidige. Heeft het bestand geen regels meer, dan blijft `huidige_versie_id` leeg, en een upload met een
+  basis geeft `onbekende_basis`. De patch logt elk van deze herstellingen.
+  Een nieuwe client die een bestand kent zonder `versie_id` (uit de tijd vóór de invoering), neemt de `versie_id` van
+  de huidige versie alleen over als zijn lokale bestand ongewijzigd is én gelijk aan die versie: na een download, of
+  zonder download als de server de blokhashes van die regel geeft en ze gelijk zijn. Wijzigde hij lokaal, dan heeft
+  hij geen zekere basis, en dat wordt één conflictkopie. Voorbeeld: Anna haalt F0 versie 2 (inhoud A) op en werkt
+  offline met de oude client. Daarna komen A en B door twee verplaatsingen tegelijk allebei als nummer 2 op F0. Na de
+  invoering is B de huidige regel (de laatst gewijzigde) en heeft A een vrij nummer. Anna's nieuwe client heeft voor F0
+  geen `versie_id` en een gewijzigd bestand: haar werk wordt een conflictkopie, en B blijft staan. Piet haalt F0 op,
+  krijgt de `versie_id` van B, en slaat gewoon op.
 - `mogelijkheden()` krijgt `samenwerken: {aanwezigheid, opmerkingen, volgen, objectuitcheck, bij_conflict_weiger,
   verschil}` zodat een client weet wat de server kent.
 
@@ -456,14 +468,13 @@ STEP-nummer zegt daarbij niets. De bibliotheek voegt alleen samen zonder automat
 is geen modus "ons wint" of "hun wint", want die verliest ook niet-botsend werk van de andere kant.
 
 **De opslaan-lus.** Eén trait met drie methodes: `huidige()`, `lees(versie)` en `schrijf_als(basis, inhoud)`, die
-weigert als de basis verouderd is. De basis is het paar (bestand, versie), niet alleen een versienummer: bij
-openaec-storage `basis_bestand` en `basis_versie`, bij Nextcloud de ETag (een opnieuw aangemaakt bestand heeft een
-andere ETag en een ander fileid). Zo'n basis wijst altijd naar dezelfde inhoud of naar niets (§5.5,
-"Versienummers komen nooit terug"). De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen,
-schrijf opnieuw met de nieuwe basis; geef op na enkele pogingen. Bestaat de basis niet meer (de versie is met een
-verplaatsing naar een ander bestand gegaan) of ligt hij onder de grens van de invoering (§5.5, "Eén keer bij de invoering"), dan weigert
-`schrijf_als` met `onbekende_basis` en faalt `lees(basis)` (bij openaec-storage `download(…, als_basis=1)`) met een
-duidelijke fout. De lus voegt dan niet samen: de client maakt een conflictkopie, zoals nu. openaec-storage en Nextcloud passen allebei op die
+weigert als de basis verouderd is. De basis is het bestand plus het id van zijn versie, niet een versienummer: bij
+openaec-storage `basis_bestand` en `basis_versie_id`, bij Nextcloud de ETag (een opnieuw aangemaakt bestand heeft een
+andere ETag en een ander fileid). Zo'n basis wijst altijd naar dezelfde inhoud of naar niets (§5.5, "De basis is de
+versieregel zelf"). De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen, schrijf opnieuw met de
+nieuwe basis; geef op na enkele pogingen. Hoort de basis niet (meer) bij het bestand, of heeft de client voor dit
+bestand geen `versie_id` (uit de tijd vóór de invoering), dan weigert `schrijf_als` met `onbekende_basis` en faalt
+`lees(basis)` (bij openaec-storage `download(…, versie_id=…)`) met een duidelijke fout. De lus voegt dan niet samen: de client maakt een conflictkopie, zoals nu. openaec-storage en Nextcloud passen allebei op die
 trait. Een slot van een ander is een aparte weigering: daar helpt samenvoegen niet, en de lus probeert het niet.
 
 De desktop-sync gebruikt de lus alleen bij een server die `bij_conflict="weiger"` kent (`mogelijkheden()`). Bij een
@@ -532,10 +543,11 @@ Daarom:
    gebeurtenis op het oorspronkelijke pad (de sync verwerkt haar); een bestand dat een ander verwijderde en onder
    dezelfde naam opnieuw maakte, terwijl de client offline werkte (de server weigert; er gaat niets van de nieuwe
    inhoud verloren); een bestand dat een ander met overschrijven verplaatste, herstelde en opnieuw uploadde, terwijl
-   de client offline werkte, één keer ná en één keer vóór de invoering van stap 4; een doelbestand dat vóór de
-   invoering met twee verplaatsingen tegelijk twee keer hetzelfde nummer kreeg (in alle gevallen weigert de server de
-   oude basis met `onbekende_basis`, faalt `lees(basis)` duidelijk, en gaat er niets verloren); een client die ná de
-   invoering ophaalt en opnieuw opslaat (dat lukt gewoon); en een onderbreking na het journaal, na het verplaatsen,
+   de client offline werkte; een doelbestand dat vóór de invoering met twee verplaatsingen tegelijk twee keer
+   hetzelfde nummer kreeg, en een regel die zo van het ene doel naar het andere schoof; een client van vóór de
+   invoering, met en zonder lokale wijziging (in al deze gevallen wordt de oude basis geweigerd, geeft `lees(basis)`
+   de oorspronkelijke inhoud of een duidelijke fout, en gaat er niets verloren); een client die ná de invoering
+   ophaalt en opnieuw opslaat (dat lukt gewoon); en een onderbreking na het journaal, na het verplaatsen,
    na het plaatsen en vóór het afronden (na herstart is er niets verloren en wordt niets als verwijderd gezien). Op
    elk platform dat de desktop-app ondersteunt.
 
@@ -616,7 +628,7 @@ De Nextcloud-kolom is eigen kennis; ik heb hem niet tegen een echte Nextcloud ge
 | Nodig | openaec-storage | Nextcloud |
 |---|---|---|
 | Versie lezen | `download(bestand, versie)` | WebDAV `versions/<gebruiker>/versions/<fileid>` |
-| Vergelijk-en-schrijf | `basis_versie` (en straks `bij_conflict=weiger`) | `PUT` met `If-Match: <ETag>`; 412 bij een andere versie |
+| Vergelijk-en-schrijf | `basis_bestand` en `basis_versie_id` (en straks `bij_conflict=weiger`) | `PUT` met `If-Match: <ETag>`; 412 bij een andere versie |
 | Uitchecken per bestand | `vergrendel` | WebDAV `LOCK` of de app files_lock |
 | Opmerkingen | `Opslagopmerking` (§5.9) | WebDAV `comments/files/<fileid>` (zonder anker en status) |
 | Activiteit en meldingen | wijzigingenlijst, Notification Log | apps activity en notifications (OCS) |
@@ -665,7 +677,7 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 | K16 | Een commitnummer, uitgedeeld vlak voor de commit onder een kort slot op één tellerregel | Volgnummers komen nu in invoegvolgorde, niet in commitvolgorde, en een client kan regels missen; zo volgt de veiligheid uit de commitvolgorde, en blijven paginering en bestaande cursors werken (review Sol, ronde 2 en 3) | Een cursor die vóór een jong gat stopt: veilig alleen als geen transactie langer duurt dan de tijdgrens (een taak in `long` mag 25 minuten), en hij breekt de paginering |
 | K17 | Gedeelde ankers krijgen de verzameling van hun ankers als identiteit; twijfel is een conflict | Een gekozen vertegenwoordiger verspringt als een programma een plaatsing splitst (review Sol) | Een vaste keuze, bijv. het kleinste anker |
 | K18 | Na samenvoegen de boom controleren: geen kring, niets wat bereikbaar was raakt los | Twee geldige herindelingen kunnen samen een kring maken, terwijl elke cardinaliteit klopt (review Sol, ronde 3) | Alleen cardinaliteiten uit het schema controleren |
-| K19 | Versienummers van een bestand komen nooit terug: een veld met het hoogste uitgegeven nummer, plus een patch met een veilige bovengrens, en bij de invoering voor elk bestand een nieuw nummer voor de huidige versie plus een grens | Na verplaatsen met overschrijven en herstellen kon "F1 versie 2" naar andere inhoud wijzen (review Sol, ronde 10); een paar dat vóór de patch al hergebruikt was, blijft anders geldig (ronde 11), en welke bestanden dat raakte, is niet zeker vast te stellen (ronde 12); zo blijft het paar (bestand, versie) dat stap 4 en de trait al gebruiken, zonder nieuwe API | Een onveranderlijke revisie-id (de naam van de `Bestandsversie`) als basis: `lees` geeft dan ook na een verplaatsing de oude inhoud, maar het vraagt een nieuw veld in elke lijst, in de download en in de toestand van de client |
+| K19 | De basis is het id van de versieregel (`versie_id`), niet het versienummer | Een nummer kon terugkomen of dubbel worden uitgegeven, ook vóór de invoering, op manieren die achteraf niet vast te stellen zijn (review Sol, rondes 10 tot en met 13); het id komt nooit terug en de inhoud van een regel verandert nooit | Een nummer dat nooit terugkomt, met een patch die de huidige versie hernummert boven een berekende bovengrens: elke bovengrens bleek een gat te hebben |
 | K12 | Live samen bewerken (C) pas later | Vraagt dat elke app zijn model als wijzigingen per object uitdrukt, en een besluit over het transport | Nu al een sessiedienst: zonder app die hem gebruikt, is hij niet te testen |
 
 ## 7. Volgorde van bouwen
@@ -677,7 +689,7 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 | 1 | Dit ontwerp | openaec-storage | Nee |
 | 2 | Bibliotheek: IFC lezen, objectmodel, verschil | openaec-cloud-desktop | Nee |
 | 3 | Bibliotheek: samenvoegen, schrijven, opslaan-lus, met een proef van 8 clients tegelijk in het geheugen | openaec-cloud-desktop | Nee |
-| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), vergelijken op bestand én versie (`basis_bestand`), versienummers die nooit terugkomen (ook na verplaatsen met overschrijven en herstellen, met een patch die de huidige versie van elk bestand één keer een nieuw, nooit uitgegeven nummer geeft en een grens zet: `onbekende_basis`, `download(…, als_basis=1)`; elk uitgeven van een nummer onder een slot, ook bij verplaatsen), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
+| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), vergelijken op bestand én versie (`basis_bestand`), de basis als id van de versieregel (`basis_versie_id`, `huidige_versie_id`, `download(…, versie_id)`, `onbekende_basis`), versieregels niet te wijzigen via `/api/resource`, een slot op het doel bij verplaatsen, een patch zonder hernummeren, `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
 | 4b | Storage: een commitnummer voor de wijzigingenlijst, zodat de cursor geen regels overslaat (§5.4) | openaec-storage | Nee |
 | 5 | Desktop-sync: IFC samenvoegen via de opslaan-lus, en de proef met twee clients tegen een echte openaec-storage-server (met stap 4), als script met log | openaec-cloud-desktop | Nee |
 | 6 | Storage: gebeurtenissen (push en haak, issue #7), `zet_terug`, `activiteit` | openaec-storage | Deels: push vraagt socket.io in de kern |
