@@ -191,8 +191,14 @@ desktop-PR #7.
 
 De tests maken uit vier echte bestanden (IFC2X3, IFC4, IFC4X3, ook een planning van Open Planner Studio) willekeurige
 bewerkingen aan beide kanten, en vergelijken de samenvoeging met de bewerkingen na elkaar. Twaalf eigenschappen
-houden, waaronder: geen stil verlies, symmetrie, stabiel bij opnieuw samenvoegen, de volgorde van drie clients maakt
-niet uit, en hernummeren doet niet mee. Twee houden niet, en allebei gaat het om de tijdstempel:
+houden, waaronder: geen stil verlies, symmetrie, stabiel bij opnieuw samenvoegen en hernummeren doet niet mee. Drie
+houden niet:
+
+- **De volgorde van drie clients maakt soms wel uit.** Twee clients laten elk een ander object een plaatsing delen.
+  Elk apart mag dat; samen keurt een controle achteraf het af, en wie het laatst opslaat, krijgt een conflictkopie.
+  Er gaat niets verloren. De test vond dit pas in een tweede run (hij kiest elke keer nieuwe gevallen).
+
+De andere twee gaan over de tijdstempel:
 
 - **Een conflict te veel.** Slaat iemand dezelfde versie nog eens op na een gelukte samenvoeging (bijvoorbeeld na een
   verloren antwoord), dan komt er een conflict op de tijdstempel in plaats van "niets nieuws". Het werk blijft in de

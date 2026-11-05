@@ -181,7 +181,7 @@ samenvoeging precies dat geven. 128 gevallen per eigenschap.
 | E4 voor vluchtige velden (de regel `v`) | `vluchtige_velden_volgens_de_regel` | **houdt niet** (bevinding 2) |
 | E5 stabiel: (h, r, h), (b, r, h), (b, r, o) | `stabiel_in_de_opslaan_lus` | houdt |
 | opnieuw opslaan na gelukt: (b, o, r), (b, h, r) | `opnieuw_opslaan_na_gelukt` | **houdt niet** (bevinding 1); zonder vluchtige velden wel |
-| E7 volgorde: drie bewerkingen via `sla_op`, zes volgordes | `volgorde_maakt_niet_uit` | houdt |
+| E7 volgorde: drie bewerkingen via `sla_op`, zes volgordes | `volgorde_maakt_niet_uit` | **wankel** (bevinding 3): groen in de run van de agent, rood in een tweede run |
 | V3 nummering | `nummering_doet_niet_mee` | houdt |
 | V2 schrijven en lezen | `schrijven_en_lezen` | houdt |
 | geen paniek bij verminkte invoer | `geen_paniek` | houdt |
@@ -197,6 +197,14 @@ wordt. Er gaat niets verloren; het ontwerp zegt wel dat een vluchtig veld nooit 
 **Bevinding 2 (een vluchtige waarde valt stil weg).** Ons hangt een nieuwe set aan een wand; hun geeft een ander object
 een eigen `IfcOwnerHistory` en zet alle tijdstempels op een nieuwe waarde. Er komt geen conflict, maar de nieuwe set
 houdt de oude tijdstempel. De zelfcontrole ziet het niet. Dit raakt alleen een vluchtig veld, geen werk.
+
+**Bevinding 3 (de voorwaarde bij E7, in het echt).** In een tweede run (na de merge van `e9e601a`, 5 november) faalde
+`volgorde_maakt_niet_uit`. Ons laat een verdieping de plaatsing van wand V delen; een derde klant maakt een nieuw
+element en laat wand W diens plaatsing delen. Die bewerkingen raken verschillende objecten. Elke kant heeft één
+gedeelde plaatsing, het resultaat twee, en de controle `TeVeelRelaties` (op `IfcLocalPlacement.PlacesObject`) geeft
+dan een conflict aan wie als laatste schrijft. Dat is precies de voorwaarde bij E7: wijzigingen in verschillende
+registers die samen een controle laten falen. Er gaat niets verloren (een conflictkopie). De test kiest per run nieuwe
+gevallen; daarom was hij eerst groen.
 
 **Wat de tests niet raken.** De generator maakt geen dubbele elementen in een BAG; het tegenvoorbeeld bij E5 en E6
 voor aantallen (§3) wordt dus niet geraakt. Ook niet: een nieuwe taak of een andere volgorde in een planning (LIST,
