@@ -164,18 +164,45 @@ alleen ongemerkt blijven als de zelfcontrole hetzelfde blinde punt heeft.
 elk opslaan opnieuw. Dan moet `verschil(x, hernummerd(x))` leeg zijn en moet de samenvoeging van een hernummerde
 versie hetzelfde resultaat geven.
 
-## 6. Wat de property-based tests toetsen
+## 6. Wat de property-based tests vonden
 
-| Eigenschap | Test (`tests/eigenschappen.rs`) |
-|---|---|
-| E1 identiteit | `voeg_samen(b, b, h) ≡ h`, `voeg_samen(b, o, b) ≡ o` |
-| E2 idempotent | `voeg_samen(b, x, x) ≡ x` |
-| E3 symmetrie | conflict ⇔ conflict met ons en hun omgewisseld; anders ≡ (zonder vluchtige velden) |
-| E4 behoud | elke wijziging uit `verschil(b, o)` en `verschil(b, h)` staat in `verschil(b, r)` |
-| E5 stabiel | `voeg_samen(h, r, h) ≡ r` |
-| E7 volgorde | drie bewerkingen op verschillende objecten, in elke volgorde via de lus |
-| V3 nummering | `verschil(x, hernummerd(x))` leeg; samenvoegen na hernummeren gelijk |
-| V2 schrijven | het resultaat is weer te lezen en verandert niet bij nog eens lezen en schrijven |
+De tests staan in draft-PR [openaec-cloud-desktop#17](https://github.com/OpenAEC-Foundation/openaec-cloud-desktop/pull/17)
+(`crates/openaec-samenvoegen/tests/eigenschappen.rs`, op de branch van #7). Een generator maakt uit vier echte
+bestanden (IFC2X3, IFC4, IFC4X3, ook een planning van Open Planner Studio) willekeurige bewerkingen: 18 soorten,
+0 tot 4 per kant. Het orakel past de stappen van ons en hun na elkaar toe; is de volgorde om het even, dan moet de
+samenvoeging precies dat geven. 128 gevallen per eigenschap.
 
-`≡` betekent: het verschil volgens de bibliotheek is leeg. De uitkomsten staan in de draft-PR van de tests en in het
-rapport.
+| Eigenschap hier | Test | Uitkomst |
+|---|---|---|
+| E1 identiteit | `identiteit` | houdt |
+| E2 idempotent | `idempotent` | houdt |
+| E3 symmetrie (zonder vluchtige velden in het verschil) | `symmetrie` | houdt |
+| E4 behoud, gelijk aan het orakel | `behoud_zonder_stil_verlies` | houdt |
+| E4 voor vluchtige velden (de regel `v`) | `vluchtige_velden_volgens_de_regel` | **houdt niet** (bevinding 2) |
+| E5 stabiel: (h, r, h), (b, r, h), (b, r, o) | `stabiel_in_de_opslaan_lus` | houdt |
+| opnieuw opslaan na gelukt: (b, o, r), (b, h, r) | `opnieuw_opslaan_na_gelukt` | **houdt niet** (bevinding 1); zonder vluchtige velden wel |
+| E7 volgorde: drie bewerkingen via `sla_op`, zes volgordes | `volgorde_maakt_niet_uit` | houdt |
+| V3 nummering | `nummering_doet_niet_mee` | houdt |
+| V2 schrijven en lezen | `schrijven_en_lezen` | houdt |
+| geen paniek bij verminkte invoer | `geen_paniek` | houdt |
+| het rapport klopt met de uitkomst | `rapport_klopt` | houdt |
+
+`≡` betekent: het verschil volgens de bibliotheek is leeg (vluchtige velden tellen niet mee).
+
+**Bevinding 1 (een conflict te veel).** Ons zet alleen de tijdstempel in de gedeelde `IfcOwnerHistory`; hun hangt een
+nieuwe eigenschappenset aan een wand. Samenvoegen lukt: `r`. Slaat hun daarna dezelfde versie nog eens op met basis
+`b` (bijvoorbeeld na een verloren antwoord), dan geeft `(b, hun, r)` een conflict `GedeeldAnker`, waar `r` verwacht
+wordt. Er gaat niets verloren; het ontwerp zegt wel dat een vluchtig veld nooit een conflict geeft (§5.6).
+
+**Bevinding 2 (een vluchtige waarde valt stil weg).** Ons hangt een nieuwe set aan een wand; hun geeft een ander object
+een eigen `IfcOwnerHistory` en zet alle tijdstempels op een nieuwe waarde. Er komt geen conflict, maar de nieuwe set
+houdt de oude tijdstempel. De zelfcontrole ziet het niet. Dit raakt alleen een vluchtig veld, geen werk.
+
+**Wat de tests niet raken.** De generator maakt geen dubbele elementen in een BAG; het tegenvoorbeeld bij E5 en E6
+voor aantallen (§3) wordt dus niet geraakt. Ook niet: een nieuwe taak of een andere volgorde in een planning (LIST,
+bewust een conflict), een ander type, materiaal, geometrie of kleur, `IfcElementQuantity`, complexe instanties. Van
+256 gemeten gevallen gaven er maar 5 een volgorde die niet om het even was; dat deel van het orakel krijgt weinig
+gevallen.
+
+**Toetsen de tests iets?** Twaalf bekende fouten, één voor één teruggezet in de bibliotheek, maakten elk de eigenschap
+rood die hem moest vinden (`scripts/mutatieproef.py`).

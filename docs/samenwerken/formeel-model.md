@@ -185,8 +185,23 @@ soorten registers, elk met een eigen regel:
 
 Of dat ook voor echte IFC-bestanden geldt, hangt af van drie voorwaarden: hetzelfde ding moet in elke versie
 hetzelfde register krijgen, het geschreven bestand moet zijn wat het plan zegt, en de STEP-nummering mag niet
-meetellen. Die voorwaarden zijn niet bewezen; property-based tests toetsen ze (eigen draft-PR op de branch van
-desktop-PR #7). De uitkomst volgt zodra de tests klaar zijn.
+meetellen. Die voorwaarden zijn niet bewezen; property-based tests toetsen ze, in draft-PR
+[openaec-cloud-desktop#17](https://github.com/OpenAEC-Foundation/openaec-cloud-desktop/pull/17) op de branch van
+desktop-PR #7.
+
+De tests maken uit vier echte bestanden (IFC2X3, IFC4, IFC4X3, ook een planning van Open Planner Studio) willekeurige
+bewerkingen aan beide kanten, en vergelijken de samenvoeging met de bewerkingen na elkaar. Twaalf eigenschappen
+houden, waaronder: geen stil verlies, symmetrie, stabiel bij opnieuw samenvoegen, de volgorde van drie clients maakt
+niet uit, en hernummeren doet niet mee. Twee houden niet, en allebei gaat het om de tijdstempel:
+
+- **Een conflict te veel.** Slaat iemand dezelfde versie nog eens op na een gelukte samenvoeging (bijvoorbeeld na een
+  verloren antwoord), dan komt er een conflict op de tijdstempel in plaats van "niets nieuws". Het werk blijft in de
+  conflictkopie.
+- **Een tijdstempel valt stil weg.** In een bepaald geval houdt een nieuw object de oude tijdstempel. Dat is geen
+  werk, maar wel een afwijking van de regel in het ontwerp.
+
+Om te zien of de tests iets toetsen, zijn twaalf bekende fouten één voor één teruggezet in de bibliotheek. Elke fout
+maakte de juiste test rood.
 
 ## Aannames: wat het model niet ziet
 

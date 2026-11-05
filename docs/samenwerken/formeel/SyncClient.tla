@@ -152,10 +152,11 @@ NieuweKopie == IF VrijeKopie = {} THEN Geen ELSE CHOOSE q \in VrijeKopie : TRUE
 
 \* Synct client c pad p? Gewone paden altijd; een kopiepad alleen bij wie de kopie maakte, en pas als de ronde
 \* die haar maakte, na_upload achter de rug heeft (in de code is dat één ronde: het kopiepad komt in de volgende).
+\* (IF in plaats van \/: TLC rekent in een actie beide kanten van een \/ uit, en kopieVan kent p dan niet.)
 Mag(c, p) ==
-    \/ p \in Paden
-    \/ /\ kopieVan[p] = c
-       /\ \A q \in Paden : ~(r[c][q].pc = "na_upload" /\ r[c][q].tmp.soort = "kopie" /\ r[c][q].tmp.kp = p)
+    IF p \in Paden THEN TRUE
+    ELSE /\ kopieVan[p] = c
+         /\ \A q \in Paden : ~(r[c][q].pc = "na_upload" /\ r[c][q].tmp.soort = "kopie" /\ r[c][q].tmp.kp = p)
 
 (***************************************************************************)
 (* Server                                                                  *)
@@ -666,7 +667,7 @@ GeenLostUpdate ==
 GelijkeStand ==
     \A c \in Clients, p \in AllePaden :
         /\ bron[c][p] = Geen
-        /\ (p \in Paden \/ kopieVan[p] = c) =>
+        /\ (IF p \in Paden THEN TRUE ELSE kopieVan[p] = c) =>
               lok[c][p] = (IF actief[p] = Geen THEN Geen ELSE InhoudVan(actief[p]))
 Convergentie == <>[](GelijkeStand /\ \A a \in Gemaakt : a \in ServerHuidig \cup gewist)
 

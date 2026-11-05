@@ -1,14 +1,15 @@
+zwaar.sh: plek .zwaar.lock voor: bash -c exec timeout "$1" nice -n 10 "$2" -Xmx"$3" -XX:+UseParallelGC -cp "$4" "$TLC_KLASSE" "${@:5}" _ 1800 /home/aia09/opt/jdk-21.0.13+9/bin/java 3g /home/aia09/opt/tla2tools.jar -config Slot_RR_fix.cfg -workers 2 -metadir /tmp/tmp.AaLfabfu2i -deadlock MCSlot
 TLC2 Version 2026.11.03.180953 (rev: 309e489)
-Running breadth-first search Model-Checking with fp 119 and seed -340576585027355422 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 2764787] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 8 and seed 2575190092949424599 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 3195140] (Linux 7.0.0-38-generic amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
 Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/MCSlot.tla
 Parsing file /home/aia09/.t3/worktrees/openaec-storage/formeel-model/docs/samenwerken/formeel/Slot.tla
-Parsing file /tmp/tlc-1577096709886563449/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
-Parsing file /tmp/tlc-1577096709886563449/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
-Parsing file /tmp/tlc-1577096709886563449/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
-Parsing file /tmp/tlc-1577096709886563449/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
-Parsing file /tmp/tlc-1577096709886563449/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
-Parsing file /tmp/tlc-1577096709886563449/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
-Parsing file /tmp/tlc-1577096709886563449/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-813401997598728119/_TLCTrace.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-813401997598728119/Naturals.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-813401997598728119/FiniteSets.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-813401997598728119/TLC.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-813401997598728119/Sequences.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-813401997598728119/TLCExt.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-813401997598728119/Integers.tla (jar:file:/home/aia09/opt/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
 Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
@@ -22,20 +23,16 @@ Linting of module Slot
 Linting of module TLCExt
 Linting of module _TLCTrace
 Linting of module MCSlot
-Starting... (2026-11-05 14:27:53)
+Starting... (2026-11-05 16:37:51)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-11-05 14:27:53.
-Warning: The variable verlopen was changed while it is specified as UNCHANGED at
-line 220, col 27 to line 220, col 34 of module Slot
-(Use the -nowarning option to disable this warning.)
-Warning: The variable verlopen was changed while it is specified as UNCHANGED at
-line 220, col 27 to line 220, col 34 of module Slot
+Finished computing initial states: 1 distinct state generated at 2026-11-05 16:37:51.
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
-  calculated (optimistic):  val = 2.6E-12
-13883 states generated, 5969 distinct states found, 0 states left on queue.
-The depth of the complete state graph search is 16.
-The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 7 and the 95th percentile is 4).
-Finished in 02s at (2026-11-05 14:27:54)
+  calculated (optimistic):  val = 1.2E-10
+  based on the actual fingerprints:  val = 5.0E-10
+96525 states generated, 40817 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 20.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 8 and the 95th percentile is 3).
+Finished in 02s at (2026-11-05 16:37:52)
 EXIT:0

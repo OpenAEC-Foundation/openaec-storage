@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")"
 module="$1"; shift
 for naam in "$@"; do
-  while pgrep -f 'tlc2[.]TLC' >/dev/null; do sleep 15; done
+  while pgrep -f 'tlc2[.]TLC|tla2tools[.]jar' >/dev/null; do sleep 15; done
   begin=$(date +%s)
   ./tlc.sh "$module" "$naam.cfg" ${TLC_EXTRA:-} > /dev/null
   duur=$(( $(date +%s) - begin ))
@@ -16,4 +16,7 @@ for naam in "$@"; do
   toestanden=$(grep -E 'distinct states found' "$log" | tail -1 | sed -E 's/.* ([0-9.]+) distinct states found.*/\1/')
   printf '%s | %s | %s toestanden | %ss | %s\n' "$naam" "$uitkomst" "$toestanden" "$duur" "$(tail -1 "$log")" >> runs/samenvatting.txt
   rm -f ./*_TTrace_*
+  # Een fout in de spec (geen schending en geen tijdgrens): stop, want de volgende modellen falen net zo.
+  code=$(tail -1 "$log" | sed -n 's/^EXIT://p')
+  case "$code" in 0|10|11|12|13|124) ;; *) echo "gestopt na $naam (EXIT:$code)" >> runs/samenvatting.txt; exit 1;; esac
 done
