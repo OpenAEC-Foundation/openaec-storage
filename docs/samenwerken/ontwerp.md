@@ -321,9 +321,13 @@ Uitbreiding van de bestaande API:
   geschiedenis van `openaec_storage/`:
   1. Het komt nooit terug: het is een willekeurige hash als primaire sleutel (`autoname: hash`), en geen code wist
      een versieregel.
-  2. De inhoud van een versieregel verandert nooit: alleen `verplaats` wijzigt een regel, en dan alleen `bestand` en
-     `volgnummer`, nooit `s3_sleutel`. Nu mag een schrijver van de ruimte een versieregel nog via `/api/resource`
-     wijzigen of wissen; stap 4 sluit dat af, zodat het zo blijft.
+  2. De inhoud waar een versieregel naar wijst, verandert nooit: `s3_sleutel` wordt nooit vervangen, en nieuwe inhoud
+     krijgt altijd een nieuwe regel met een nieuwe sleutel. Wel mag `verplaats` het bestand en het volgnummer van een
+     regel aanpassen, en het dossier de revisiegegevens (`revisie`, `revisiestatus`, `dossier.py` r. 432). Die raken
+     de inhoud niet. Nu kan een schrijver van de ruimte een versieregel nog via de algemene routes van Frappe wijzigen
+     of wissen (`/api/resource`, `frappe.client.set_value` en `save`, de wijzigroute van API v2). Stap 4 sluit dat af
+     met één bescherming op het niveau van de DocType (de `has_permission`-haak), niet per route, met een
+     negatieve test per route.
 
   Wat er verandert:
   - `Opslagbestand` krijgt `huidige_versie_id`: de regel die nu de inhoud is. De server zet hem overal waar hij
@@ -501,9 +505,9 @@ Daarom:
    "server op N, lokaal afgeleid van S". Het lokale bestand blijft wat het is.
 2. **De volgende ronde beslist met die toestand.** Is het lokale bestand nog S, dan is het een gewone download van N.
    Is het lokale bestand intussen L (de gebruiker sloeg op), dan voegt de sync samen met basis S, ons L en hun de
-   huidige serverversie, en schrijft met `schrijf_als` tegen het versienummer van die serverversie. Is de server
-   intussen verder (een derde schreef), dan weigert `schrijf_als` en draait de lus gewoon opnieuw, met het nieuwe
-   versienummer als basis. S is als basis veilig, omdat N alle wijzigingen van S bevat: de desktop-sync voegt alleen
+   huidige serverversie, en schrijft met `schrijf_als` tegen (bestand, `versie_id`) van die serverversie. Is de
+   server intussen verder (een derde schreef), dan weigert `schrijf_als` en draait de lus gewoon opnieuw, met
+   (bestand, `versie_id`) van de nieuwe serverversie als basis. S is als basis veilig, omdat N alle wijzigingen van S bevat: de desktop-sync voegt alleen
    samen zonder automatische keuze bij een conflict; bij een conflict wordt er niets geschreven maar een
    conflictkopie gemaakt.
 3. **Eén veilige routine voor elke lokale vervanging en elke lokale verwijdering**: na samenvoegen, bij de gewone
