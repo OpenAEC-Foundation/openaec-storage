@@ -421,27 +421,36 @@ Daarom:
    samen zonder automatische keuze bij een conflict; bij een conflict wordt er niets geschreven maar een
    conflictkopie gemaakt.
 3. **Eén veilige vervangroutine voor elke lokale vervanging**, ook de gewone download, die dit gat nu al heeft:
-   - Eerst verplaatst de sync het lokale bestand naar `.openaec/bron/` (één rename). Lukt dat niet (Windows weigert
-     bij een programma dat het bestand zonder `FILE_SHARE_DELETE` open heeft), dan wacht de vervanging tot een
+   - **Journaal eerst.** Vóór het verplaatsen legt de sync de vervanging duurzaam vast in `.openaec/` (geschreven en
+     met fsync): het pad, de plek van de bron, de verwachte inhoud (hash), de nieuwe inhoud (versie N) en de stap.
+     Bij elke stap werkt hij het journaal bij.
+   - **Herstel bij opstarten.** Vóór de gewone vergelijking en vóór elke beslissing over verwijderen maakt de sync elke
+     onafgemaakte vervanging uit het journaal af of terug. Ontbreekt het pad en staat de bron er, dan zet hij de bron
+     terug (met een bewerking die een bestaand bestand niet vervangt). Zo ziet de vergelijking nooit een "lokaal
+     verwijderd" bestand dat alleen halverwege een vervanging was.
+   - **Verplaatsen.** De sync verplaatst het lokale bestand naar `.openaec/bron/` (één rename). Lukt dat niet (Windows
+     weigert bij een programma dat het bestand zonder `FILE_SHARE_DELETE` open heeft), dan wacht de vervanging tot een
      volgende ronde, en blijft de toestand staan.
-   - Daarna controleert hij of de verplaatste bron nog de verwachte inhoud heeft. Zo niet, dan zet hij haar terug als
-     dat kan, en anders wordt ze verwerkt zoals in het laatste punt hieronder.
-   - Dan plaatst hij de nieuwe inhoud met een bewerking die weigert als er op het pad intussen weer een bestand staat
-     (een harde link van een tijdelijk bestand, of `renameat2` met `RENAME_NOREPLACE`, `renamex_np` met `RENAME_EXCL`,
-     of `MoveFileExW` zonder `MOVEFILE_REPLACE_EXISTING`). De gewone `std::fs::rename` van Rust vervangt een bestaand
-     doel en is hier dus niet goed. Weigert de plaatsing, dan blijft het nieuwe bestand van de gebruiker staan als
-     lokale wijziging, afgeleid van S.
-   - Tot slot kijkt hij of een proces de verplaatste bron nog open heeft (Linux: `/proc/<pid>/fd` van de eigen
-     processen; macOS: `proc_pidinfo`; Windows: de Restart Manager, `RmGetList`). Zo ja, of kan hij het niet
-     vaststellen, dan is de bron een **levende bron**: ze blijft in `.openaec/bron/` staan, de sync bewaakt haar, en
-     een wijziging erin (een programma dat via zijn open verbinding schreef) is een lokale wijziging, afgeleid van de
-     inhoud die de bron had. Die gaat door dezelfde opslaan-lus. Een levende bron valt nooit onder het opruimen; pas
-     als geen proces haar meer open heeft en haar inhoud verwerkt is, mag ze weg.
+   - **Elke bron is beschermd vanaf het begin.** Een verplaatste bron is onverwerkt tot het tegendeel bewezen is. Ze
+     valt niet onder het opruimen en de sync bewaakt haar, los van wat een controle op processen zegt.
+   - **Plaatsen.** De sync plaatst de nieuwe inhoud met een bewerking die weigert als er op het pad intussen weer een
+     bestand staat (een harde link van een tijdelijk bestand, of `renameat2` met `RENAME_NOREPLACE`, `renamex_np` met
+     `RENAME_EXCL`, of `MoveFileExW` zonder `MOVEFILE_REPLACE_EXISTING`). De gewone `std::fs::rename` van Rust vervangt
+     een bestaand doel en is hier dus niet goed. Weigert de plaatsing, dan blijft het nieuwe bestand van de gebruiker
+     staan als lokale wijziging, afgeleid van S.
+   - **Afronden.** Pas als geen proces de bron nog open heeft of in het geheugen heeft gekoppeld (Linux: `fd` én `maps`
+     in `/proc/<pid>/`; macOS: `proc_pidinfo`; Windows: de Restart Manager, `RmGetList`), volgt een laatste controle
+     van de inhoud tegen de momentopname die echt verwerkt is. Is die gelijk, dan mag de bron weg (of als herstelkopie
+     blijven). Is ze anders (een programma schreef via een open verbinding, ook als het daarna sloot), dan is dat een
+     lokale wijziging, afgeleid van de verwerkte inhoud, en die gaat door dezelfde opslaan-lus. Kan de sync niet
+     vaststellen dat er geen schrijvers meer zijn, dan blijft de bron bewaakt.
 4. **Verplichte proeven in stap 5:** lezen, de gebruiker slaat opnieuw op, de upload slaagt, de volgende ronde (beide
    wijzigingen in de volgende versie); een programma dat na de inhoudscontrole via zijn al open verbinding schrijft
-   (de wijziging komt via de levende bron alsnog op de server); een geweigerde eerste verplaatsing (lokale inhoud en
-   toestand blijven); een bestand dat vlak vóór de plaatsing op het pad verschijnt (het blijft staan). Op elk
-   platform dat de desktop-app ondersteunt.
+   en open blijft; een programma dat tussen de inhoudscontrole en de procescontrole schrijft en sluit; een schrijfbare
+   geheugenkoppeling; een geweigerde eerste verplaatsing (lokale inhoud en toestand blijven); een bestand dat vlak
+   vóór de plaatsing op het pad verschijnt (het blijft staan); en een onderbreking na het journaal, na het verplaatsen,
+   na het plaatsen en vóór het afronden (na herstart is er niets verloren en wordt niets als verwijderd gezien). Op
+   elk platform dat de desktop-app ondersteunt.
 
 Een grens die blijft: een programma dat een bestand helemaal inleest, het daarna sluit en later zijn oude inhoud
 opslaat, werkt vanuit een oudere versie zonder dat de sync dat kan zien. Dat gat bestaat nu ook bij elke gewone
