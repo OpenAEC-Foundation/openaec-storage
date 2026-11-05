@@ -253,19 +253,35 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
      (`Notification`), `Webhook`s, `Server Script`s bij een DocType-gebeurtenis en automatiseringen (`Automation
      Flow`) (`frappe/model/document.py` r. 1531–1534). Een meldingsregel op `Opslagbestand` met de maker als
      ontvanger geeft zo een `Notification Log` aan Anna, ook nadat zij haar leesrecht verloor (review Sol, ronde
-     4). Daarom bestaat er geen configuratie die op een DocType van de opslag reageert of ernaar verwijst: de opslag
-     weigert `Notification`, `Webhook`, `Server Script` (DocType-gebeurtenis), `Automation Flow`, `Assignment Rule`,
-     `Auto Repeat`, `Workflow`, `Kanban Board`, `ToDo`, `Comment` en Frappe-`DocShare` met een DocType van de opslag
-     als doel. Dat is één functie in `doc_events`, bij `validate`, met per soort het veld dat naar de DocType wijst.
-     De patch bij de invoering zet bestaande regels van die soorten voor de opslag uit (een Frappe-`DocShare`
-     verwijdert hij) en logt elke regel. De DocTypes met bestanden, versies en samenwerkgegevens houden
-     `track_changes` uit (zo staan ze nu); dan maakt Frappe er geen `Version` en geen `Document Follow` voor
-     (`frappe/desk/form/document_follow.py` r. 54). De opslag gebruikt geen van deze soorten zelf: delen gaat via de
-     eigen rechten (§5.14), opmerkingen via `Opslagopmerking` (K6), meldingen via `gebeurtenis` (§5.10). De lijst
-     volgt Frappe zoals in de bench; welke soorten de kern heeft, staat bij A2.
+     4). Wie zo'n regel mag maken, bepaalt hoe het ontwerp dit sluit. Er zijn twee groepen (rechten volgens de
+     DocTypes in de bench):
+     - **Wat een gewone gebruiker kan** (`Desk User`, een rol in een ruimte, een gast): een `Kanban Board`, `ToDo`,
+       `Comment`, Frappe-`DocShare`, `Document Follow` of `Auto Repeat` maken. Die zijn dicht. De opslag weigert
+       ze met een DocType van de opslag als doel (één functie in `doc_events`, bij `validate`, met per soort het
+       veld dat naar de DocType wijst). Alle DocTypes van de opslag houden `track_changes` uit, ook `Overdracht`
+       (dat staat nu aan, maar niets leest die geschiedenis): dan maakt Frappe er geen `Version` voor, en volgt
+       niemand er een automatisch na het aanmaken (`frappe/desk/form/document_follow.py` r. 54). Zo kan de
+       weigering van `Document Follow` ook geen overdracht laten mislukken (review Sol, ronde 5).
+     - **Wat alleen een beheerder van de site kan** (`System Manager`, of `Script Manager` voor een `Server
+       Script`): `Notification`, `Webhook`, `Server Script`, `Automation Flow`, `Assignment Rule`, `Milestone
+       Tracker` en `Workflow`. Die rollen lezen nu al elke tabel van de site: `System Console` voert code uit met
+       `read_sql` (`frappe/desk/doctype/system_console/system_console.py` r. 29–33), en een `Server Script` net
+       zo. Tegen wat zij instellen, beschermt geen regel in een app. Hier ligt dus de grens van het vertrouwen:
+       een beheerder van de site is vertrouwd voor alle data van de site, net als bij elke andere app in Frappe.
+       Een regel van een beheerder op een record dat gegevens doorgeeft (bijv. een meldingsregel op `Notification
+       Log` of `Document Follow`, review Sol, ronde 5) valt onder die grens. De opslag doet wel twee dingen tegen
+       vergissingen: hij weigert zo'n regel als die direct op een DocType van de opslag reageert (dezelfde
+       functie), en de patch bij de invoering zet bestaande regels van die soorten voor de opslag uit, haalt hun
+       ingeplande taken uit de wachtrij voordat de werkers weer starten, en logt elke regel.
+
+     Een planner, modelleur of gast krijgt dus nooit een van deze beheerdersrollen; dat staat bij A4. De opslag
+     gebruikt geen van deze soorten zelf: delen gaat via de eigen rechten (§5.14), opmerkingen via
+     `Opslagopmerking` (K6), meldingen via `gebeurtenis` (§5.10). De lijsten volgen Frappe zoals in de bench;
+     welke soorten de kern heeft, staat bij A2.
    - **In de eigen API.** De controllers hebben een lege `notify_update`: opslaan via de eigen API geeft geen
-     `doc_update` en geen `list_update`. De andere reacties van Frappe zijn dicht omdat er geen configuratie voor
-     bestaat (hierboven). `gebeurtenis` geeft de kamer zelf op (`room=` de persoonlijke kamer), niet `user=`: met een
+     `doc_update` en geen `list_update`. De andere reacties van Frappe (meldingsregels, webhooks, scripts,
+     automatiseringen) hangen af van configuratie; die is voor gewone gebruikers dicht en voor beheerders de grens
+     van het vertrouwen (hierboven). `gebeurtenis` geeft de kamer zelf op (`room=` de persoonlijke kamer), niet `user=`: met een
      `task_id` in de context kiest `publish_realtime` anders de kamer van de taak (`frappe/realtime/__init__.py`
      r. 66–73).
    - **Bij abonneren**, als tweede slot. De realtimeserver vraagt bij `doc_subscribe`, `doc_open` en
@@ -280,9 +296,10 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
    ontvanger zonder recht zit in elke soort kamer (site, taak, document, DocType, open formulier). Na een handeling
    via elke standaardroute (die geweigerd wordt) en via de eigen API ontvangt hij niets over het document; een lezer
    ontvangt alleen in zijn persoonlijke kamer. Ook in de proef: een meldingsregel op `Opslagbestand` met de maker als
-   ontvanger, gemaakt vóór de invoering; na de invoering en een upload van Piet krijgt Anna (geen leesrecht meer)
-   geen `Notification Log`. En per soort configuratie hierboven: aanmaken met een opslag-DocType als doel wordt
-   geweigerd. Dit hangt af van A2 (§9): welke realtimeserver de kern draait, welke controle die bij abonneren vraagt,
+   ontvanger, gemaakt vóór de invoering, met een taak die al in de wachtrij stond; na de invoering en een upload van
+   Piet krijgt Anna (geen leesrecht meer) geen `Notification Log`. Per soort uit beide groepen: aanmaken met een
+   opslag-DocType als doel wordt geweigerd. En een `Overdracht` maken met `follow_created_documents` aan slaagt,
+   zonder `Document Follow`. Dit hangt af van A2 (§9): welke realtimeserver de kern draait, welke controle die bij abonneren vraagt,
    en welke soorten configuratie op een document reageren;
 2. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
    app houdt de handeling niet tegen;
@@ -782,6 +799,9 @@ offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
 - Realtime: een bericht over een opslagdocument komt alleen in de persoonlijke kamer van een lezer (§5.4, "Geen
   andere route": dicht bij de bron, in de eigen API en bij abonneren). Een negatieve proef per soort kamer (site,
   taak, document, DocType, open formulier) hoort bij stap 6.
+- Grens van het vertrouwen: een beheerder van de site (`System Manager`, `Script Manager`) is vertrouwd voor alle
+  data van de site; hij kan elke tabel lezen. Alles wat een gewone gebruiker kan aanmaken of starten, valt binnen de
+  bescherming (§5.4, "Bij de bron").
 - Een deellink zonder account (soort `link`) kan geen opmerkingen plaatsen en ziet geen aanwezigheid: er is geen
   persoon om te tonen of te melden.
 - De samenvoegbibliotheek leest onbetrouwbare invoer. Ze mag nooit vastlopen of crashen op een kapot bestand, en ze
@@ -865,7 +885,7 @@ is.
 | A1 | De inhoud en de versies van een bestand in een ruimte staan alleen in openaec-storage (`Bestandsversie` + S3), en niets schrijft er buiten de API van openaec-storage om | §5.3, §5.4 (de wijzigingenlijst als enige bron), stap 4 en 4b, K3 | Welke app de DocTypes voor bestanden en versies bezit; of de kern zelf naar S3 of naar `tabBestandsversie` schrijft (zoek in de code op `Bestandsversie`, `s3`, `boto3`) |
 | A2 | Een ingelogde client kan één realtime-kanaal per site volgen, de realtimeserver vraagt bij abonneren `frappe.realtime.has_permission`, en de Frappe van de kern kent dezelfde soorten configuratie die op een document reageert als de bench (§5.4) | §5.4 (push, geen gedeelde kamers), §5.8, §5.10, §5.14 | De Procfile of compose van de kern (draait `socketio`, en welke versie: de Node-server of die in Python?), welke controle die bij abonneren vraagt, de Frappe-versie en welke DocTypes in de kern op `run_method` van een document reageren (`Notification`, `Webhook`, `Automation Flow` …), de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
 | A3 | De kern heeft nog geen eigen DocTypes voor opmerkingen, meldingen of activiteit op bestanden | §5.9, §5.10, K6 | De lijst van DocTypes in de kern (alle `doctype/*/*.json`) en waar `Notification Log` wordt gebruikt |
-| A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling) | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4) | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, en of de kern `DocShare` gebruikt |
+| A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling), en alleen beheerders van de site hebben `System Manager` of `Script Manager` | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4), de grens van het vertrouwen in §5.4 | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, of de kern `DocShare` gebruikt, en wie in de kern `System Manager` of `Script Manager` krijgt |
 | A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis | §5.5 (de basis), `bij_conflict` | Dat document, §6 |
 | A6 | Naast Frappe kan een los programma draaien (zoals de WebDAV-gateway van openaec-storage in een eigen container) | Handhaving op de server (§5.7 trede 2), `gewijzigd` bij opmerkingen (§5.9), samenvoegen op de server | De compose- of deployconfig van de kern: welke containers er zijn, en of er een plek is voor een hulpprogramma |
 | A7 | De `BIM Issue` van open-bim-platform en opmerkingen op bestanden mogen één systeem worden | §5.9, K6 | Of de kern al naar `BIM Issue` verwijst, en wie de eigenaar van dat DocType is |
