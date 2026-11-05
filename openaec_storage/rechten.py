@@ -155,6 +155,13 @@ def heeft_recht(doc, ptype=None, user=None, debug=False):
 		if doc.is_new() or not doc.name or not frappe.db.exists("Ruimte", doc.name):
 			return mag_ruimte_maken(user)  # alleen een beheerder van de omgeving; de maker wordt ruimtebeheerder
 		return mag(doc.name, ptype, user, ruimte_zelf=True)
+	if doc.doctype == "Bestandsversie" and ptype not in LEESACTIES:
+		# Een versieregel schrijft alleen de server (met ignore_permissions of db.set_value): niemand maakt, wijzigt of
+		# wist er een via /api/resource, frappe.client of API v2. Zo verandert de inhoud van een regel (`s3_sleutel`)
+		# nooit, en is haar id een veilige basis voor vergelijk-en-schrijf (zie api._vergelijk_basis). Dit geeft een
+		# vroege 403; de echte grens is de controller (Bestandsversie), want Frappe kijkt na deze weigering nog naar een
+		# expliciete deling, en de Administrator komt hier niet langs.
+		return False
 	ruimte = doc.get("ruimte")
 	if not ruimte:
 		return is_superbeheer(user)
