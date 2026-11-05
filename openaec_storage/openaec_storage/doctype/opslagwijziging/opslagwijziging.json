@@ -1,7 +1,7 @@
 {
  "actions": [],
  "creation": "2026-10-20 00:00:00.000000",
- "description": "Wijzigingenlijst per ruimte; de naam is de cursor voor de sync-client.",
+ "description": "Wijzigingenlijst per ruimte; het commitnummer is de cursor voor de sync-client (zie commitnummer.py).",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -10,7 +10,8 @@
   "doel_doctype",
   "doel",
   "naam",
-  "namens"
+  "namens",
+  "commitnummer"
  ],
  "fields": [
   {
@@ -53,9 +54,18 @@
    "label": "Namens",
    "options": "User",
    "description": "Voor wie het beheer de handeling uitvoerde; wie hem echt aanriep, staat in Gemaakt door (owner)."
+  },
+  {
+   "fieldname": "commitnummer",
+   "fieldtype": "Int",
+   "label": "Commitnummer",
+   "read_only": 1,
+   "search_index": 1,
+   "in_list_view": 1,
+   "description": "Uitgedeeld vlak voor de commit, in commitvolgorde; 0 zolang de regel niet gecommit is. Volgnummer en cursor van de wijzigingenlijst."
   }
  ],
- "modified": "2026-10-28 12:00:00.000000",
+ "modified": "2026-11-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Opslagwijziging",

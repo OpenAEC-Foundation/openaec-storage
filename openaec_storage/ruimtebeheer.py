@@ -169,18 +169,19 @@ def lijst(gearchiveerd: str | int | None = None) -> list[dict]:
 def activiteit(ruimte: str, vanaf: str | None = None, start: int = 0, aantal: int = 50) -> dict:
 	"""Wat er in de ruimte gebeurde, nieuwste eerst, voor het beheer: een beheerder van de ruimte of van de omgeving.
 	`door` is wie de handeling echt aanriep, `namens` voor wie het beheer hem uitvoerde (of leeg).
-	`vanaf`: alleen vanaf dit tijdstip (datum of datum-tijd); `start` en `aantal` (hoogstens 500) voor de pagina's."""
+	`vanaf`: alleen vanaf dit tijdstip (datum of datum-tijd); `start` en `aantal` (hoogstens 500) voor de pagina's.
+	Het volgnummer is het commitnummer, net als in `api.wijzigingen`: één gebeurtenis heeft in beide hetzelfde nummer."""
 	ruimte_voor_beheer(ruimte)
 	start, aantal = max(cint(start), 0), min(max(cint(aantal), 1), 500)
-	filters = {"ruimte": ruimte}
+	filters = {"ruimte": ruimte, "commitnummer": (">", 0)}
 	if vanaf:
 		filters["creation"] = (">=", get_datetime(vanaf))
 	totaal = frappe.db.count("Opslagwijziging", filters)
 	regels = frappe.get_all(
 		"Opslagwijziging",
 		filters=filters,
-		fields=["name", "creation", "owner", "namens", "soort", "doel_doctype", "doel", "naam"],
-		order_by="name desc",
+		fields=["commitnummer", "creation", "owner", "namens", "soort", "doel_doctype", "doel", "naam"],
+		order_by="commitnummer desc",
 		limit_start=start,
 		limit=aantal,
 		ignore_permissions=True,
@@ -196,7 +197,7 @@ def activiteit(ruimte: str, vanaf: str | None = None, start: int = 0, aantal: in
 		"meer": start + len(regels) < totaal,
 		"regels": [
 			{
-				"volgnummer": cint(r.name),
+				"volgnummer": cint(r.commitnummer),
 				"tijd": r.creation,
 				"soort": r.soort,
 				"doel_doctype": r.doel_doctype,
