@@ -473,8 +473,37 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
        vergissingen: hij weigert zo'n regel als die direct op een DocType van de opslag reageert (dezelfde
        functie), en de patch bij de invoering zet bestaande regels van die soorten voor de opslag uit, haalt hun
        ingeplande taken uit de wachtrij voordat de werkers weer starten, en logt elke regel.
+     - **Wat Frappe uitvoert met andere rechten dan die van wie het start** (review Sol, ronde 6). Hier telt niet
+       het doel, maar wiens rechten gelden. Er zijn twee soorten:
+       - `Auto Email Report` voert een rapport uit als de gebruiker in het veld `user` ("Based on Permissions For
+         User"), en de maker kiest die vrij (`frappe/email/doctype/auto_email_report/auto_email_report.py` r. 152,
+         `frappe/core/doctype/report/report.py` r. 312). `Report Manager` mag het maken, en die rol is geen
+         beheerder. Anna heeft `Desk User` en `Report Manager`, maar geen leesrecht op F1. Zij maakt een `Report
+         Builder` op `Opslagbestand`, kiest `user = Administrator` en zichzelf als ontvanger, en krijgt F1 via
+         `download` of `send_now`. Met een rapport op `Notification Log` werkt het net zo. De opslag sluit dit
+         met een `has_permission`-haak in `hooks.py`: `Auto Email Report` is alleen voor `System Manager`. Dat
+         dekt maken, wijzigen, de lijst, `download` en `send_now`; beide roepen `check_permission` aan
+         (r. 303–323). De patch bij de invoering zet elk `Auto Email Report` uit dat geen beheerder maakte. Ook
+         haalt hij de ingeplande taken uit de wachtrij en logt hij elk rapport. Waarom niet alleen `user` aan de
+         maker binden: dan kan een `Report Manager` nog een rapport van een beheerder downloaden dat als
+         `Administrator` draait.
+       - Een sjabloon (Jinja) krijgt bij het renderen leestoegang tot elke tabel, zonder rechtencontrole:
+         `frappe.db.get_all` met `ignore_permissions`, `frappe.db.get_value` en `frappe.db.sql` voor leesquery's
+         (`frappe/utils/safe_exec.py` r. 306–311, 351–353 en 580–589, ook met `restrict_globals`). Wie een
+         sjabloon mag schrijven dat Frappe rendert, leest dus alle metadata van de opslag: namen, paden,
+         opmerkingen, meldingen. De inhoud van de bestanden staat in S3 en blijft buiten bereik. In de bench
+         kunnen `System Manager` (`Print Format`, `Email Template`, `Notification`, `Web Template`) en `Website
+         Manager` (`Web Page`, `frappe/website/doctype/web_page/web_page.py` r. 116–130) zo'n sjabloon schrijven. Met ERPNext komen er rollen
+         bij. Zo zijn het onderwerp en het bericht van `Auto Repeat` een sjabloon, en geeft
+         `generate_message_preview` het resultaat direct terug (`frappe/automation/doctype/auto_repeat/
+         auto_repeat.py` r. 424, 461 en 646–656). `Accounts User` en `Accounts Manager` mogen `Auto Repeat`
+         maken, maar alleen voor een DocType met `allow_auto_repeat`. De bench heeft er geen; ERPNext wel. Dat
+         laatste is afgeleid, niet getoetst. Een app kan dit niet sluiten zonder Frappe te veranderen. Elke rol
+         die sjablonen mag schrijven, hoort dus bij de grens van het vertrouwen, net als `System Manager`.
 
-     Een planner, modelleur of gast krijgt dus nooit een van deze beheerdersrollen; dat staat bij A4. De opslag
+     Een planner, modelleur of gast krijgt dus nooit een van deze beheerdersrollen, en ook geen rol die sjablonen
+     mag schrijven; dat staat bij A4. Krijgen gewone medewerkers in de kern zo'n rol, dan is de keuze "Een eigen
+     site voor de opslag" (§9) nodig. De opslag
      gebruikt geen van deze soorten zelf: delen gaat via de eigen rechten (§5.14), opmerkingen via
      `Opslagopmerking` (K6), meldingen via `gebeurtenis` (§5.10). De lijsten volgen Frappe zoals in de bench;
      welke soorten de kern heeft, staat bij A2.
@@ -499,7 +528,10 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
    ontvanger, gemaakt vóór de invoering, met een taak die al in de wachtrij stond; na de invoering en een upload van
    Piet krijgt Anna (geen leesrecht meer) geen `Notification Log`. Per soort uit beide groepen: aanmaken met een
    opslag-DocType als doel wordt geweigerd. En een `Overdracht` maken met `follow_created_documents` aan slaagt,
-   zonder `Document Follow`. Dit hangt af van A2 (§9): welke realtimeserver de kern draait, welke controle die bij abonneren vraagt,
+   zonder `Document Follow`. Anna met `Report Manager` maakt een `Auto Email Report` met `user = Administrator`,
+   een keer op `Opslagbestand` en een keer op `Notification Log`. Maken, `download` en `send_now` worden
+   geweigerd. Een rapport van een `Report Manager` van vóór de invoering staat daarna uit en verstuurt niets. De
+   proef schrijft ook de rollen op die in de site een sjabloon mogen schrijven, en legt die lijst naast A4. Dit hangt af van A2 (§9): welke realtimeserver de kern draait, welke controle die bij abonneren vraagt,
    en welke soorten configuratie op een document reageren;
 2. de haak `openaec_storage_gebeurtenis` uit `hooks.py` van andere apps, in de wachtrij (issue #7). Een fout in die
    app houdt de handeling niet tegen;
@@ -1000,8 +1032,10 @@ offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
   andere route": dicht bij de bron, in de eigen API en bij abonneren). Een negatieve proef per soort kamer (site,
   taak, document, DocType, open formulier) hoort bij stap 6.
 - Grens van het vertrouwen: een beheerder van de site (`System Manager`, `Script Manager`) is vertrouwd voor alle
-  data van de site; hij kan elke tabel lezen. Alles wat een gewone gebruiker kan aanmaken of starten, valt binnen de
-  bescherming (§5.4, "Bij de bron").
+  data van de site; hij kan elke tabel lezen. Dat geldt ook voor elke rol die een sjabloon mag schrijven dat Frappe
+  rendert: in de bench `Website Manager`, met ERPNext ook `Accounts User` en `Accounts Manager` (via `Auto Repeat`).
+  Alles wat een andere gebruiker kan aanmaken of starten, valt binnen de bescherming (§5.4, "Bij de bron"), ook
+  `Auto Email Report`.
 - Een deellink zonder account (soort `link`) kan geen opmerkingen plaatsen en ziet geen aanwezigheid: er is geen
   persoon om te tonen of te melden.
 - De samenvoegbibliotheek leest onbetrouwbare invoer. Ze mag nooit vastlopen of crashen op een kapot bestand, en ze
@@ -1120,7 +1154,7 @@ is. Sinds 5 november is er één openbare bron over de kern: het contract tussen
 | A1 | De inhoud en de versies van een bestand in een ruimte staan alleen in openaec-storage (`Bestandsversie` + S3), en niets schrijft er buiten de API van openaec-storage om | §5.3, §5.4 (de wijzigingenlijst als enige bron), stap 4 en 4b, K3 | Welke app de DocTypes voor bestanden en versies bezit; of de kern zelf naar S3 of naar `tabBestandsversie` schrijft (zoek in de code op `Bestandsversie`, `s3`, `boto3`) |
 | A2 | Een ingelogde client kan één realtime-kanaal per site volgen, de realtimeserver vraagt bij abonneren `frappe.realtime.has_permission`, en de Frappe van de kern kent dezelfde soorten configuratie die op een document reageert als de bench (§5.4) | §5.4 (push, geen gedeelde kamers), §5.8, §5.10, §5.14 | De Procfile of compose van de kern (draait `socketio`, en welke versie: de Node-server of die in Python?), welke controle die bij abonneren vraagt, de Frappe-versie en welke DocTypes in de kern op `run_method` van een document reageren (`Notification`, `Webhook`, `Automation Flow` …), de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
 | A3 | De kern heeft nog geen eigen DocTypes voor opmerkingen, meldingen of activiteit op bestanden | §5.9, §5.10, K6 | De lijst van DocTypes in de kern (alle `doctype/*/*.json`) en waar `Notification Log` wordt gebruikt |
-| A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling), en alleen beheerders van de site hebben `System Manager` of `Script Manager` | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4), de grens van het vertrouwen in §5.4 | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, of de kern `DocShare` gebruikt, en wie in de kern `System Manager` of `Script Manager` krijgt |
+| A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling), en alleen beheerders van de site hebben `System Manager` of `Script Manager` | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4), de grens van het vertrouwen in §5.4 | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, of de kern `DocShare` gebruikt, en wie in de kern `System Manager` of `Script Manager` krijgt. Ook: welke apps in de kern draaien (ERPNext?), welke rollen daar een sjabloon mogen schrijven (`Website Manager`, `Accounts User` …), en wie die rollen krijgt (§5.4, review Sol ronde 6) |
 | A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis. Het hostcontract bevestigt de vorm: `save(bytes, {id, expectedVersion})`, en een conflict geeft een kopie (§5.15). Open is nog: is `version` daar het volgnummer of een id dat nooit terugkomt? | §5.5 (de basis), `bij_conflict`, §5.15 | Dat document, §6; en in `openaec_werkplek` wat de host als `version` teruggeeft en hoe hij `expectedVersion` aan storage doorgeeft |
 | A6 | Naast Frappe kan een los programma draaien (zoals de WebDAV-gateway van openaec-storage in een eigen container) | Handhaving op de server (§5.7 trede 2), `gewijzigd` bij opmerkingen (§5.9), samenvoegen op de server | De compose- of deployconfig van de kern: welke containers er zijn, en of er een plek is voor een hulpprogramma |
 | A7 | De `BIM Issue` van open-bim-platform en opmerkingen op bestanden mogen één systeem worden | §5.9, K6 | Of de kern al naar `BIM Issue` verwijst, en wie de eigenaar van dat DocType is |
@@ -1156,6 +1190,10 @@ dit ontwerp bij, en pas dan wordt er weer op de server gebouwd.
 - **Eén sync voor de desktop en route B.** Optie 1: de gestreamde desktop gebruikt dezelfde sync als de desktop-app
   (`openaec-sync`: de basis, veilig vervangen, samenvoegen bij opslaan). Optie 2: de kern houdt een eigen werkmap,
   die dan dezelfde regels moet volgen. Optie 1 is het voorstel: één plek voor dezelfde risico's. Beslissend: A13.
+- **Een eigen site voor de opslag.** Optie 1: de opslag deelt de site met de andere apps (nu). Dan is elke rol die
+  een sjabloon mag schrijven, vertrouwd voor de metadata van de opslag (§5.4). Optie 2: de opslag krijgt een eigen
+  site met een eigen database; alleen de beheerders van die site zijn dan vertrouwd. Dat kost wel een aanmelding over
+  twee sites heen. Optie 1 is het voorstel zolang alleen beheerders zulke rollen krijgen. Beslissend: A4.
 
 ## 10. Issues voor de owner van de kern
 
