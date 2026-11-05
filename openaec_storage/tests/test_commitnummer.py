@@ -161,8 +161,8 @@ class TestCommitnummer(Basis):
 		a, b = self.verbinding("A"), self.verbinding("B")
 		voor = self.teller()
 		begin = self.lees(self.r1)["cursor"]
-		weg = a.doe(lambda: schrijf(self.r1, "weg.ifc"))
 		b.doe(lambda: schrijf(self.r1, "blijft.ifc"))
+		weg = a.doe(lambda: schrijf(self.r1, "weg.ifc"))
 		a.doe(rollback)
 		b.doe(commit)
 		# A meldt de nummeraar na de rollback bij de volgende regel opnieuw aan.
@@ -224,12 +224,12 @@ class TestCommitnummer(Basis):
 		buiten_regel = b.doe(lambda: schrijf(self.r1, buiten, "Opslagmap"))
 		b.doe(commit)
 		eerste = self.lees(sinds=begin, deling=deling, als=bea)
-		# De pagina had alleen de regel buiten de wortel: na het filter leeg, de cursor is die regel.
-		self.assertEqual(eerste["wijzigingen"], [])
-		self.assertEqual(eerste["cursor"], self.nummer(buiten_regel))
 		a.doe(commit)
 		tweede = self.lees(sinds=eerste["cursor"], deling=deling, als=bea)
+		self.assertEqual(eerste["wijzigingen"], [])
 		self.assertEqual([(w["doel_doctype"], w["doel"]) for w in tweede["wijzigingen"]], [("Opslagmap", binnen)])
+		# De eerste pagina had alleen de regel buiten de wortel: na het filter leeg, de cursor is die regel.
+		self.assertEqual(eerste["cursor"], self.nummer(buiten_regel))
 
 	def test_volle_pagina_schuift_de_cursor_op(self):
 		a = self.verbinding("A")
@@ -296,6 +296,25 @@ class TestCommitnummer(Basis):
 		self.assertEqual(volgnummers[1], volgnummers[0] + 1, "het teruggedraaide item laat geen gat")
 		self.assertEqual(self.teller(), volgnummers[1])
 		self.assertIsNone(self.nummer(weg))
+
+	def test_alles_terug_naar_een_savepoint_neemt_geen_slot_op_de_teller(self):
+		a = self.verbinding("A")
+		voor = self.teller()
+		echte, sloten = commitnummer._vergrendel_teller, []
+
+		def vergrendel():
+			sloten.append(1)
+			return echte()
+
+		def batch():
+			frappe.db.savepoint("alles")
+			schrijf(self.r1, "terug")
+			frappe.db.rollback(save_point="alles")
+			frappe.db.commit()
+
+		with mock.patch.object(commitnummer, "_vergrendel_teller", vergrendel):
+			a.doe(batch)
+		self.assertEqual((sloten, self.teller()), ([], voor))
 
 	def test_callback_na_de_nummeraar_schrijft_nog_een_regel(self):
 		a = self.verbinding("A")
