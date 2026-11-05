@@ -1141,8 +1141,9 @@ bestanden gebouwd: `Opslag::lees` geeft een `Vec<u8>` en `schrijf_als` neemt een
 
 Versturen schaalt ook slecht. De server hergebruikt een blok van 8 MiB alleen als **dezelfde plek** in de basis dezelfde
 hash heeft (`api.py` `_herbruikbare_blokken`, r. 308). Wordt één regel een byte langer, dan schuift alles erachter.
-Voorbeeld: in een model van 1 GiB (128 blokken) verandert één wand in het midden. Dan gaan 64 blokken (512 MiB) opnieuw
-over de lijn. Downloaden met `blokken` werkt op dezelfde manier.
+Gemeten in meting 07 (desktop-PR #12, branch `samenvoegen/m365-scenario`, `efd675c`), op een model van 92 MB met 11
+blokken: een wijziging vlak bij het einde stuurt 1 blok, een wijziging vlak bij het begin alle 11. Na samenvoegen gaan
+in beide richtingen alle 11 blokken opnieuw over de lijn. Downloaden met `blokken` werkt op dezelfde manier.
 
 **G1. Een objectindex in plaats van het hele model.** Het bestand blijft waar het is (mmap). Per instantie houdt de
 bibliotheek 5 bytes bij: de plek in het bestand en 7 bits (object, wie ernaar verwijst, anker, vluchtig type). Per
@@ -1198,8 +1199,10 @@ de tests en de sync). Samen met G2, want pas dan heeft het effect.
   een ander dezelfde inhoud heeft.
 - V2 werkt voor elke bestandssoort, ook DWG en PDF. V3 werkt alleen voor IFC, en de server moet byte voor byte hetzelfde
   bestand maken als de client.
-- Voorkeur: V2 als volgende stap zodra de server weer mag. V3 alleen als metingen tonen dat wijzigingen meestal
-  verspreid zijn, en als A6 klopt.
+- Voorkeur: V2 als volgende stap zodra de server weer mag. Microsoft 365 doet differential sync voor alle
+  bestandssoorten ("For other file types, differential sync is available globally", support.microsoft.com,
+  Restrictions and limitations in OneDrive and SharePoint, geciteerd in meting 07). Zonder V2 doen wij het daar dus
+  slechter. V3 alleen als metingen tonen dat wijzigingen meestal verspreid zijn, en als A6 klopt.
 - Kosten van V2: het knippen in de client (`blokken.rs` in openaec-sync), en hergebruik op hash in `upload_start` en
   `blokken` op de server; de opslag in S3 blijft gelijk. Kosten van V3: de bibliotheek als hulpprogramma op de server
   (issue #13).
