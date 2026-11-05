@@ -43,7 +43,11 @@ after_request = ["openaec_storage.delen.na_verzoek"]
 standard_portal_menu_items = [{"title": "Bestanden", "route": "/opslag"}]
 
 # Verlopen overdrachten en blijven liggende concepten opruimen (objecten uit S3, record naar Verlopen).
-scheduler_events = {"hourly": ["openaec_storage.overdracht.opruimen"]}
+# Elke minuut: verlopen aanwezigheid weghalen en de nieuwe lijst pushen (samenwerken/aanwezigheid.py).
+scheduler_events = {
+	"hourly": ["openaec_storage.overdracht.opruimen"],
+	"cron": {"* * * * *": ["openaec_storage.samenwerken.aanwezigheid.ruim_verlopen_op"]},
+}
 
 # Projectdossier (dossier.py): revisie en status per versie; het bestand volgt zijn huidige versie.
 doc_events = {

@@ -2029,7 +2029,8 @@ def mogelijkheden() -> dict:
 	kan zeggen dat hij een samenvoeging is van twee versies; `basis_bestand`: een upload kan zeggen op welk bestand hij
 	gebaseerd is (dan telt een ander bestand met dezelfde naam als verouderde basis); `basis_versie_id`: de basis van
 	een upload kan het id van de versieregel zijn (`onbekende_basis` als die niet (meer) bij het bestand hoort), en
-	`download` en `download_klein` lezen een versie op `versie_id`."""
+	`download` en `download_klein` lezen een versie op `versie_id`; `aanwezigheid`: wie een bestand nu open heeft
+	(`samenwerken.aanwezigheid`)."""
 	grenzen = {"max_bestand": KLEIN_MAX_BESTAND, "max_aantal": KLEIN_MAX_AANTAL, "max_bytes": KLEIN_MAX_BYTES}
 	return {
 		"upload_klein": grenzen,
@@ -2044,6 +2045,7 @@ def mogelijkheden() -> dict:
 		"samengevoegd_uit": True,
 		"basis_bestand": True,
 		"basis_versie_id": True,
+		"aanwezigheid": True,
 	}
 
 
