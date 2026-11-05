@@ -10,6 +10,7 @@
   "naam",
   "huidige_versie",
   "hoogste_versie",
+  "basisgrens",
   "grootte",
   "mime",
   "verwijderd_op",
@@ -61,6 +62,14 @@
    "default": "0",
    "read_only": 1,
    "description": "Het hoogste volgnummer dat dit bestand ooit kreeg. Versienummers gaan alleen omhoog en komen nooit terug, ook niet als verplaatsen met overschrijven de huidige versie verlaagde."
+  },
+  {
+   "fieldname": "basisgrens",
+   "fieldtype": "Int",
+   "label": "Basisgrens",
+   "default": "0",
+   "read_only": 1,
+   "description": "Een basis onder dit volgnummer is onzeker (onbekende_basis): vóór de invoering kon een nummer van dit bestand terugkomen met andere inhoud. Gezet door de patch hoogste_versie_invullen; 0 voor bestanden waar dat niet kon."
   },
   {
    "fieldname": "grootte",

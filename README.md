@@ -183,6 +183,7 @@ te lezen.
 | `map_alleen_lezen` | 403 | Wijzigen in een alleen-lezenmap zonder beheerder van de ruimte te zijn |
 | `bestand_vergrendeld` | 403 | Verwijderen, verplaatsen of hernoemen van een bestand dat een ander heeft vergrendeld, of een map verwijderen waarin zo'n bestand staat; ook een upload met `bij_conflict: "weiger"` naar zo'n bestand (zie Vergelijk-en-schrijf) |
 | `verouderde_basis` | 409 | Upload met `bij_conflict: "weiger"` waarvan `basis_versie` niet (meer) de huidige versie is, of waarvan `basis_bestand` niet (meer) het bestand op de plek is; `huidige_versie` en `huidig_bestand` staan naast de foutcode (allebei null als er geen bestand op de plek staat). Geen conflictkopie (zie Vergelijk-en-schrijf) |
+| `onbekende_basis` | 409 | De basis (`basis_bestand`, `basis_versie`) is onzeker: die versie bestaat niet (meer), bijv. omdat ze met verplaatsen naar een ander bestand ging, of ze ligt onder de grens bij de invoering (`Opslagbestand.basisgrens`). Bij uploaden met `bij_conflict: "weiger"` (ook als het paar gelijk is aan de huidige versie; `huidige_versie` en `huidig_bestand` staan erbij) en bij `download(…, als_basis=1)`. Samenvoegen vanuit die basis is niet veilig (zie Vergelijk-en-schrijf) |
 | `ongeldige_samenvoeging` | 417 | `samengevoegd_uit` klopt niet: geen `{"basis": n, "hun": m}` met gehele getallen, `basis` niet kleiner dan `hun`, `hun` niet gelijk aan `basis_versie`, of een van beide versies bestaat niet voor dit bestand |
 | `extensie_niet_toegestaan` | 417 | Bestandssoort niet toegestaan in deze map |
 | `ongeldige_naam` | 417 | Naam die niet kan (zie Geldige namen): nieuw bestand, nieuwe map, hernoemen of verplaatsen |
@@ -374,6 +375,19 @@ nooit, ook niet bij opslaan via `/api/resource`. De patch `hoogste_versie_invull
 `huidige_versie` plus het aantal regels `verwijderd` voor dat bestand in de wijzigingenlijst: een veilige bovengrens
 (elke verlaging is precies 1 en logt zo'n regel; een gewone verwijdering telt ook mee, en een overgeslagen nummer kan
 geen kwaad).
+
+**Een grens bij de invoering.** De teller voorkomt alleen hergebruik ná de patch. Een paar dat vóór de patch al twee
+inhouden had, blijft anders geldig. Voorbeeld: Anna werkt offline vanuit (F1, 2) = A; vóór de invoering verplaatst
+Piet F1 met overschrijven, herstelt het en uploadt B, weer als (F1, 2). Na de patch is de huidige versie nog 2 (B), en
+zonder grens werd Anna's basis (F1, 2) geaccepteerd. Hergebruik kon alleen bij een bestand met een regel `verwijderd`
+in de wijzigingenlijst (de bron van een verplaatsing met overschrijven logt die altijd). Zo'n bestand krijgt van de
+patch een `basisgrens`: het eerste nummer na de patch. Een basis onder die grens, of een paar dat niet (meer) als
+versie bestaat, is onzeker. Dan geeft een upload met `basis_bestand` en `bij_conflict: "weiger"` 409
+`onbekende_basis` (ook als het paar gelijk is aan de huidige versie), met `"kopie"` een conflictkopie, en weigert
+`download(bestand, versie, als_basis=1)` met `onbekende_basis`. Andere bestanden krijgen grens 0: daar blijft een
+oude basis geldig. Zonder `basis_bestand` en zonder `als_basis` verandert er niets (de geschiedenis blijft leesbaar).
+`mogelijkheden` zegt dit met `bij_conflict_weiger: true`. Een gewone verwijdering geeft soms onnodig een grens; dat
+kost hoogstens één conflictkopie, geen data.
 
 **Vastleggen onder een slot.** Een nieuwe versie (of een nieuw bestand) wordt vastgelegd in `_registreer`. Die
 vergrendelt eerst de regel van het bestaande bestand en zijn slot (`Opslagvergrendeling`, nu met een index op

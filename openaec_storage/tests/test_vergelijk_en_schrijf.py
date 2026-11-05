@@ -527,23 +527,91 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		# B wordt versie 3, niet opnieuw versie 2.
 		self.assertEqual((b["bestand"], b["versie"], b["conflict"]), (f1, 3, False))
 		self.assertEqual(self.volgnummers(f1), [1, 3])
-		# Anna werkte offline vanuit F1 versie 2 (inhoud A); dat paar wijst nu naar niets.
-		self.assertEqual(foutcode(self, api.VerouderdeBasis, api.upload_klaar, **met_weiger), "verouderde_basis")
+		# Anna werkte offline vanuit F1 versie 2 (inhoud A). Die versie ging met het verplaatsen naar ander.ifc: het paar
+		# (F1, 2) bestaat niet meer, dus de basis is onbekend. Bij het afronden, bij het begin en in upload_klein.
+		self.assertEqual(foutcode(self, api.OnbekendeBasis, api.upload_klaar, **met_weiger), "onbekende_basis")
 		self.assertEqual(self.basis_in_antwoord(), (3, f1))
 		code = foutcode(
-			self, api.VerouderdeBasis, start, self.ruimte, "planning.ifc", b"oud werk van anna", basis_versie=2, basis_bestand=f1, bij_conflict="weiger"
+			self, api.OnbekendeBasis, start, self.ruimte, "planning.ifc", b"oud werk van anna", basis_versie=2, basis_bestand=f1, bij_conflict="weiger"
 		)
-		self.assertEqual(code, "verouderde_basis")
+		self.assertEqual(code, "onbekende_basis")
 		self.assertEqual(self.basis_in_antwoord(), (3, f1))
 		(k,) = api.upload_klein_bytes(
 			self.ruimte, [item("planning.ifc", b"oud", basis_versie=2, basis_bestand=f1, bij_conflict="weiger")], {"f0": b"oud"}
 		)["resultaten"]
-		self.assertEqual((k["ok"], k["foutcode"], k["huidige_versie"], k["huidig_bestand"]), (False, "verouderde_basis", 3, f1))
+		self.assertEqual((k["ok"], k["foutcode"], k["huidige_versie"], k["huidig_bestand"]), (False, "onbekende_basis", 3, f1))
+		# Als basis downloaden weigert ook; gewoon downloaden zegt, zoals altijd, dat de versie niet bestaat.
+		self.assertEqual(foutcode(self, api.OnbekendeBasis, api.download, bestand=f1, versie=2, als_basis=1), "onbekende_basis")
+		with self.assertRaises(frappe.DoesNotExistError):
+			api.download(bestand=f1, versie=2)
+		self.assertEqual(api.download(bestand=f1, versie=3, als_basis=1)["versie"], 3)
 		r = api.upload_klaar(**start(self.ruimte, "planning.ifc", b"oud werk van anna", basis_versie=2, basis_bestand=f1))
 		self.assertTrue(r["conflict"])
 		self.assertNotEqual(r["bestand"], f1)
 		self.assertEqual(self.volgnummers(f1), [1, 3])
 		self.assertEqual(self.inhoud(f1, 3), b"inhoud B")
+
+	def test_paar_dat_voor_de_patch_al_hergebruikt_was_is_een_onbekende_basis(self):
+		"""Anna werkt offline vanuit (F1, 2) = A. Vóór de invoering verplaatst Piet F1 met overschrijven, herstelt het en
+		uploadt B: weer (F1, 2). Na de patch is de huidige versie nog 2 (B), maar Anna's basis (F1, 2) is onzeker."""
+		f1 = self.planning_met_twee_versies()
+		self.piet_verplaatst_over_een_ander(f1)
+		# De oude route, zonder hoogste_versie: B kreeg nummer 2 opnieuw.
+		frappe.db.sql("update `tabOpslagbestand` set hoogste_versie = 0, basisgrens = 0 where ruimte = %s", self.ruimte)
+		frappe.set_user(self.piet)
+		b = upload(self.ruimte, "planning.ifc", b"inhoud B", basis_versie=1)
+		frappe.set_user(self.anna)
+		self.assertEqual((b["bestand"], b["versie"]), (f1, 2))
+		hoogste_versie_invullen.execute()
+		self.assertEqual(
+			frappe.db.get_value("Opslagbestand", f1, ["huidige_versie", "hoogste_versie", "basisgrens"]), (2, 3, 4)
+		)
+		# Met weiger: onbekende_basis, ook al is (F1, 2) de huidige versie. Bij het begin en in upload_klein.
+		code = foutcode(
+			self, api.OnbekendeBasis, start, self.ruimte, "planning.ifc", b"inhoud A+", basis_versie=2, basis_bestand=f1, bij_conflict="weiger"
+		)
+		self.assertEqual(code, "onbekende_basis")
+		self.assertEqual(self.basis_in_antwoord(), (2, f1))
+		(k,) = api.upload_klein_bytes(
+			self.ruimte, [item("planning.ifc", b"A+", basis_versie=2, basis_bestand=f1, bij_conflict="weiger")], {"f0": b"A+"}
+		)["resultaten"]
+		self.assertEqual((k["ok"], k["foutcode"], k["huidige_versie"], k["huidig_bestand"]), (False, "onbekende_basis", 2, f1))
+		# Standaard (kopie): een conflictkopie, en B blijft staan.
+		r = api.upload_klaar(**start(self.ruimte, "planning.ifc", b"inhoud A+", basis_versie=2, basis_bestand=f1))
+		(k,) = api.upload_klein_bytes(
+			self.ruimte, [item("planning.ifc", b"A++", basis_versie=2, basis_bestand=f1)], {"f0": b"A++"}
+		)["resultaten"]
+		for kopie in (r, k):
+			self.assertTrue(kopie["conflict"])
+			self.assertNotEqual(kopie["bestand"], f1)
+		self.assertEqual(self.volgnummers(f1), [1, 2])
+		self.assertEqual(self.inhoud(f1), b"inhoud B")
+		# Als basis downloaden weigert; gewoon downloaden blijft werken (de geschiedenis blijft leesbaar).
+		self.assertEqual(foutcode(self, api.OnbekendeBasis, api.download, bestand=f1, versie=2, als_basis=1), "onbekende_basis")
+		self.assertEqual(foutcode(self, api.OnbekendeBasis, api.download, bestand=f1, als_basis=1), "onbekende_basis")
+		self.assertEqual(self.inhoud(f1, 2), b"inhoud B")
+		# Een oude client zonder basis_bestand: zoals voorheen een nieuwe versie, met het nummer na het hoogste. Die
+		# versie ligt boven de grens en is een zekere basis.
+		r = api.upload_klaar(**start(self.ruimte, "planning.ifc", b"oude client", basis_versie=2))
+		self.assertEqual((r["bestand"], r["versie"], r["conflict"]), (f1, 4, False))
+		self.assertEqual(api.download(bestand=f1, als_basis=1)["versie"], 4)
+		r = api.upload_klaar(**start(self.ruimte, "planning.ifc", b"vijf", basis_versie=4, basis_bestand=f1, bij_conflict="weiger"))
+		self.assertEqual((r["bestand"], r["versie"], r["conflict"]), (f1, 5, False))
+
+	def test_bestand_zonder_verwijderd_krijgt_grens_0_en_een_oude_basis_blijft_geldig(self):
+		g = upload(self.ruimte, "schema.ifc", b"een")["bestand"]
+		upload(self.ruimte, "schema.ifc", b"twee", basis_versie=1)
+		frappe.db.sql("update `tabOpslagbestand` set hoogste_versie = 0, basisgrens = 0 where name = %s", g)
+		hoogste_versie_invullen.execute()
+		self.assertEqual(frappe.db.get_value("Opslagbestand", g, ["huidige_versie", "hoogste_versie", "basisgrens"]), (2, 2, 0))
+		self.assertEqual(api.download(bestand=g, versie=1, als_basis=1)["versie"], 1)
+		code = foutcode(
+			self, api.VerouderdeBasis, start, self.ruimte, "schema.ifc", b"x", basis_versie=1, basis_bestand=g, bij_conflict="weiger"
+		)
+		self.assertEqual(code, "verouderde_basis")
+		self.assertEqual(self.basis_in_antwoord(), (2, g))
+		r = api.upload_klaar(**start(self.ruimte, "schema.ifc", b"drie", basis_versie=2, basis_bestand=g, bij_conflict="weiger"))
+		self.assertEqual((r["bestand"], r["versie"], r["conflict"]), (g, 3, False))
 
 	def test_verplaatsen_met_overschrijven_geeft_het_doel_het_nummer_na_het_hoogste(self):
 		f1 = self.planning_met_twee_versies()
@@ -555,15 +623,18 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		self.assertEqual(self.volgnummers(f1), [1, 3])
 		self.assertEqual(self.versies_van(f1), (3, 3))
 
-	def test_hoogste_versie_zakt_niet_bij_opslaan(self):
-		"""Ook wie het bestand als document opslaat (bijv. via /api/resource), kan `hoogste_versie` niet verlagen."""
+	def test_hoogste_versie_en_basisgrens_veranderen_niet_bij_opslaan(self):
+		"""Ook wie het bestand als document opslaat (bijv. via /api/resource), kan `hoogste_versie` niet verlagen en de
+		`basisgrens` niet veranderen."""
 		f1 = self.planning_met_twee_versies()
+		frappe.db.set_value("Opslagbestand", f1, "basisgrens", 2)
 		frappe.set_user(self.piet)
 		doc = frappe.get_doc("Opslagbestand", f1)
-		doc.huidige_versie, doc.hoogste_versie = 1, 0
+		doc.huidige_versie, doc.hoogste_versie, doc.basisgrens = 1, 0, 0
 		doc.save()
 		frappe.set_user(self.anna)
 		self.assertEqual(self.versies_van(f1), (1, 2))
+		self.assertEqual(frappe.db.get_value("Opslagbestand", f1, "basisgrens"), 2)
 		self.assertEqual(upload(self.ruimte, "planning.ifc", b"drie", basis_versie=1)["versie"], 3)
 
 	def test_patch_geeft_een_al_verplaatst_bestand_een_veilige_bovengrens(self):
@@ -578,9 +649,13 @@ class TestVergelijkEnSchrijf(Hulp, IntegrationTestCase):
 		# Zoals vóór deze versie: geen hoogste_versie (alleen de database, zonder het document).
 		frappe.db.sql("update `tabOpslagbestand` set hoogste_versie = 0 where ruimte = %s", self.ruimte)
 		hoogste_versie_invullen.execute()
-		# F1: huidige 1 + één keer verplaatst = 2. Gewoon verwijderd telt ook mee (te veel, dus veilig).
+		# F1: huidige 1 + één keer verplaatst = 2. Gewoon verwijderd telt ook mee (te veel, dus veilig). Een bestand met
+		# een regel `verwijderd` krijgt als grens het eerste nummer na de patch; de andere 0.
 		self.assertEqual(
 			[self.versies_van(b) for b in (f1, gewoon, stil, ander_id)], [(1, 2), (1, 2), (1, 1), (2, 2)]
+		)
+		self.assertEqual(
+			[frappe.db.get_value("Opslagbestand", b, "basisgrens") for b in (f1, gewoon, stil, ander_id)], [3, 3, 0, 0]
 		)
 		self.assertEqual(ander, ["ander.ifc"])
 		frappe.set_user(self.piet)
