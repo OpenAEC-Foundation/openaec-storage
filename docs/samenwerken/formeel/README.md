@@ -15,8 +15,9 @@ de release `v1.8.0`, build 2026-11-03).
 ```
 
 `tlc.sh` begrenst geheugen (`TLC_XMX`, standaard 3g) en tijd (`TLC_TIJD`, standaard 2 uur) en draait met
-`nice`. `draai_reeks.sh` start pas als er geen andere TLC draait, en schrijft een regel per model in
-`runs/samenvatting.txt`.
+`nice`. Op aia gaat elke run via de rij voor zware runs (`ZWAAR`, standaard `/home/aia09/worktrees/zwaar.sh`; zet
+`ZWAAR=` om zonder rij te draaien). `draai_reeks.sh` start pas als er geen andere TLC draait, en schrijft een regel
+per model in `runs/samenvatting.txt`.
 
 ## De vier specs
 

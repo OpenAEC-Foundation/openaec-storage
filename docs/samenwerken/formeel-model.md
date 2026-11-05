@@ -43,9 +43,10 @@ Daarnaast is er een bewijsschets voor het samenvoegen van IFC-bestanden: [`forme
 
 ## Wat klopt
 
-- **De wijzigingenlijst met storage-PR #16.** Geen enkele volgorde laat een client een wijziging missen. TLC liep
-  193.723 toestanden af (3 gelijktijdige schrijvers, 2 lezers, 2 ruimtes). Als ik de belangrijkste stap van de fix
-  weghaal, vindt TLC meteen een fout. Dat laat zien dat het model de fix echt meet.
+- **De wijzigingenlijst met storage-PR #16.** Geen enkele volgorde laat een client een wijziging missen. En een
+  client die blijft vragen, krijgt uiteindelijk elke wijziging die voor hem is. TLC liep 193.723 toestanden af (3
+  gelijktijdige schrijvers, 2 lezers, 2 ruimtes; 39 minuten). Als ik de belangrijkste stap van de fix weghaal, vindt
+  TLC meteen een fout. Dat laat zien dat het model de fix echt meet.
 - **Uploaden met storage-PR #9, als de client de opslaan-lus gebruikt.** Geen dubbele actieve bestanden, geen stille
   overschrijving, geen verloren inhoud (42.920 toestanden), zolang S3 een tweede "klaar" voor dezelfde upload weigert.
 - **Uitchecken, met een kleine aanpassing** (zie fout 1). Met die aanpassing: geen fout in 5.969 toestanden.
