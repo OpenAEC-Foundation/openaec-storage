@@ -649,7 +649,11 @@ basis, ons en hun. De client maakt dan een conflictkopie, zoals nu, en zet het r
 per conflict laten kiezen.
 
 **Schrijven.** Het resultaat begint bij de tekst van ons. Alleen regels van gewijzigde objecten veranderen, en wat
-van hun komt, krijgt nieuwe nummers achteraan. Zo blijft de delta per blok klein bij het uploaden. Een knoop zonder
+van hun komt, krijgt nieuwe nummers achteraan. Zo blijft de tekst zo dicht mogelijk bij die van ons. Bij het
+uploaden helpt dat nu nog niet: de opslag vergelijkt de blokken van 8 MiB op hun plek, en één regel die vooraan
+langer of korter wordt, verschuift alle blokken erna. In meting 07 (desktop-PR #12) gaan na het samenvoegen van een
+bestand van 92 MB alle 11 blokken over het netwerk. Alleen blokken die op inhoud worden hergebruikt, maken de
+upload klein; dat staat bij A11 en in hoofdstuk 12. Een knoop zonder
 GlobalId (geometrie, stijl, plaatsing) hergebruikt de schrijver alleen als hij bij hetzelfde object hoort; een knoop
 met dezelfde inhoud bij een ander object is niet dezelfde knoop. Voorbeeld: W (rood) en V (blauw) hebben elk eigen,
 gelijke geometrie; hun maakt V groen. Het resultaat geeft V groen en laat W rood, nooit andersom. Een gelijk
@@ -988,7 +992,7 @@ is. Sinds 5 november is er één openbare bron over de kern: het contract tussen
 | A13 | Route B (de gestreamde desktop) zet een bestand terug met de versie die hij in de werkmap zette als basis | §5.6 (de opslaan-lus), §5.15 | De code die de werkmap van de container vult en terugzet: geeft die een basis mee, en vervangt hij een bestand dat een programma nog open heeft? |
 | A9 | De database is MariaDB 11.8 of nieuwer, met REPEATABLE READ en `innodb_snapshot_isolation` aan | §5.4 (de veger), de transacties van stap 4 | De image en de `my.cnf` van de database in de deploy van de kern. Het team gebruikt nu een image met erpnext v16.51.1; de proeven draaiden op Frappe 16.55.2 |
 | A10 | Er draaien achtergrondwerkers (RQ) en de scheduler | Meldingen bundelen (§5.10), de haak (§5.4), een taak voor `anker_status` | De Procfile of compose: `worker`, `schedule` |
-| A11 | De opslag in productie gebruikt dezelfde blokken van 8 MiB met BLAKE3 als de code van openaec-storage | Alleen de gewijzigde blokken versturen bij grote modellen | De opslaginstellingen in de deploy van de kern |
+| A11 | De opslag in productie gebruikt dezelfde blokken van 8 MiB met BLAKE3 als de code van openaec-storage. Die blokken liggen op een vaste plek; na samenvoegen gaan dan alle blokken opnieuw (meting 07, desktop-PR #12). Voor een kleine upload is hergebruik op inhoud nodig | Alleen de gewijzigde blokken versturen bij grote modellen (§5.6, hoofdstuk 12) | De opslaginstellingen in de deploy van de kern |
 
 **Volgorde van lezen** zodra er toegang is: eerst A1 en A4 (wie bezit de bestanden en de rechten), dan A9 en A10 (de
 database en de werkers), dan A2, A6, A8, A12 en A13 (realtime, hulpprogramma's, werkplek), dan A3, A5, A7 en A11. Daarna werk ik
