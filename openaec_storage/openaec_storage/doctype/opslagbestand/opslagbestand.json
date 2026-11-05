@@ -69,7 +69,7 @@
    "label": "Basisgrens",
    "default": "0",
    "read_only": 1,
-   "description": "Een basis onder dit volgnummer is onzeker (onbekende_basis): vóór de invoering kon een nummer van dit bestand terugkomen met andere inhoud. Gezet door de patch hoogste_versie_invullen; 0 voor bestanden waar dat niet kon."
+   "description": "Een basis onder dit volgnummer is onzeker (onbekende_basis): vóór de invoering kon een nummer terugkomen met andere inhoud. De patch versienummers_bij_invoering gaf de huidige versie dit nummer; 0 voor een bestand dat toen nog geen versie had."
   },
   {
    "fieldname": "grootte",

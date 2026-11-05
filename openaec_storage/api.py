@@ -266,7 +266,7 @@ def _controleer_samenvoeging(bestand: str, samengevoegd: dict) -> None:
 def _onzekere_basis(ruimte: str, basis_bestand: str | None, basis_versie: int | None) -> bool:
 	"""Is de basis (`basis_bestand`, `basis_versie`) onzeker? Dat is zo als die versie niet (meer) bestaat (bijv. een
 	versie die met `verplaats` en overschrijven naar een ander bestand ging), of als `basis_versie` onder de grens bij
-	de invoering ligt (`Opslagbestand.basisgrens`, gezet door de patch `hoogste_versie_invullen`): vóór de invoering
+	de invoering ligt (`Opslagbestand.basisgrens`, gezet door de patch `versienummers_bij_invoering`): vóór de invoering
 	kon een nummer terugkomen met andere inhoud. Zonder `basis_bestand` of `basis_versie` niet: dan geldt de oude regel."""
 	if not basis_bestand or basis_versie is None:
 		return False
