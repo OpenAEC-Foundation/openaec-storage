@@ -420,7 +420,11 @@ Daarom:
    versienummer als basis. S is als basis veilig, omdat N alle wijzigingen van S bevat: de desktop-sync voegt alleen
    samen zonder automatische keuze bij een conflict; bij een conflict wordt er niets geschreven maar een
    conflictkopie gemaakt.
-3. **Eén veilige vervangroutine voor elke lokale vervanging**, ook de gewone download, die dit gat nu al heeft:
+3. **Eén veilige routine voor elke lokale vervanging en elke lokale verwijdering**: na samenvoegen, bij de gewone
+   download, en bij het lokaal verwijderen van een bestand dat een ander op de server verwijderde. De laatste twee
+   hebben dit gat nu al: `motor.rs` r. 660 doet `remove_file` zonder de inhoud opnieuw te controleren, dus werk dat de
+   gebruiker tussen de scan en de verwijdering opslaat, verdwijnt. Bij een verwijdering is er geen nieuwe inhoud om te
+   plaatsen; de rest van de routine is gelijk:
    - **Journaal eerst.** Vóór het verplaatsen legt de sync de vervanging duurzaam vast in `.openaec/` (geschreven en
      met fsync): het pad, de plek van de bron, de verwachte inhoud (hash), de nieuwe inhoud (versie N) en de stap.
      Bij elke stap werkt hij het journaal bij.
@@ -442,13 +446,20 @@ Daarom:
      in `/proc/<pid>/`; macOS: `proc_pidinfo`; Windows: de Restart Manager, `RmGetList`), volgt een laatste controle
      van de inhoud tegen de momentopname die echt verwerkt is. Is die gelijk, dan mag de bron weg (of als herstelkopie
      blijven). Is ze anders (een programma schreef via een open verbinding, ook als het daarna sloot), dan is dat een
-     lokale wijziging, afgeleid van de verwerkte inhoud, en die gaat door dezelfde opslaan-lus. Kan de sync niet
+     lokale wijziging, afgeleid van de verwerkte inhoud, en die gaat door dezelfde opslaan-lus. Bij een verwijdering
+     bestaat het bestand op de server niet meer; nieuwe inhoud komt dan terug op het pad en gaat als nieuw bestand naar
+     de server (of als conflictkopie als daar intussen weer een bestand met die naam staat). Kan de sync niet
      vaststellen dat er geen schrijvers meer zijn, dan blijft de bron bewaakt.
+   - **Bewaking van bronnen.** De scanner (`motor.rs` r. 332) en de bestandswachter (`bewaking.rs` r. 18) slaan
+     `.openaec/` nu helemaal over. Ze moeten `.openaec/bron/` wel meenemen, of de sync bekijkt die bronnen elke ronde
+     apart; een bron neerzetten zonder bewaking beschermt niets.
 4. **Verplichte proeven in stap 5:** lezen, de gebruiker slaat opnieuw op, de upload slaagt, de volgende ronde (beide
    wijzigingen in de volgende versie); een programma dat na de inhoudscontrole via zijn al open verbinding schrijft
    en open blijft; een programma dat tussen de inhoudscontrole en de procescontrole schrijft en sluit; een schrijfbare
    geheugenkoppeling; een geweigerde eerste verplaatsing (lokale inhoud en toestand blijven); een bestand dat vlak
-   vóór de plaatsing op het pad verschijnt (het blijft staan); en een onderbreking na het journaal, na het verplaatsen,
+   vóór de plaatsing op het pad verschijnt (het blijft staan); de gebruiker slaat op na de scan maar vóór een lokale
+   verwijdering (het nieuwe werk blijft en gaat naar de server); een wijziging die alleen in een bron gebeurt, zonder
+   gebeurtenis op het oorspronkelijke pad (de sync verwerkt haar); en een onderbreking na het journaal, na het verplaatsen,
    na het plaatsen en vóór het afronden (na herstart is er niets verloren en wordt niets als verwijderd gezien). Op
    elk platform dat de desktop-app ondersteunt.
 
