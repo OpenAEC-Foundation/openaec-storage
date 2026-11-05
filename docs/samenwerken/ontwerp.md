@@ -243,15 +243,25 @@ krijgt, wacht tot N gecommit is. Het slot duurt alleen van het uitdelen tot de c
 upload. Een teruggedraaide transactie deelt geen nummer uit, dus er ontstaat geen gat door een rollback.
 
 - `wijzigingen()` filtert en sorteert op `commitnummer` in plaats van `name`. `volgnummer` en `cursor` in het antwoord
-  worden het commitnummer. De cursor is de laatste teruggegeven regel, of zonder regels het hoogste commitnummer van de
-  site. Paginering en `meer` blijven zoals nu.
+  worden het commitnummer. De cursor is de laatste regel van de pagina vóór het filter op een deling (zoals nu), en
+  bij een lege pagina gewoon `sinds`. De losse vraag naar het hoogste nummer van de site (`api.py` r. 867) vervalt:
+  tussen de lege pagina en die vraag kan een commit vallen, en die regel zou de client dan nooit krijgen. Paginering
+  en `meer` blijven zoals nu.
+- `ruimtebeheer.activiteit` sorteert en nummert ook op het commitnummer, zodat één gebeurtenis in beide API's
+  hetzelfde nummer heeft.
 - Bestaande regels krijgen bij de migratie `commitnummer = name`, en de teller begint boven het hoogste `name`. Een
   cursor die een client nu bewaart, blijft dus geldig.
 - Een gat in de nummers binnen één ruimte is gewoon een regel van een andere ruimte. Dat geeft niets: de veiligheid
   komt uit de commitvolgorde, niet uit het zoeken naar gaten.
 - Verplichte databaseproeven: twee transacties in omgekeerde volgorde gecommit (de client mist niets), een
-  teruggedraaide transactie, regels in twee ruimtes, een deling als wortel, en een volle pagina (de cursor schuift
-  op).
+  teruggedraaide transactie, regels in twee ruimtes, een deling als wortel, een volle pagina (de cursor schuift op),
+  een lege pagina met een commit vlak erna, een taak die tussendoor commit (elke commit nummert zijn eigen regels;
+  een `before_commit`-callback draait per commit maar één keer, dus de nummeraar meldt zich na elke commit opnieuw),
+  een batch waarvan één item naar een savepoint terugging, en een andere `before_commit`-callback die na de
+  nummeraar nog een regel schrijft.
+- Slotvolgorde: een transactie neemt eerst de sloten op bestand of map (stap 4), en het slot op de teller altijd als
+  laatste, vlak voor de commit. Zo kan er geen kring van wachtende transacties ontstaan. Hoe lang het slot op de
+  teller duurt, hangt af van wat er na het uitdelen nog in de transactie gebeurt; de proef meet het.
 
 ### 5.5 API-overzicht
 
@@ -337,20 +347,28 @@ waarde.
 | Na samenvoegen wijst iets naar een verwijderd object | Conflict |
 | Na samenvoegen heeft een object meer relaties dan het schema toestaat (een INVERSE met bovengrens 1, bijv. een wand in twee verdiepingen), terwijl dat in ons en in hun elk klopte | Conflict |
 | Na samenvoegen voldoet een samengevoegde verzameling niet aan de grenzen uit het schema (bijv. ons haalt A en hun haalt B uit `RelatedElements = {A, B}`: leeg, terwijl minstens 1 nodig is) | Conflict |
-| De koppeling tussen een object en een definitie (eigenschappenset, type, materiaal, classificatie, document: `IfcRelDefines*` en `IfcRelAssociates*`) bestond in de basis en verdween door de ene kant, terwijl de andere kant die definitie wijzigde, of iets wat aan die definitie hangt | Conflict |
+| Een definitie gold in de basis voor een object, de ene kant haalde hem weg (of verwijderde het object), en de andere kant wijzigde die definitie terwijl hij daar nog voor het object gold (zie de koppelregel hieronder) | Conflict |
 | Na samenvoegen zit er een kring in de boom (`IfcRelAggregates`, `IfcRelNests`, `IfcRelContainedInSpatialStructure`), of is een object dat in ons én in hun vanaf het project bereikbaar was, dat niet meer | Conflict |
 | Onbekend schema of een geval dat de bibliotheek niet kent | Conflict |
 
-"Wat aan een definitie hangt" volgt de verwijzingen vanuit de definitie naar andere definities, ook indirect. Voorbeeld:
-W1 en W2 hebben type T (`IfcRelDefinesByType`), en T heeft eigenschappenset P (`IfcTypeObject.HasPropertySets`). Ons
-geeft W1 type T2; hun zet de brandwerendheid in P op 60. De koppeling W1–T verdween door ons, en hun wijzigde P, dat
-aan T hangt: conflict.
+**De koppelregel.** Per object X en per versie bepaalt de bibliotheek de *definities die voor X gelden*:
+eigenschappensets, typen, materialen, classificaties en documenten. Een definitie geldt voor X als hij aan X hangt via
+`IfcRelDefines*` of `IfcRelAssociates*`, of via een attribuut van een definitie die voor X geldt (bijv. het type van
+X, en de `HasPropertySets` van dat type), ook indirect. Directe en indirecte koppelingen vallen zo onder één regel.
 
-De koppelregel werkt per object, niet per definitie. Voorbeeld: wanden W1 en W2 delen eigenschappenset P. Ons
-verwijdert W1 (en haalt W1 uit de relatie); hun zet de brandwerendheid in P van 30 naar 60 minuten. P hangt nog aan
-W2, maar de koppeling W1–P verdween door ons, terwijl hun P wijzigde: conflict. Komen het verdwijnen van de koppeling
-en de wijziging van de definitie van dezelfde kant, dan is het geen conflict: die toestand komt helemaal uit één
-kant. Een verdiepingsrelatie (`IfcRelContainedInSpatialStructure`) of een volgorde in een planning
+Conflict als: een definitie D gold in de basis voor X; bij de ene kant geldt D niet meer voor X (koppeling weg, D uit
+de `HasPropertySets` van het type, ander type, of X verwijderd); bij de andere kant geldt D nog voor X, en die kant
+wijzigde D. Komen het weghalen en de wijziging van D van dezelfde kant, dan is het geen conflict: die toestand komt
+helemaal uit één kant.
+
+Voorbeelden, alle drie conflict:
+
+- Wanden W1 en W2 delen eigenschappenset P. Ons verwijdert W1; hun zet de brandwerendheid in P van 30 naar 60. P
+  hangt nog aan W2, maar voor W1 haalde ons P weg, terwijl hun P wijzigde.
+- W1 en W2 hebben type T, en T heeft eigenschappenset P (`HasPropertySets`). Ons geeft W1 type T2; hun wijzigt P.
+- W1 heeft type T met `HasPropertySets = {P, Q}`. Ons haalt P uit T; hun wijzigt P.
+
+De regel is streng: liever een conflictkopie te veel dan een wijziging die stil verdwijnt. Een verdiepingsrelatie (`IfcRelContainedInSpatialStructure`) of een volgorde in een planning
 (`IfcRelSequence`) is geen definitie: een andere verdiepingsnaam bij hun en een verplaatste wand bij ons geven samen
 geen conflict.
 
@@ -362,7 +380,7 @@ Deze gevallen zijn verplichte tests van de bibliotheek, met de voorbeelden uit d
 een andere verdieping gaat hangen (de herplaatsing van ons blijft), de wand die via twee nieuwe relaties in twee
 verdiepingen komt (conflict), de verwijderde wand met zijn eigenschappenset (conflict), de gedeelde eigenschappenset
 van W1 en W2 (conflict), de lege `RelatedElements` (conflict), het ander type terwijl de eigenschappenset van het oude type wijzigt
-(conflict), P onder Q en Q onder P (conflict), bewust losmaken en wijzigen door één kant (geen
+(conflict), P uit de `HasPropertySets` van een behouden type terwijl hun P wijzigt (conflict), P onder Q en Q onder P (conflict), bewust losmaken en wijzigen door één kant (geen
 conflict), een gedeelde plaatsing die een kant splitst (geen stil verlies) en een gewijzigde auteur in OPS (de auteur
 van hun blijft). Elk geval in IFC2X3, IFC4 en IFC4X3, waar het schema dat toelaat.
 
