@@ -949,21 +949,22 @@ Voorbeeld: in een model van 1 GiB (128 blokken) verandert één wand in het midd
 over de lijn. Downloaden met `blokken` werkt op dezelfde manier.
 
 **G1. Een objectindex in plaats van het hele model.** Het bestand blijft waar het is (mmap). Per instantie houdt de
-bibliotheek alleen de plek in het bestand en een paar bits bij (object, wie ernaar verwijst, anker), per object de
-GlobalId en een inhoudshash volgens de regels van §5.6. Attributen leest ze opnieuw uit de tekst als ze nodig zijn.
-Een inhoudshash hangt af van de knopen waar een knoop naar wijst, en die staan soms verderop in het bestand. Daarom
-rekent ze in een paar doorlopen eerst uit wat globaal is (kringen, ankers, gedeelde knopen), en dan per object de
-hash. Rekensom (schatting): 5 GB heeft ongeveer 90 miljoen instanties (57 bytes per instantie, zoals het model van
-92 MB). Met 12 bytes per instantie is de index 1,1 GB per versie, en samenvoegen heeft er drie. Haalt de index de grens
-van 2 GB niet, dan gaan ook de tabellen naar schijf, of de bibliotheek indexeert de versies na elkaar.
+bibliotheek 5 bytes bij: de plek in het bestand en 7 bits (object, wie ernaar verwijst, anker, vluchtig type). Per
+object zijn het 64 bytes: het nummer, een sleutel uit de GlobalId en de inhoudshash volgens de regels van §5.6.
+Attributen leest ze opnieuw uit de tekst als ze nodig zijn. Een inhoudshash hangt af van de knopen waar een knoop naar
+wijst, en die staan soms verderop in het bestand. Daarom rekent ze in een paar doorlopen eerst uit wat globaal is
+(kringen, ankers, gedeelde knopen), en dan per object de hash (`docs/samenwerken/gb-schaal.md` in
+openaec-cloud-desktop). Rekensom (schatting) voor het testmodel van 6,3 GB van P4 (116 miljoen instanties, 780 000
+objecten): 0,6 GB per versie. `verschil` heeft er twee, samenvoegen drie: ongeveer 1,9 GB, net onder de grens van 2 GB. Een
+bestand met nummers die niet oplopen, valt terug op ongeveer 40 bytes per instantie; dat haalt de grens niet.
 - De client bewaart de index van de basis naast de momentopname S in `.openaec/` (§5.6). Samenvoegen hoeft dan alleen
   ons en hun te indexeren.
 - De index is een cache: hij is altijd opnieuw te maken uit het IFC-bestand (zie §12.3).
 - Elke client rekent de index zelf uit. Een index van een andere client kan fout zijn, door een fout of met opzet, en
   dan verdwijnt een wijziging stil. Een index van de server is alleen te vertrouwen als de server de bibliotheek draait
   (A6).
-- Status: wordt gebouwd op `samenvoegen/gb-schaal` (openaec-cloud-desktop), eerst voor `verschil` (`stromend.rs`,
-  nog niet gecommit op 5 november, 15:35).
+- Status: `verschil_stromend` wordt gebouwd op `samenvoegen/gb-schaal` (openaec-cloud-desktop), met dezelfde uitkomst
+  als `verschil` op elke test. Samenvoegen is daar nog een plan (5 november, 16:10).
 
 **G2. Alleen gewijzigde objecten lezen en samenvoegen.** Gelijke hash is gelijk. Alleen een object met een andere hash
 leest de bibliotheek uit het bestand, met zijn knopen, en daarop gelden de regels van §5.6. De schrijver kopieert de
@@ -1209,9 +1210,10 @@ ze wel bij het versturen. Een trait voor formaten komt pas als er een tweede for
 
 Punten die een review op schaal en duurzaamheid moet toetsen:
 
-1. G1 en G2: klopt de rekensom van het geheugen (90 miljoen instanties bij 5 GB, drie indexen), en waar gaat het
-   geheugen nog heen met tabellen op schijf? Geeft de weg per object precies dezelfde uitkomst als de weg van nu, ook
-   voor de controles die de hele graaf nodig hebben (koppelregel, boomregel, kringen)?
+1. G1 en G2: klopt de rekensom van het geheugen (5 bytes per instantie, drie indexen, 1,9 GB bij 6,3 GB), en waar
+   gaat het geheugen nog heen (verwijzingen naar verderop, gedeelde knopen, het schrijven)? Geeft de weg per object
+   precies dezelfde uitkomst als de weg van nu, ook voor de controles die de hele graaf nodig hebben (koppelregel,
+   boomregel, kringen)?
 2. G1: is het terecht dat een client geen index van een andere client vertrouwt? Kan een index van de basis in
    `.openaec/` verouderen zonder dat de client het merkt?
 3. G4, V2: kan hergebruik op hash ooit een verkeerd stuk in een versie zetten (een range die niet klopt, een blok van
