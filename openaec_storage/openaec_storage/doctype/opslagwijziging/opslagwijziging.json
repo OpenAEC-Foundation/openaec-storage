@@ -62,7 +62,7 @@
    "read_only": 1,
    "search_index": 1,
    "in_list_view": 1,
-   "description": "Uitgedeeld vlak voor de commit, in commitvolgorde; 0 zolang de regel niet gecommit is. Volgnummer en cursor van de wijzigingenlijst."
+   "description": "Uitgedeeld door de veger vóór een lezing, aan regels die al vastgelegd zijn; 0 tot dan. Volgnummer en cursor van de wijzigingenlijst."
   }
  ],
  "modified": "2026-11-05 12:00:00.000000",

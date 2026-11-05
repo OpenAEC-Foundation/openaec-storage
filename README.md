@@ -351,10 +351,13 @@ een conflictkopie naast het origineel, net als bij `upload_klaar`.
 wijzigingenlijst na cursor `sinds`, oplopend: `{cursor, meer, wijzigingen: [{volgnummer, soort, doel_doctype, doel,
 naam, creation}]}`. De desktop-sync bewaart de cursor per koppeling en leest vanaf daar.
 
-- Het `volgnummer` is het commitnummer van de regel (`commitnummer.py`). Dat nummer wordt vlak vóór de commit
-  uitgedeeld, onder een slot op één tellerregel, dus in commitvolgorde. Heeft een client nummer N gelezen, dan
-  verschijnt er daarna nooit meer een regel met een nummer van N of lager. Een transactie die eerder begon maar later
-  commit, krijgt het hogere nummer.
+- Het `volgnummer` is het commitnummer van de regel (`commitnummer.py`). Een nieuwe regel krijgt 0. Vóór elke
+  lezing (`wijzigingen`, `ruimtebeheer.activiteit`) nummert de veger de regels die al vastgelegd zijn en nog 0 hebben,
+  in volgorde van `name`, onder een slot op één tellerregel, en commit dat vóór hij leest. Een regel krijgt zo pas
+  een nummer als hij al vastgelegd is, en altijd een hoger nummer dan elk nummer dat eerder is uitgedeeld. Heeft een
+  client nummer N gelezen, dan verschijnt er daarna nooit meer een regel met een nummer van N of lager. Langs welke
+  weg een regel is vastgelegd (gewone commit, rauwe SQL-commit, impliciete commit door DDL, achtergrondtaak), maakt
+  niet uit.
 - De cursor is het nummer van de laatste regel van de pagina, met `deling` van vóór het filter op de gedeelde map.
   Bij een lege pagina blijft de cursor `sinds`. `meer` is waar als de pagina vol is: lees dan meteen door.
 - Een gat in de nummers van één ruimte is normaal: daar staat een regel van een andere ruimte. Een teruggedraaide
@@ -362,17 +365,17 @@ naam, creation}]}`. De desktop-sync bewaart de cursor per koppeling en leest van
 - Een cursor van vóór deze versie (een `name`) blijft geldig: bestaande regels kregen bij de migratie
   `commitnummer = name`, en de teller begint boven het hoogste `name`.
 - `ruimtebeheer.activiteit` sorteert en nummert ook op het commitnummer (nieuwste eerst): één gebeurtenis heeft in
-  beide hetzelfde nummer.
-- Het slot op de teller is het laatste slot van een transactie, na de sloten op bestand en map. Het duurt van het
-  uitdelen tot de SQL-commit klaar is: gemeten 2 ms bij 1 regel, 3 ms bij 100 en 19 ms bij 500 regels in één
-  transactie (MariaDB 11.8, lokaal; `test_commitnummer`).
-- Een wijzigingsregel zonder commitnummer wordt nooit vastgelegd. De nummeraar nummert als laatste before_commit-
-  callback; blijven er na 20 keer achteraan zetten nog callbacks bijkomen, dan mislukt de commit
-  (`NummeringMislukt`). Mislukt het uitdelen zelf (bijv. de wachttijd op de teller is om), dan gaat de nummering
-  terug naar haar savepoint, mislukt de commit, en nummert een volgende commit de regels opnieuw.
-- Het commitnummer is alleen van de nummeraar: wie een Opslagwijziging invoegt of opslaat (ook via `/api/resource`),
-  kan het niet zetten.
-- Alleen MariaDB: de nummeraar gebruikt een gebruikersvariabele en `on duplicate key update`.
+  beide hetzelfde nummer. Een regel met nummer 0 staat er (nog) niet in.
+- Sloten: alleen de veger neemt het tellerslot, nooit een schrijver. Vindt de veger geen regel met nummer 0, dan neemt
+  hij geen slot. Hij nummert alleen vastgelegde regels, met een gewone lezing, dus hij wacht nooit op een schrijver;
+  twee vegers wachten wel op elkaar. Gemeten (MariaDB 11.8, lokaal; `test_commitnummer`): een veging duurt 2 tot
+  5 ms bij 1 regel, 22 tot 29 ms bij 100 en 117 tot 131 ms bij 500 regels.
+- De veger commit de lopende transactie. Een lezer schrijft zelf niets; staat er toch schrijfwerk in
+  (`frappe.db.transaction_writes`), of is de transactiecontrole uit (een doc-haak), dan weigert hij met een
+  `RuntimeError`. Bij fout 1020 of 1213 begint hij tot vijf keer opnieuw; elke andere fout draait de veging terug.
+- Het commitnummer is alleen van de veger: wie een Opslagwijziging invoegt of opslaat (ook via `/api/resource`), kan
+  het niet zetten.
+- Alleen MariaDB: de teller gebruikt `on duplicate key update`.
 
 
 ## Overdrachten
