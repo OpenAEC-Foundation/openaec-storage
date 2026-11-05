@@ -152,9 +152,10 @@ Uit de AEC-wereld (alleen het samenwerkmodel):
 4. **Opmerkingen die meegaan.** Een opmerking hangt aan een object (GlobalId) en een standpunt (BCF), niet aan een
    regel of pagina. In de volgende versie staat hij nog op dezelfde wand. Is de wand weg of gewijzigd, dan zegt de
    API dat.
-5. **Werkt offline en met Nextcloud.** De samenvoeglogica zit in een bibliotheek die de desktop-sync gebruikt. Die
-   werkt met elke opslag die versies en een "schrijf alleen als de versie nog klopt" kent: de SuperCloud en
-   Nextcloud.
+5. **Werkt offline, los van één transport.** De samenvoeglogica zit in een bibliotheek die de desktop-sync gebruikt.
+   Die vraagt van de opslag alleen twee dingen: versies lezen, en "schrijf alleen als de basis nog klopt". De opslag
+   van de SuperCloud is openaec-storage. Omdat de bibliotheek niets anders van de opslag weet, kan ze later ook op de
+   server, in de browser of achter een ander transport draaien.
 6. **Open formaten.** Alles werkt op IFC (ISO 16739) en BCF. Geen eigen formaat.
 
 ## 5. Architectuur
@@ -172,9 +173,9 @@ Uit de AEC-wereld (alleen het samenwerkmodel):
  │ - IFC lezen          │  │ - gebeurtenissen + push        │  │ openaec-storage:             │
  │ - objectmodel        │  │ - aanwezigheid                 │  │   Bestandsversie, S3,        │
  │ - verschil           │  │ - opmerkingen + @noemen        │  │   basis_versie, slot         │
- │ - samenvoegen        │  │ - volgen + meldingen           │  │ Nextcloud:                   │
- │ - opslaan-lus        │  │ - uitchecken per object        │  │   WebDAV, ETag + If-Match,   │
- │   (lees, voeg samen, │  │ - activiteit per bestand       │  │   versies                    │
+ │ - samenvoegen        │  │ - volgen + meldingen           │  │   blokken van 8 MiB met      │
+ │ - opslaan-lus        │  │ - uitchecken per object        │  │   BLAKE3, versies            │
+ │   (lees, voeg samen, │  │ - activiteit per bestand       │  │                              │
  │    schrijf)          │  │                                │  │                              │
  └──────────────────────┘  └───────────────────────────────┘  └──────────────────────────────┘
    draait in de client        draait op de server              één trait in de client
@@ -182,8 +183,9 @@ Uit de AEC-wereld (alleen het samenwerkmodel):
 ```
 
 - **Laag 1, opslag**, heeft maar twee dingen nodig: versies lezen en "schrijf deze inhoud alleen als de huidige
-  versie nog N is" (vergelijk-en-schrijf). openaec-storage heeft dat met `basis_versie`; Nextcloud met de ETag en
-  `If-Match`. Meer hoeft de opslag niet van samenvoegen te weten.
+  versie nog N is" (vergelijk-en-schrijf). openaec-storage heeft dat met `basis_versie` (en in het voorstel van stap
+  4 met `basis_bestand` en `basis_versie_id`). Meer hoeft de opslag niet van samenvoegen te weten. De trait in de
+  client houdt de bibliotheek los van de vorm van de API; dat helpt de levensduur. Een tweede opslag is geen doel.
 - **Laag 2, samenwerkdiensten**, gaat over mensen: wie is er, wie zegt wat, wie wil wat weten, wie werkt aan welke
   objecten. Dit is kleine data met rechten per bestand. Het hoort naast de bestanden op de server.
 - **Laag 3, formaatkennis**, weet hoe een IFC-bestand in objecten uiteenvalt. Dit is een losse bibliotheek zonder
@@ -521,12 +523,11 @@ is geen modus "ons wint" of "hun wint", want die verliest ook niet-botsend werk 
 
 **De opslaan-lus.** Eén trait met drie methodes: `huidige()`, `lees(versie)` en `schrijf_als(basis, inhoud)`, die
 weigert als de basis verouderd is. De basis is het bestand plus het id van zijn versie, niet een versienummer: bij
-openaec-storage `basis_bestand` en `basis_versie_id`, bij Nextcloud de ETag (een opnieuw aangemaakt bestand heeft een
-andere ETag en een ander fileid). Zo'n basis wijst altijd naar dezelfde inhoud of naar niets (§5.5, "De basis is de
+openaec-storage `basis_bestand` en `basis_versie_id`. Zo'n basis wijst altijd naar dezelfde inhoud of naar niets (§5.5, "De basis is de
 versieregel zelf"). De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen, schrijf opnieuw met de
 nieuwe basis; geef op na enkele pogingen. Hoort de basis niet (meer) bij het bestand, of heeft de client voor dit
 bestand geen `versie_id` (uit de tijd vóór de invoering), dan weigert `schrijf_als` met `onbekende_basis` en faalt
-`lees(basis)` (bij openaec-storage `download(…, versie_id=…)`) met een duidelijke fout. De lus voegt dan niet samen: de client maakt een conflictkopie, zoals nu. openaec-storage en Nextcloud passen allebei op die
+`lees(basis)` (bij openaec-storage `download(…, versie_id=…)`) met een duidelijke fout. De lus voegt dan niet samen: de client maakt een conflictkopie, zoals nu. openaec-storage past op die
 trait. Een slot van een ander is een aparte weigering: daar helpt samenvoegen niet, en de lus probeert het niet.
 
 De desktop-sync gebruikt de lus alleen bij een server die `bij_conflict="weiger"` kent (`mogelijkheden()`). Bij een
@@ -673,22 +674,12 @@ Live samen bewerken in dezelfde app (manier C) bouwt op hetzelfde objectmodel: e
 object G kreeg waarde W". Het vraagt dat elke app zijn model zo uitdrukt, en een besluit over het transport in de
 kern. Het valt buiten deze ronde.
 
-### 5.12 Opslag via Nextcloud
+### 5.12 (vervallen)
 
-De Nextcloud-kolom is eigen kennis; ik heb hem niet tegen een echte Nextcloud getest.
-
-| Nodig | openaec-storage | Nextcloud |
-|---|---|---|
-| Versie lezen | `download(bestand, versie)` | WebDAV `versions/<gebruiker>/versions/<fileid>` |
-| Vergelijk-en-schrijf | `basis_bestand` en `basis_versie_id` (en straks `bij_conflict=weiger`) | `PUT` met `If-Match: <ETag>`; 412 bij een andere versie |
-| Uitchecken per bestand | `vergrendel` | WebDAV `LOCK` of de app files_lock |
-| Opmerkingen | `Opslagopmerking` (§5.9) | WebDAV `comments/files/<fileid>` (zonder anker en status) |
-| Activiteit en meldingen | wijzigingenlijst, Notification Log | apps activity en notifications (OCS) |
-| Aanwezigheid, uitchecken per object | eigen dienst | bestaat niet; alleen via een eigen dienst |
-
-Gevonden in openaec-cloud (de Rust-bibliotheek voor Nextcloud): `upload_file` en `upload_manifest` doen een `PUT`
-zonder `If-Match` (`src/webdav.rs`). Twee schrijvers overschrijven elkaar dan zonder melding. Wie die bibliotheek
-gebruikt voor samenwerken, moet de ETag meesturen.
+Hier stond "Opslag via Nextcloud". Nextcloud hoort niet bij de SuperCloud (correctie van Ethan, 5 november 2026). Het
+kwam per vergissing uit de eerste opdracht, op basis van de beschrijving van de repo openaec-cloud, zonder na te gaan
+of die bij de SuperCloud hoort. De opslag van de SuperCloud is openaec-storage. Het nummer blijft leeg, zodat
+verwijzingen naar §5.13 en §5.14 blijven kloppen.
 
 ### 5.13 Offline
 
@@ -714,7 +705,7 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 |---|---|---|---|
 | K1 | Samenvoegen op GlobalId en inhoud, niet op STEP-nummer | OPS en andere programma's nummeren bij elk opslaan opnieuw; de GlobalId blijft (IFC eist dat) | ifcmerge-aanpak op `#nummers`: werkt alleen met programma's die de nummers laten staan (Bonsai) |
 | K2 | Eigen STEP-lezer in Rust, geen IfcOpenShell | Moet in de desktop-app en later in de browser (WebAssembly) draaien, zonder C++-afhankelijkheid; we hebben alleen de graaf nodig, geen geometrie | IfcOpenShell (Python/C++): zwaar om mee te leveren in Tauri en in de browser |
-| K3 | Samenvoegen eerst in de client, later ook op de server | Werkt offline en met Nextcloud; de server hoeft alleen vergelijk-en-schrijf te kennen | Alleen op de server: werkt niet met Nextcloud en vraagt eerst een besluit over de kern |
+| K3 | Samenvoegen eerst in de client, later ook op de server (herzien op 5 november zonder Nextcloud; de keuze blijft) | Werkt offline; de server hoeft alleen vergelijk-en-schrijf te kennen; de bibliotheek hangt niet af van de kern, die nog niet gelezen is | Alleen op de server: werkt niet offline, en vraagt eerst een besluit over de kern (issue #13, A6 in §9) |
 | K4 | Bij een conflict standaard geen automatische keuze, maar een conflictkopie met rapport | Een verkeerde automatische keuze in een model kost meer dan een kopie; zo gaat er nooit iets verloren | "Laatste wint" per attribuut: sneller, maar stil verlies |
 | K5 | De bibliotheek staat in openaec-cloud-desktop (`crates/openaec-samenvoegen`) | Daar zitten de Rust-code, de sync en de conflicten al; los van `openaec-sync`, dus ook bruikbaar voor de server en de apps | In openaec-storage naast `gateway/`: dichter bij de server, maar de eerste gebruiker is de desktop-app |
 | K6 | Eigen `Opslagopmerking` in plaats van Frappe `Comment` | We hebben anker, versie, draad, status en BCF nodig; `Comment` heeft dat niet | Frappe `Comment`: bestaat al met @noemen in de desk, maar zonder plek in het bestand |
@@ -771,21 +762,44 @@ Niets hiervan wordt nu gebouwd. Dit is wat de onderlaag mogelijk maakt:
 
 ## 9. Open aannames over de kern
 
-De kern (`openaec-supercloud`) is niet gelezen. Daarom staan deze aannames open. Elke aanname kan de plek van de code
-of de API veranderen.
+De kern (`openaec-supercloud`, org OpenAECStudio) is niet gelezen. Besluit van Ethan (5 november 2026): op de server
+wordt niet verder gebouwd tot de kern gelezen is. Storage-PR #9 en #16 blijven draft. Dit hoofdstuk zegt daarom per
+aanname drie dingen: de kleinste vorm van de aanname, welke keuzes in dit ontwerp ervan afhangen, en wat ik in de kern
+als eerste lees. Keuzes die lang moeten meegaan, staan hier als opties. Ze worden pas vastgelegd als de kern gelezen
+is.
 
-| # | Aanname | Wat er verandert als hij niet klopt |
-|---|---|---|
-| A1 | openaec-storage is de eigenaar van bestanden en versies; de werkplek (`openaec_werkplek`) toont tools en geeft berichten door (zie issues #2, #3, #6) | Opmerkingen, aanwezigheid en volgen kunnen in de kern horen |
-| A2 | De SuperCloud draait socket.io van Frappe, en de desktop-app kan daar met een token bij | Push (§5.4) moet via een andere dienst, of de clients blijven vragen |
-| A3 | De kern heeft nog geen eigen dienst voor opmerkingen, meldingen of activiteit | Dan bouwen we daarop in plaats van op eigen DocTypes |
-| A4 | Gebruikers en gasten beheert openaec_beheer; rechten op bestanden gaan alleen via `rechten.py` | Rechten voor opmerkingen kunnen anders liggen |
-| A5 | Het ontwerp van openaec-storage (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` in de kern) zegt over conflicten wat de code zegt (§6 daarvan: de upload wint alleen bij de juiste basis) | De conflictregel kan breder bedoeld zijn |
-| A6 | Naast Frappe kan een Rust-hulpprogramma draaien (zoals de WebDAV-gateway al in een eigen container draait) | `verschil` en handhaving op de server moeten anders, bijv. als Python-extensie |
-| A7 | De `BIM Issue` van open-bim-platform (BCF) en `Opslagopmerking` worden één systeem | Twee systemen voor opmerkingen op hetzelfde model |
-| A8 | Het werkplekprotocol kan gebeurtenissen naar een tool sturen (voorstel in issue #3) | Aanwezigheid en samenvoegen in de browser-apps hebben een andere weg nodig |
+| # | Aanname, zo klein mogelijk | Keuzes die ervan afhangen | Eerst lezen in de kern |
+|---|---|---|---|
+| A1 | De inhoud en de versies van een bestand in een ruimte staan alleen in openaec-storage (`Bestandsversie` + S3), en niets schrijft er buiten de API van openaec-storage om | §5.3, §5.4 (de wijzigingenlijst als enige bron), stap 4 en 4b, K3 | Welke app de DocTypes voor bestanden en versies bezit; of de kern zelf naar S3 of naar `tabBestandsversie` schrijft (zoek in de code op `Bestandsversie`, `s3`, `boto3`) |
+| A2 | Een ingelogde client kan één realtime-kanaal per site volgen | §5.4 (push), §5.8, §5.10 | De Procfile of compose van de kern (draait `socketio`?), de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
+| A3 | De kern heeft nog geen eigen DocTypes voor opmerkingen, meldingen of activiteit op bestanden | §5.9, §5.10, K6 | De lijst van DocTypes in de kern (alle `doctype/*/*.json`) en waar `Notification Log` wordt gebruikt |
+| A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling) | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4) | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, en of de kern `DocShare` gebruikt |
+| A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis | §5.5 (de basis), `bij_conflict` | Dat document, §6 |
+| A6 | Naast Frappe kan een los programma draaien (zoals de WebDAV-gateway van openaec-storage in een eigen container) | Handhaving op de server (§5.7 trede 2), `gewijzigd` bij opmerkingen (§5.9), samenvoegen op de server | De compose- of deployconfig van de kern: welke containers er zijn, en of er een plek is voor een hulpprogramma |
+| A7 | De `BIM Issue` van open-bim-platform en opmerkingen op bestanden mogen één systeem worden | §5.9, K6 | Of de kern al naar `BIM Issue` verwijst, en wie de eigenaar van dat DocType is |
+| A8 | Het werkplekprotocol kan een gebeurtenis naar een tool sturen | Aanwezigheid en samenvoegen in de browser-apps | De code van `openaec_werkplek` (de berichten tussen werkplek en tool) |
+| A9 | De database is MariaDB 11.8 of nieuwer, met REPEATABLE READ en `innodb_snapshot_isolation` aan | §5.4 (de veger), de transacties van stap 4 | De image en de `my.cnf` van de database in de deploy van de kern. Het team gebruikt nu een image met erpnext v16.51.1; de proeven draaiden op Frappe 16.55.2 |
+| A10 | Er draaien achtergrondwerkers (RQ) en de scheduler | Meldingen bundelen (§5.10), de haak (§5.4), een taak voor `anker_status` | De Procfile of compose: `worker`, `schedule` |
+| A11 | De opslag in productie gebruikt dezelfde blokken van 8 MiB met BLAKE3 als de code van openaec-storage | Alleen de gewijzigde blokken versturen bij grote modellen | De opslaginstellingen in de deploy van de kern |
 
-Zodra de kern leesbaar is, lees ik eerst die repo en pas ik dit ontwerp en de plek van de code aan.
+**Volgorde van lezen** zodra er toegang is: eerst A1 en A4 (wie bezit de bestanden en de rechten), dan A9 en A10 (de
+database en de werkers), dan A2, A6 en A8 (realtime, hulpprogramma's, werkplek), dan A3, A5, A7 en A11. Daarna werk ik
+dit ontwerp bij, en pas dan wordt er weer op de server gebouwd.
+
+**Keuzes die lang meegaan, als opties tot de kern gelezen is:**
+
+- **Waar de samenwerkdiensten wonen** (opmerkingen, aanwezigheid, volgen, meldingen, uitchecken per object).
+  Optie 1: in openaec-storage, naast de bestanden (nu het voorstel; rechten en bestanden op één plek). Optie 2: in de
+  kern, als die al zulke diensten heeft (A3). Optie 3: een eigen app tussen beide. Beslissend: A1, A3 en A4.
+- **Het transport voor push.** Optie 1: socket.io van Frappe. Optie 2: een eigen stroom (SSE) per site. Optie 3: alleen
+  vragen (`wijzigingen` met een cursor). Optie 3 werkt altijd en blijft de bodem: wie niets mag missen, leest de lijst.
+  Beslissend: A2.
+- **Samenvoegen op de server** (voor de browser en WebDAV, en als wachtrij bij veel schrijvers). Optie 1: het
+  Rust-hulpprogramma naast Frappe. Optie 2: de bibliotheek als Python-extensie. Optie 3: alleen in de client.
+  Beslissend: A6.
+- **De vorm van de basis in de API** (`basis_versie_id` uit PR #9). De bibliotheek en de sync zien alleen de trait
+  `Opslag`; de vorm in de API kan dus nog veranderen zonder dat de bibliotheek verandert. Beslissend: A1 en A5.
+- **Eén systeem voor opmerkingen** (eigen DocType of `BIM Issue`). Beslissend: A3 en A7.
 
 ## 10. Issues voor de owner van de kern
 
@@ -808,5 +822,4 @@ Deze staan als issues in openaec-storage, zoals #2 tot en met #7:
   in draft-PR #797 (`docs/relaties-tussen-projecten.md`, branch `docs/relaties-tussen-projecten-supercloud`).
 - open-bim-platform: `docs/superpowers/specs/2026-10-26-open-bim-platform-design.md` (§5.6 BIM Issue en BCF, §6.2
   ifcmerge, §7.4 eisen aan storage).
-- openaec-cloud (Nextcloud): `src/webdav.rs`, `src/lib.rs`.
 - Microsoft 365 en AEC-tools: de links in §3.
