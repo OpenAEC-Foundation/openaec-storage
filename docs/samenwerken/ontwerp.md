@@ -809,6 +809,40 @@ offline kan waarschuwen. Aanwezigheid en meldingen zijn er offline niet.
 - Een samengevoegde versie is een gewone nieuwe versie. De versie van hun blijft bestaan en is terug te zetten. De
   eigen invoer van ons staat lokaal bewaard (§5.6, "Wat er bewaard blijft"), of als conflictkopie op de server.
 
+### 5.15 De koppeling met de werkplek en de gestreamde desktop
+
+Bron: het contract tussen een app en de SuperCloud in de Blueprint, `docs/supercloud-koppeling.md`
+(OpenAEC-Foundation/OpenAEC-Blueprint, `main` op `ba163af9`, 5 november 2026), Infra-issue #75, en het voorbeeld in
+Open Calc Studio (`src/services/file/siteHost.ts` en `hostFileActions.ts`, branch `feat/werkplek-app-tools`). Een
+tool draait in de SuperCloud op twee manieren: **route A**, als browsertool in de werkplek, met het hostcontract
+`window.openaecHost` (`open`, `save`, `list`, `versions`); en **route B**, als desktop-app in een gestreamde desktop,
+waar de SuperCloud het bestand uit Docs in een werkmap van de container zet en het teruggezette bestand als nieuwe
+versie bewaart. "De SuperCloud doet het transport, de rechten, het slot en de versies."
+
+Wat dat voor dit ontwerp betekent:
+
+- **De opslaan-lus zit voor route A in de host.** Een tool slaat op met `save(bytes, {id, expectedVersion})`, en
+  `expectedVersion` is de `version` die `open` gaf. Dat is de basis van §5.5. Een conflict geeft nu een kopie, waarvan
+  de tool de naam toont. De tool behandelt `version` als ondoorzichtig (`string | number`; Calc Studio geeft hem
+  alleen terug). De host kan daar dus de `versie_id` gebruiken in plaats van het volgnummer, zonder dat er één tool
+  verandert. Dat is nodig: een volgnummer kan terugkomen (§5.5). Zie A5.
+- **De werkplek voorkomt nu tegelijk bewerken.** `open` geeft `readOnly: true` als "iemand anders het bewerkt". Dat
+  is manier A van §5.2 (voorkomen), met een slot per bestand. Voor een soort die de bibliotheek kan samenvoegen
+  (IFC) is het voorstel: geen alleen-lezen voor de tweede, wel aanwezigheid (§5.8), en bij opslaan samenvoegen in de
+  host in plaats van een kopie (issue #11). Na een samengevoegde opslag heeft de tool niet de inhoud die nu op de
+  server staat; de host zegt dat in zijn antwoord, en de tool opent het bestand opnieuw. Voor DWG, PDF en andere
+  soorten blijft het slot. Zie A12.
+- **Aanwezigheid hoeft de tool niet te melden.** De host weet wanneer een tool een bestand opent (en of het
+  alleen-lezen is) en wanneer het frame sluit; de host meldt zelf `meld_aanwezig` en `meld_weg` namens de gebruiker.
+  Naar de tool toe heeft het contract al een gebeurtenis (`openaec-host-preferences`). Het voorstel is een tweede in
+  dezelfde vorm, met alleen soort en bestand (zoals de push in §5.4); de inhoud haalt de tool bij de host op
+  (issue #10). Zie A8.
+- **Route B is een sync.** Het bestand in de werkmap terugzetten als nieuwe versie heeft dezelfde risico's als de
+  desktop-sync: zonder de basis gaat werk van een ander verloren (§2), en een programma dat het bestand nog open heeft
+  kan in een vervangen bestand schrijven (§5.6, veilig vervangen). Zie A13, en de optie "één sync" in §9.
+- **De assistent (MCP)** opent en bewaart niets zelf ("Openen en opslaan doet de gebruiker via het hostcontract").
+  Voor de samenwerklaag verandert er daardoor niets.
+
 ## 6. Keuzes
 
 Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 november 2026, nog niet beoordeeld.
@@ -878,7 +912,8 @@ De kern (`openaec-supercloud`, org OpenAECStudio) is niet gelezen. Besluit van E
 wordt niet verder gebouwd tot de kern gelezen is. Storage-PR #9 en #16 blijven draft. Dit hoofdstuk zegt daarom per
 aanname drie dingen: de kleinste vorm van de aanname, welke keuzes in dit ontwerp ervan afhangen, en wat ik in de kern
 als eerste lees. Keuzes die lang moeten meegaan, staan hier als opties. Ze worden pas vastgelegd als de kern gelezen
-is.
+is. Sinds 5 november is er één openbare bron over de kern: het contract tussen een app en de SuperCloud
+(§5.15). Wat daaruit volgt, staat bij A5, A8, A12 en A13.
 
 | # | Aanname, zo klein mogelijk | Keuzes die ervan afhangen | Eerst lezen in de kern |
 |---|---|---|---|
@@ -886,16 +921,18 @@ is.
 | A2 | Een ingelogde client kan één realtime-kanaal per site volgen, de realtimeserver vraagt bij abonneren `frappe.realtime.has_permission`, en de Frappe van de kern kent dezelfde soorten configuratie die op een document reageert als de bench (§5.4) | §5.4 (push, geen gedeelde kamers), §5.8, §5.10, §5.14 | De Procfile of compose van de kern (draait `socketio`, en welke versie: de Node-server of die in Python?), welke controle die bij abonneren vraagt, de Frappe-versie en welke DocTypes in de kern op `run_method` van een document reageren (`Notification`, `Webhook`, `Automation Flow` …), de proxy-instelling voor `/socket.io`, en welk soort token de desktop-app krijgt |
 | A3 | De kern heeft nog geen eigen DocTypes voor opmerkingen, meldingen of activiteit op bestanden | §5.9, §5.10, K6 | De lijst van DocTypes in de kern (alle `doctype/*/*.json`) en waar `Notification Log` wordt gebruikt |
 | A4 | Elke toegang tot een bestand loopt via `rechten.vereis_op_plek` (rol in de ruimte of deling), en alleen beheerders van de site hebben `System Manager` of `Script Manager` | §5.14, alle rechten in §5.5, de bescherming van versieregels (stap 4), de grens van het vertrouwen in §5.4 | De `has_permission`- en `permission_query_conditions`-haken van de kern, hoe openaec_beheer gasten en groepen maakt, of de kern `DocShare` gebruikt, en wie in de kern `System Manager` of `Script Manager` krijgt |
-| A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis | §5.5 (de basis), `bij_conflict` | Dat document, §6 |
+| A5 | De conflictregel in het ontwerp van openaec-storage in de kern (`docs/superpowers/specs/2026-10-20-openaec-storage-design.md` §6) is dezelfde als in de code: een upload wint alleen bij de juiste basis. Het hostcontract bevestigt de vorm: `save(bytes, {id, expectedVersion})`, en een conflict geeft een kopie (§5.15). Open is nog: is `version` daar het volgnummer of een id dat nooit terugkomt? | §5.5 (de basis), `bij_conflict`, §5.15 | Dat document, §6; en in `openaec_werkplek` wat de host als `version` teruggeeft en hoe hij `expectedVersion` aan storage doorgeeft |
 | A6 | Naast Frappe kan een los programma draaien (zoals de WebDAV-gateway van openaec-storage in een eigen container) | Handhaving op de server (§5.7 trede 2), `gewijzigd` bij opmerkingen (§5.9), samenvoegen op de server | De compose- of deployconfig van de kern: welke containers er zijn, en of er een plek is voor een hulpprogramma |
 | A7 | De `BIM Issue` van open-bim-platform en opmerkingen op bestanden mogen één systeem worden | §5.9, K6 | Of de kern al naar `BIM Issue` verwijst, en wie de eigenaar van dat DocType is |
-| A8 | Het werkplekprotocol kan een gebeurtenis naar een tool sturen | Aanwezigheid en samenvoegen in de browser-apps | De code van `openaec_werkplek` (de berichten tussen werkplek en tool) |
+| A8 | De host kan een tool een gebeurtenis over een bestand sturen, zoals hij nu al `openaec-host-preferences` stuurt (§5.15), en de host hoort zelf nieuwe versies (via A2 of de wijzigingenlijst) | Aanwezigheid en nieuwe versies in de browser-apps (#10) | In `openaec_werkplek`: hoe `openaec-host-preferences` wordt verstuurd, en of de host berichten van de server ontvangt |
+| A12 | Het slot dat de werkplek gebruikt voor `readOnly` ("iemand anders bewerkt het") is het slot per bestand van openaec-storage (`vergrendel`, `Opslagvergrendeling`) | §5.2 manier A, §5.7, samenvoegen in de werkplek (#11), de vergelijking met Microsoft 365 (§4a) | Waar `openaec_werkplek` `readOnly` bepaalt, en hoe lang zo'n slot blijft staan |
+| A13 | Route B (de gestreamde desktop) zet een bestand terug met de versie die hij in de werkmap zette als basis | §5.6 (de opslaan-lus), §5.15 | De code die de werkmap van de container vult en terugzet: geeft die een basis mee, en vervangt hij een bestand dat een programma nog open heeft? |
 | A9 | De database is MariaDB 11.8 of nieuwer, met REPEATABLE READ en `innodb_snapshot_isolation` aan | §5.4 (de veger), de transacties van stap 4 | De image en de `my.cnf` van de database in de deploy van de kern. Het team gebruikt nu een image met erpnext v16.51.1; de proeven draaiden op Frappe 16.55.2 |
 | A10 | Er draaien achtergrondwerkers (RQ) en de scheduler | Meldingen bundelen (§5.10), de haak (§5.4), een taak voor `anker_status` | De Procfile of compose: `worker`, `schedule` |
 | A11 | De opslag in productie gebruikt dezelfde blokken van 8 MiB met BLAKE3 als de code van openaec-storage | Alleen de gewijzigde blokken versturen bij grote modellen | De opslaginstellingen in de deploy van de kern |
 
 **Volgorde van lezen** zodra er toegang is: eerst A1 en A4 (wie bezit de bestanden en de rechten), dan A9 en A10 (de
-database en de werkers), dan A2, A6 en A8 (realtime, hulpprogramma's, werkplek), dan A3, A5, A7 en A11. Daarna werk ik
+database en de werkers), dan A2, A6, A8, A12 en A13 (realtime, hulpprogramma's, werkplek), dan A3, A5, A7 en A11. Daarna werk ik
 dit ontwerp bij, en pas dan wordt er weer op de server gebouwd.
 
 **Keuzes die lang meegaan, als opties tot de kern gelezen is:**
@@ -912,6 +949,13 @@ dit ontwerp bij, en pas dan wordt er weer op de server gebouwd.
 - **De vorm van de basis in de API** (`basis_versie_id` uit PR #9). De bibliotheek en de sync zien alleen de trait
   `Opslag`; de vorm in de API kan dus nog veranderen zonder dat de bibliotheek verandert. Beslissend: A1 en A5.
 - **Eén systeem voor opmerkingen** (eigen DocType of `BIM Issue`). Beslissend: A3 en A7.
+- **Slot of samenvoegen in de werkplek, per soort bestand.** Optie 1: het slot blijft voor alles (nu; de tweede
+  persoon krijgt alleen-lezen). Optie 2: geen slot voor een soort die de bibliotheek kan samenvoegen (IFC), wel
+  aanwezigheid en samenvoegen bij opslaan; het slot blijft voor de rest. Optie 2 is het voorstel: alleen zo werken
+  twee mensen tegelijk aan één model. Beslissend: A12, en waar het samenvoegen draait (A6).
+- **Eén sync voor de desktop en route B.** Optie 1: de gestreamde desktop gebruikt dezelfde sync als de desktop-app
+  (`openaec-sync`: de basis, veilig vervangen, samenvoegen bij opslaan). Optie 2: de kern houdt een eigen werkmap,
+  die dan dezelfde regels moet volgen. Optie 1 is het voorstel: één plek voor dezelfde risico's. Beslissend: A13.
 
 ## 10. Issues voor de owner van de kern
 
@@ -919,6 +963,10 @@ Deze staan als issues in openaec-storage, zoals #2 tot en met #7:
 
 1. #10 Werkplek: aanwezigheid en gebeurtenissen van een bestand aan een tool doorgeven.
 2. #11 Werkplek: samenvoegen bij opslaan vanuit een tool, in plaats van een conflictkopie.
+
+   Bij #10 en #11 staat een reactie die het voorstel op het hostcontract van de Blueprint legt (§5.15): de host meldt
+   aanwezigheid zelf, een gebeurtenis in de vorm van `openaec-host-preferences`, en samenvoegen in `save` zonder
+   nieuwe vorm voor de tool.
 3. #12 Realtime in de SuperCloud: draait socket.io, en kan de desktop-app er met een token bij?
 4. #13 Server: een Rust-hulpprogramma naast Frappe voor verschil en samenvoegen van IFC.
 5. #14 Eén systeem voor opmerkingen op bestanden en BIM-issues (BCF).
@@ -935,3 +983,8 @@ Deze staan als issues in openaec-storage, zoals #2 tot en met #7:
 - open-bim-platform: `docs/superpowers/specs/2026-10-26-open-bim-platform-design.md` (§5.6 BIM Issue en BCF, §6.2
   ifcmerge, §7.4 eisen aan storage).
 - Microsoft 365 en AEC-tools: de links in §3.
+- OpenAEC-Blueprint, `main` op `ba163af9`: `docs/supercloud-koppeling.md` (het contract tussen een app en de
+  SuperCloud). Open-Infra-Studio issue #75. Open Calc Studio, branch `feat/werkplek-app-tools`:
+  `src/services/file/siteHost.ts`, `src/services/file/hostFileActions.ts`. Het voorbeeld van Open PDF Studio
+  (`js/core/werkplek-app.js`) staat niet op de standaardbranch van `open-pdf-studio`; volgens het contract gaat het
+  over de assistent, niet over bestanden.
