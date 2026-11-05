@@ -314,18 +314,34 @@ Uitbreiding van de bestaande API:
   voorbeeld krijgt B dan versie 3, en Anna's basis (F1, 2) is verouderd. Een patch zet het veld voor bestaande
   bestanden op een veilige bovengrens: een overgeslagen nummer kan geen kwaad, een te laag nummer wel. `zet_terug`
   maakt altijd een nieuwe versie en verlaagt nooit een nummer.
-- **Een grens bij de invoering.** De patch kan niet zien welk paar vóór de invoering al twee inhouden had. Hergebruik
-  was alleen mogelijk bij een bestand dat ooit de bron was van een verplaatsing met overschrijven. Zo'n bron kreeg
-  altijd een regel `verwijderd` in de wijzigingenlijst (sinds die route bestaat, commit 829eb23), en die lijst wordt
-  nergens opgeruimd. Daarom krijgt elk bestand met zo'n regel een grens: het eerste nummer na de patch. Een basis
-  onder die grens is onzeker, ook als het paar gelijk is aan de huidige versie. De server weigert hem bij schrijven
-  met de foutcode `onbekende_basis` (met `bij_conflict=kopie`: een conflictkopie), en
-  `download(…, als_basis=1)` weigert hem ook. Een basis die niet (meer) bestaat, bijvoorbeeld een versie die met een
-  verplaatsing naar een ander bestand ging, krijgt dezelfde weigering. Andere bestanden krijgen grens 0: daar kon geen
-  nummer terugkomen, en een oude basis blijft geldig. Voorbeeld: Anna werkt offline vanuit (F1, 2); vóór de invoering
-  verplaatst Piet F1 met overschrijven, herstelt het en uploadt B, weer als (F1, 2). Na de invoering krijgt Anna's
-  upload een conflictkopie, en B blijft staan. Een gewone verwijdering logt ook `verwijderd`, dus een bestand krijgt
-  soms onnodig een grens. Dat kost hoogstens één conflictkopie, geen data.
+- **Eén keer bij de invoering.** Vóór stap 4 kon een paar al twee inhouden krijgen, langs meer dan één weg: een bron
+  van een verplaatsing met overschrijven die daarna hersteld werd, en twee verplaatsingen tegelijk naar hetzelfde doel.
+  Die lazen het doel zonder slot en gaven allebei hetzelfde volgende nummer uit (`api.py` r. 487-514); de
+  WebDAV-gateway verplaatst zo bij elk opslaan via een tijdelijk bestand (`gateway/src/fs.rs` r. 305). Welke paren
+  dat raakte, is achteraf niet zeker vast te stellen. Daarom geldt bij de invoering voor elk bestand hetzelfde:
+  1. De patch geeft de huidige versie een nummer N dat het bestand nooit eerder uitgaf, en zet `huidige_versie`, het
+     hoogste nummer en een grens op N. Het blijft dezelfde versieregel met dezelfde inhoud in S3; alleen het nummer
+     verandert. Er komt dus geen kopie in S3 en het quotum blijft gelijk. Staan er twee regels op het huidige nummer,
+     dan krijgt de laatst gewijzigde N; de andere blijft in de geschiedenis.
+  2. N is één hoger dan een veilige bovengrens: het aantal versieregels van het bestand plus het aantal regels
+     `verwijderd` voor het bestand in de wijzigingenlijst. Waarom dat een bovengrens is: elk nieuw nummer was één
+     hoger dan het nummer van een bestaande regel (of 0), dus het hoogste nummer ooit is hoogstens het aantal keren
+     dat er een nummer werd uitgegeven. Elke uitgifte hing één regel aan het bestand. Een regel ging er alleen af met
+     een verplaatsing met overschrijven, en die logt altijd `verwijderd` voor de bron (sinds die route bestaat,
+     commit 829eb23). De wijzigingenlijst wordt nergens opgeruimd, ook niet door de logopruiming van Frappe.
+  3. Een basis onder de grens is onzeker, ook als het paar gelijk lijkt aan de huidige versie. De server weigert hem
+     bij schrijven met de foutcode `onbekende_basis` (met `bij_conflict=kopie`: een conflictkopie) en bij
+     `download(…, als_basis=1)`. Een basis die niet (meer) bestaat, bijvoorbeeld een versie die met een verplaatsing
+     naar een ander bestand ging, krijgt dezelfde weigering. De geschiedenis blijft gewoon leesbaar zonder `als_basis`.
+  4. Wie het bestand na de patch ophaalt, krijgt versie N, en die basis is geldig. Opslaan werkt daarna dus gewoon.
+  5. Een openstaande overdracht die naar het oude nummer van de huidige versie wijst, krijgt in dezelfde patch N.
+
+  Voorbeeld: Anna haalt (F0, 2) = A op en gaat offline. Daarna leggen twee verplaatsingen tegelijk A en B allebei
+  als (F0, 2) vast. De patch geeft B nummer 4 (twee regels, nul keer `verwijderd`, plus één). Anna's upload met basis
+  (F0, 2) krijgt een conflictkopie, en B blijft staan. Piet haalt F0 op als versie 4 en slaat gewoon op als versie 5.
+  Wat het kost: elke client ziet bij elk bestand één keer een nieuwe versie. Een client die lokaal niets wijzigde,
+  haalt het bestand opnieuw op, of neemt N zonder download over als de blokhashes van versie N gelijk zijn aan die
+  van het lokale bestand (dan is de inhoud gelijk). Wie offline wijzigde, krijgt één conflictkopie per bestand.
 - `mogelijkheden()` krijgt `samenwerken: {aanwezigheid, opmerkingen, volgen, objectuitcheck, bij_conflict_weiger,
   verschil}` zodat een client weet wat de server kent.
 
@@ -445,7 +461,7 @@ openaec-storage `basis_bestand` en `basis_versie`, bij Nextcloud de ETag (een op
 andere ETag en een ander fileid). Zo'n basis wijst altijd naar dezelfde inhoud of naar niets (§5.5,
 "Versienummers komen nooit terug"). De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen,
 schrijf opnieuw met de nieuwe basis; geef op na enkele pogingen. Bestaat de basis niet meer (de versie is met een
-verplaatsing naar een ander bestand gegaan) of ligt hij onder de grens bij de invoering (§5.5), dan weigert
+verplaatsing naar een ander bestand gegaan) of ligt hij onder de grens van de invoering (§5.5, "Eén keer bij de invoering"), dan weigert
 `schrijf_als` met `onbekende_basis` en faalt `lees(basis)` (bij openaec-storage `download(…, als_basis=1)`) met een
 duidelijke fout. De lus voegt dan niet samen: de client maakt een conflictkopie, zoals nu. openaec-storage en Nextcloud passen allebei op die
 trait. Een slot van een ander is een aparte weigering: daar helpt samenvoegen niet, en de lus probeert het niet.
@@ -516,8 +532,10 @@ Daarom:
    gebeurtenis op het oorspronkelijke pad (de sync verwerkt haar); een bestand dat een ander verwijderde en onder
    dezelfde naam opnieuw maakte, terwijl de client offline werkte (de server weigert; er gaat niets van de nieuwe
    inhoud verloren); een bestand dat een ander met overschrijven verplaatste, herstelde en opnieuw uploadde, terwijl
-   de client offline werkte, één keer ná en één keer vóór de invoering van stap 4 (de server weigert de oude basis
-   met `onbekende_basis`, `lees(basis)` faalt duidelijk, en er gaat niets verloren); en een onderbreking na het journaal, na het verplaatsen,
+   de client offline werkte, één keer ná en één keer vóór de invoering van stap 4; een doelbestand dat vóór de
+   invoering met twee verplaatsingen tegelijk twee keer hetzelfde nummer kreeg (in alle gevallen weigert de server de
+   oude basis met `onbekende_basis`, faalt `lees(basis)` duidelijk, en gaat er niets verloren); een client die ná de
+   invoering ophaalt en opnieuw opslaat (dat lukt gewoon); en een onderbreking na het journaal, na het verplaatsen,
    na het plaatsen en vóór het afronden (na herstart is er niets verloren en wordt niets als verwijderd gezien). Op
    elk platform dat de desktop-app ondersteunt.
 
@@ -647,7 +665,7 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 | K16 | Een commitnummer, uitgedeeld vlak voor de commit onder een kort slot op één tellerregel | Volgnummers komen nu in invoegvolgorde, niet in commitvolgorde, en een client kan regels missen; zo volgt de veiligheid uit de commitvolgorde, en blijven paginering en bestaande cursors werken (review Sol, ronde 2 en 3) | Een cursor die vóór een jong gat stopt: veilig alleen als geen transactie langer duurt dan de tijdgrens (een taak in `long` mag 25 minuten), en hij breekt de paginering |
 | K17 | Gedeelde ankers krijgen de verzameling van hun ankers als identiteit; twijfel is een conflict | Een gekozen vertegenwoordiger verspringt als een programma een plaatsing splitst (review Sol) | Een vaste keuze, bijv. het kleinste anker |
 | K18 | Na samenvoegen de boom controleren: geen kring, niets wat bereikbaar was raakt los | Twee geldige herindelingen kunnen samen een kring maken, terwijl elke cardinaliteit klopt (review Sol, ronde 3) | Alleen cardinaliteiten uit het schema controleren |
-| K19 | Versienummers van een bestand komen nooit terug: een veld met het hoogste uitgegeven nummer, plus een patch met een veilige bovengrens, en een grens voor onzekere bases van vóór de patch (alleen bij bestanden met een regel `verwijderd`) | Na verplaatsen met overschrijven en herstellen kon "F1 versie 2" naar andere inhoud wijzen (review Sol, ronde 10); een paar dat vóór de patch al hergebruikt was, blijft anders geldig (ronde 11); zo blijft het paar (bestand, versie) dat stap 4 en de trait al gebruiken, zonder nieuwe API | Een onveranderlijke revisie-id (de naam van de `Bestandsversie`) als basis: `lees` geeft dan ook na een verplaatsing de oude inhoud, maar het vraagt een nieuw veld in elke lijst, in de download en in de toestand van de client |
+| K19 | Versienummers van een bestand komen nooit terug: een veld met het hoogste uitgegeven nummer, plus een patch met een veilige bovengrens, en bij de invoering voor elk bestand een nieuw nummer voor de huidige versie plus een grens | Na verplaatsen met overschrijven en herstellen kon "F1 versie 2" naar andere inhoud wijzen (review Sol, ronde 10); een paar dat vóór de patch al hergebruikt was, blijft anders geldig (ronde 11), en welke bestanden dat raakte, is niet zeker vast te stellen (ronde 12); zo blijft het paar (bestand, versie) dat stap 4 en de trait al gebruiken, zonder nieuwe API | Een onveranderlijke revisie-id (de naam van de `Bestandsversie`) als basis: `lees` geeft dan ook na een verplaatsing de oude inhoud, maar het vraagt een nieuw veld in elke lijst, in de download en in de toestand van de client |
 | K12 | Live samen bewerken (C) pas later | Vraagt dat elke app zijn model als wijzigingen per object uitdrukt, en een besluit over het transport | Nu al een sessiedienst: zonder app die hem gebruikt, is hij niet te testen |
 
 ## 7. Volgorde van bouwen
@@ -659,7 +677,7 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 | 1 | Dit ontwerp | openaec-storage | Nee |
 | 2 | Bibliotheek: IFC lezen, objectmodel, verschil | openaec-cloud-desktop | Nee |
 | 3 | Bibliotheek: samenvoegen, schrijven, opslaan-lus, met een proef van 8 clients tegelijk in het geheugen | openaec-cloud-desktop | Nee |
-| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), vergelijken op bestand én versie (`basis_bestand`), versienummers die nooit terugkomen (ook na verplaatsen met overschrijven en herstellen, met een patch en een grens voor onzekere bases van vóór de patch: `onbekende_basis`, `download(…, als_basis=1)`), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
+| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), vergelijken op bestand én versie (`basis_bestand`), versienummers die nooit terugkomen (ook na verplaatsen met overschrijven en herstellen, met een patch die de huidige versie van elk bestand één keer een nieuw, nooit uitgegeven nummer geeft en een grens zet: `onbekende_basis`, `download(…, als_basis=1)`; elk uitgeven van een nummer onder een slot, ook bij verplaatsen), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
 | 4b | Storage: een commitnummer voor de wijzigingenlijst, zodat de cursor geen regels overslaat (§5.4) | openaec-storage | Nee |
 | 5 | Desktop-sync: IFC samenvoegen via de opslaan-lus, en de proef met twee clients tegen een echte openaec-storage-server (met stap 4), als script met log | openaec-cloud-desktop | Nee |
 | 6 | Storage: gebeurtenissen (push en haak, issue #7), `zet_terug`, `activiteit` | openaec-storage | Deels: push vraagt socket.io in de kern |
