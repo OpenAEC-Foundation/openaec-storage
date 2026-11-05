@@ -251,6 +251,11 @@ commit. De teller blijft vergrendeld tot de commit klaar is. Zo committen de num
 krijgt, wacht tot N gecommit is. Het slot duurt alleen van het uitdelen tot de commit (milliseconden), niet de hele
 upload. Een teruggedraaide transactie deelt geen nummer uit, dus er ontstaat geen gat door een rollback.
 
+Een wijzigingsregel zonder commitnummer wordt nooit vastgelegd. Lukt het uitdelen niet (het tellerslot komt niet op
+tijd), of kan de volgorde niet veilig (een andere callback blijft na het uitdelen nog iets doen, of draait een deel
+terug), dan mislukt de commit. Een nieuwe poging nummert opnieuw, of mislukt weer. Er is geen terugval die "dan toch
+maar" nummert, en geen aparte werking voor tests (review Sol op PR #16).
+
 - `wijzigingen()` filtert en sorteert op `commitnummer` in plaats van `name`. `volgnummer` en `cursor` in het antwoord
   worden het commitnummer. De cursor is de laatste regel van de pagina vóór het filter op een deling (zoals nu), en
   bij een lege pagina gewoon `sinds`. De losse vraag naar het hoogste nummer van de site (`api.py` r. 867) vervalt:
