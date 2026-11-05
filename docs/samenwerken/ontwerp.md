@@ -940,14 +940,25 @@ erom vraagt. Terugschrijven vanuit een deel vraagt dan de hele basis in de clien
 ### 12.2 Honderden deelnemers aan één project
 
 Rekenvoorbeeld: 300 actieve deelnemers in één ruimte met 20 000 bestanden, elk met de desktop-app. De app vraagt elke
-30 s `wijzigingen` en doet elke 10 minuten een volledige ronde met `boom` (`bewaking.rs` r. 19-21, main `a3aceac`).
+30 s `wijzigingen`, en doet elke 10 minuten hoe dan ook een ronde (`bewaking.rs` r. 19-21, main `a3aceac`).
 
-**D1. De volledige ronde.** 300 clients vragen samen 10 keer per seconde `wijzigingen`. Het vangnet vraagt
-300 × 20 000 / 600 s = 10 000 regels van de boom per seconde. Het vangnet kost dus veel meer dan de lijst. Het bestaat
-omdat de cursor regels kon overslaan (§5.4). Met het commitnummer (stap 4b) is dat gat dicht. Opties: (a) elke 10
-minuten, zoals nu; (b) alleen bij het starten, na `cursor_te_oud` (D2) en één keer per dag; (c) een goedkope
-vingerafdruk van de boom op de server. Voorkeur (b), alleen tegen een server met 4b (`mogelijkheden()`). Kosten: een
-constante in de client. Bewijs: de simulatie (P2) telt per client de gemiste regels; dat moet 0 zijn.
+**D1. Elke ronde vraagt de hele boom.** In de desktop-sync is de wijzigingenlijst alleen het sein dat er iets nieuws
+is. Daarna haalt elke ronde de hele ruimte op met `boom` (`motor.rs` `sync_met_opties` en `opslag.rs`
+`lijst_als_boom`, main `a3aceac`). De simulatie (P2) laat het zien: 191 rondes en 191 keer `boom` (run `b-zaad1`,
+8 clients, desktop `1b451e1`, server `197d55b`). Rekenvoorbeeld: 300 deelnemers slaan samen ongeveer één keer per
+seconde op. Dan ziet elke client bij elke controle iets nieuws en vraagt hij 20 000 regels. Samen is dat
+300 × 20 000 / 30 s = 200 000 regels per seconde voor één ruimte (schatting). De 10 HTTP-verzoeken per seconde naar
+`wijzigingen` zijn daarnaast klein.
+- Opties: (a) zoals nu; (b) een ronde op de wijzigingen: de client past de regels uit de lijst toe op zijn beeld van de
+  server, en vraagt alleen de bestanden en mappen die daarin staan; de hele boom alleen bij het starten, na
+  `cursor_te_oud` (D2) en één keer per dag; (c) `boom` met een `sinds`, zodat de server alleen gewijzigde regels geeft.
+- Voorkeur (b): de regels staan al op de server. De hele boom als vangnet mag pas zelden als de cursor niets meer
+  overslaat, dus alleen tegen een server met 4b (§5.4, `mogelijkheden()`). Een verplaatste map verandert het pad van
+  alles eronder; de client houdt mappen daarom bij hun id bij, niet bij hun pad. (c) is minder werk in de client, maar
+  vraagt servercode.
+- Kosten: een tweede weg in de motor van de sync, naast de volledige ronde.
+- Bewijs: in de simulatie volgt op elke ronde op de wijzigingen een volledige ronde, en beide geven hetzelfde beeld. P2
+  telt al de gemiste regels per client: 0 van de 299 in run `b-zaad1`.
 
 **D2. De wijzigingenlijst blijft groeien.** Schatting: 300 deelnemers met elk 100 regels per dag (een app die elke 5
 minuten opslaat) geven 11 miljoen regels per jaar in één ruimte, ongeveer 2 GB. De index op `(ruimte, commitnummer)`
@@ -1036,7 +1047,10 @@ Uitchecken per object helpt hier niet: ook zonder conflict racen de schrijvers o
   offline gaat met de schrijfbeurt, laat iedereen wachten; (b) geeft dezelfde volgorde zonder dat.
 - Bij (b) moeten de client en de server dezelfde versie van de bibliotheek gebruiken, of de server noemt zijn versie in
   het rapport. Anders kan "gelijk" op de server iets anders betekenen dan in de client (§12.3, de canonieke vorm).
-- Bewijs: de simulatie (P2) telt de pogingen per opslag; na G1 een meting met N schrijvers op een model van 1 GB.
+- Bewijs: de simulatie (P2) telt de weigeringen per opslag. Run `b-zaad1` (8 clients, 20 beurten, 15 % kans dat twee
+  clients tegelijk hetzelfde bestand opslaan): 254 opslagen, alle 254 op de server; 139 keer `verouderde_basis` (117
+  bij `upload_start`, 22 bij `upload_klaar`), 93 samenvoegingen, 16 conflictkopieën. De bestanden zijn klein, dus T is
+  kort. Na G1 volgt een meting met N schrijvers op een model van 1 GB.
 
 ### 12.3 Duurzaam voor de zeer lange termijn
 
@@ -1118,14 +1132,16 @@ Punten die een review op schaal en duurzaamheid moet toetsen:
    `.openaec/` verouderen zonder dat de client het merkt?
 3. G4, V2: kan hergebruik op hash ooit een verkeerd stuk in een versie zetten (een range die niet klopt, een blok van
    een versie die de gebruiker niet mag lezen), en lekt het iets tussen gebruikers?
-4. D2: kan een client met een cursor net onder, op of boven de ondergrens iets missen? Wat bij een verwijdering tijdens
+4. D1: kan een ronde op de wijzigingen een ander beeld geven dan een volledige ronde, bijv. na een verplaatste map,
+   bij een deling als wortel, of bij een soort regel die de client niet kent?
+5. D2: kan een client met een cursor net onder, op of boven de ondergrens iets missen? Wat bij een verwijdering tijdens
    een lezing, en bij een deling als wortel?
-5. D3: geeft de veger in delen dezelfde garantie als §5.4 (niets gemist, geen dubbel nummer), ook met de tijdgrens en
+6. D3: geeft de veger in delen dezelfde garantie als §5.4 (niets gemist, geen dubbel nummer), ook met de tijdgrens en
    twee vegers tegelijk? Is "niet vegen als het slot bezet is" veilig?
-6. D5: twee gelijktijdige claims met overlap, een verlopen claim, en de schrijfgrens. Wint er altijd precies één?
-7. D6: klopt de schatting e^(−λT)? Verliest een wachtrij op de server ooit stil werk, bijv. door een andere versie van
+7. D5: twee gelijktijdige claims met overlap, een verlopen claim, en de schrijfgrens. Wint er altijd precies één?
+8. D6: klopt de schatting e^(−λT)? Verliest een wachtrij op de server ooit stil werk, bijv. door een andere versie van
    de bibliotheek dan in de client?
-8. §12.3: een downgrade van de app, een index met een andere canonieke vorm, een rapport in een oud formaat. Gaat er
+9. §12.3: een downgrade van de app, een index met een andere canonieke vorm, een rapport in een oud formaat. Gaat er
    iets stil mis?
-9. De grenzen tussen de lagen: lekt er ergens kennis over, bijv. GlobalIds in laag 1 of S3 in laag 2?
-10. Overengineering: wat in dit hoofdstuk is niet nodig voor de doelen bovenaan?
+10. De grenzen tussen de lagen: lekt er ergens kennis over, bijv. GlobalIds in laag 1 of S3 in laag 2?
+11. Overengineering: wat in dit hoofdstuk is niet nodig voor de doelen bovenaan?
