@@ -98,6 +98,12 @@ isolatieniveau Frappe gebruikt. Voor `bij_conflict="weiger"` is een atomaire ver
 legt een nieuwe versie daarom vast onder een slot op het bestand (of op de map, bij een nieuw bestand). De proef met
 twee clients (stap 5) meet het daarna nog eens langs de echte HTTP-weg.
 
+Een tweede gevonden risico (bevestigd door Sol in ronde 10): een versienummer kan terugkomen. `verplaats(…,
+overschrijf=1)` (`api.py` r. 509-523) verplaatst de laatste `Bestandsversie` van de bron naar het doel en zet de bron
+terug op het vorige volgnummer, in de prullenbak. `herstel()` (r. 443) maakt de bron weer actief, en `_registreer`
+telt vanaf dat lagere nummer verder. Dan wijst "F1 versie 2" eerst naar inhoud A en later naar inhoud B. Stap 4 lost
+dit op (§5.5).
+
 ## 3. Wat Microsoft 365 doet
 
 "Gelezen" betekent: ik las de officiële bron. "Eigen kennis" betekent: niet met een bron nagegaan op 5 november 2026.
@@ -298,6 +304,16 @@ Uitbreiding van de bestaande API:
   conflictkopie. Met `kopie` wordt het een conflictkopie, ook bij een ander bestand. Zonder `basis_bestand` blijft
   de vergelijking zoals nu, dus bestaande clients merken niets. De vergelijking gebeurt onder het slot van stap 4,
   dus atomair.
+- **Versienummers komen nooit terug.** Het paar (bestand, versie) is alleen een veilige basis als het altijd naar
+  dezelfde inhoud wijst, of naar niets. Voorbeeld van wat nu misgaat (§2): Anna werkt offline vanuit F1 versie 2
+  (inhoud A). Piet verplaatst F1 met overschrijven over een ander bestand; F1 staat daarna als versie 1 in de
+  prullenbak. Piet herstelt F1 en uploadt B: dat wordt opnieuw F1 versie 2. Anna uploadt met basis (F1, 2): beide
+  kloppen, en haar werk wordt versie 3 zonder conflict; B is dan stil overschreven. Daarom houdt `Opslagbestand` het
+  hoogste volgnummer bij dat ooit is uitgegeven, en elk nieuw nummer is één hoger dan dat (ook voor het doel van een
+  verplaatsing). Een verplaatsing mag `huidige_versie` van de bron verlagen, maar nooit dat hoogste nummer. In het
+  voorbeeld krijgt B dan versie 3, en Anna's basis (F1, 2) is verouderd. Een patch zet het veld voor bestaande
+  bestanden op een veilige bovengrens: een overgeslagen nummer kan geen kwaad, een te laag nummer wel. `zet_terug`
+  maakt altijd een nieuwe versie en verlaagt nooit een nummer.
 - `mogelijkheden()` krijgt `samenwerken: {aanwezigheid, opmerkingen, volgen, objectuitcheck, bij_conflict_weiger,
   verschil}` zodat een client weet wat de server kent.
 
@@ -401,8 +417,11 @@ van hun komt, krijgt nieuwe nummers achteraan. Zo blijft de delta per blok klein
 **De opslaan-lus.** Eén trait met drie methodes: `huidige()`, `lees(versie)` en `schrijf_als(basis, inhoud)`, die
 weigert als de basis verouderd is. De basis is het paar (bestand, versie), niet alleen een versienummer: bij
 openaec-storage `basis_bestand` en `basis_versie`, bij Nextcloud de ETag (een opnieuw aangemaakt bestand heeft een
-andere ETag en een ander fileid). De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen,
-schrijf opnieuw met de nieuwe basis; geef op na enkele pogingen. openaec-storage en Nextcloud passen allebei op die
+andere ETag en een ander fileid). Zo'n basis wijst altijd naar dezelfde inhoud of naar niets (§5.5,
+"Versienummers komen nooit terug"). De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen,
+schrijf opnieuw met de nieuwe basis; geef op na enkele pogingen. Bestaat de basis niet meer (de versie is met een
+verplaatsing naar een ander bestand gegaan), dan faalt `lees(basis)` met een duidelijke fout, en de client maakt een
+conflictkopie, zoals nu. openaec-storage en Nextcloud passen allebei op die
 trait. Een slot van een ander is een aparte weigering: daar helpt samenvoegen niet, en de lus probeert het niet.
 
 De desktop-sync gebruikt de lus alleen bij een server die `bij_conflict="weiger"` kent (`mogelijkheden()`). Bij een
@@ -468,8 +487,11 @@ Daarom:
    geheugenkoppeling; een geweigerde eerste verplaatsing (lokale inhoud en toestand blijven); een bestand dat vlak
    vóór de plaatsing op het pad verschijnt (het blijft staan); de gebruiker slaat op na de scan maar vóór een lokale
    verwijdering (het nieuwe werk blijft en gaat naar de server); een wijziging die alleen in een bron gebeurt, zonder
-   gebeurtenis op het oorspronkelijke pad (de sync verwerkt haar); een bestand dat een ander verwijderde en onder dezelfde naam opnieuw maakte, terwijl de client offline werkte (de
-server weigert; er gaat niets van de nieuwe inhoud verloren); en een onderbreking na het journaal, na het verplaatsen,
+   gebeurtenis op het oorspronkelijke pad (de sync verwerkt haar); een bestand dat een ander verwijderde en onder
+   dezelfde naam opnieuw maakte, terwijl de client offline werkte (de server weigert; er gaat niets van de nieuwe
+   inhoud verloren); een bestand dat een ander met overschrijven verplaatste, herstelde en opnieuw uploadde, terwijl
+   de client offline werkte (de server weigert de oude basis, `lees(basis)` faalt duidelijk of geeft de oude inhoud,
+   en er gaat niets verloren); en een onderbreking na het journaal, na het verplaatsen,
    na het plaatsen en vóór het afronden (na herstart is er niets verloren en wordt niets als verwijderd gezien). Op
    elk platform dat de desktop-app ondersteunt.
 
@@ -599,6 +621,7 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 | K16 | Een commitnummer, uitgedeeld vlak voor de commit onder een kort slot op één tellerregel | Volgnummers komen nu in invoegvolgorde, niet in commitvolgorde, en een client kan regels missen; zo volgt de veiligheid uit de commitvolgorde, en blijven paginering en bestaande cursors werken (review Sol, ronde 2 en 3) | Een cursor die vóór een jong gat stopt: veilig alleen als geen transactie langer duurt dan de tijdgrens (een taak in `long` mag 25 minuten), en hij breekt de paginering |
 | K17 | Gedeelde ankers krijgen de verzameling van hun ankers als identiteit; twijfel is een conflict | Een gekozen vertegenwoordiger verspringt als een programma een plaatsing splitst (review Sol) | Een vaste keuze, bijv. het kleinste anker |
 | K18 | Na samenvoegen de boom controleren: geen kring, niets wat bereikbaar was raakt los | Twee geldige herindelingen kunnen samen een kring maken, terwijl elke cardinaliteit klopt (review Sol, ronde 3) | Alleen cardinaliteiten uit het schema controleren |
+| K19 | Versienummers van een bestand komen nooit terug: een veld met het hoogste uitgegeven nummer, plus een patch met een veilige bovengrens | Na verplaatsen met overschrijven en herstellen kon "F1 versie 2" naar andere inhoud wijzen (review Sol, ronde 10); zo blijft het paar (bestand, versie) dat stap 4 en de trait al gebruiken, zonder nieuwe API | Een onveranderlijke revisie-id (de naam van de `Bestandsversie`) als basis: `lees` geeft dan ook na een verplaatsing de oude inhoud, maar het vraagt een nieuw veld in elke lijst, in de download en in de toestand van de client |
 | K12 | Live samen bewerken (C) pas later | Vraagt dat elke app zijn model als wijzigingen per object uitdrukt, en een besluit over het transport | Nu al een sessiedienst: zonder app die hem gebruikt, is hij niet te testen |
 
 ## 7. Volgorde van bouwen
@@ -610,7 +633,7 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 | 1 | Dit ontwerp | openaec-storage | Nee |
 | 2 | Bibliotheek: IFC lezen, objectmodel, verschil | openaec-cloud-desktop | Nee |
 | 3 | Bibliotheek: samenvoegen, schrijven, opslaan-lus, met een proef van 8 clients tegelijk in het geheugen | openaec-cloud-desktop | Nee |
-| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), vergelijken op bestand én versie (`basis_bestand`), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
+| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), vergelijken op bestand én versie (`basis_bestand`), versienummers die nooit terugkomen (ook na verplaatsen met overschrijven en herstellen, met een patch), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
 | 4b | Storage: een commitnummer voor de wijzigingenlijst, zodat de cursor geen regels overslaat (§5.4) | openaec-storage | Nee |
 | 5 | Desktop-sync: IFC samenvoegen via de opslaan-lus, en de proef met twee clients tegen een echte openaec-storage-server (met stap 4), als script met log | openaec-cloud-desktop | Nee |
 | 6 | Storage: gebeurtenissen (push en haak, issue #7), `zet_terug`, `activiteit` | openaec-storage | Deels: push vraagt socket.io in de kern |
