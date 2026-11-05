@@ -234,8 +234,9 @@ zonder versie. Pas **na de commit** (`frappe.db.after_commit`) doet hij de rest:
 3. meldingen aan de volgers (§5.10), gebundeld.
 
 Valt het proces uit na de commit, dan is de push of de melding weg, maar de regel staat er. Wie niets mag missen
-(een andere app via de haak, de sync), leest de wijzigingenlijst vanaf zijn cursor; het volgnummer van de regel gaat
-mee in elke push en elke haakaanroep. Elke weg komt zo langs dezelfde plek: browser, desktop-app, batch, WebDAV en
+(een andere app via de haak, de sync), leest de wijzigingenlijst vanaf zijn cursor. De push en de haakaanroep geven
+de `name` van de regel mee; het commitnummer (hieronder) heeft de regel op dat moment nog niet, dus de ontvanger haalt
+het op met `wijzigingen()`. Elke weg komt zo langs dezelfde plek: browser, desktop-app, batch, WebDAV en
 uploadlink.
 
 **De cursor mag niet voorbij een open transactie schuiven.** Frappe deelt het volgnummer uit bij het invoegen, via
@@ -258,12 +259,23 @@ achtergrondtaak. De schrijver hoeft niets te doen. Een eerdere opzet nummerde vl
 `frappe.db.before_commit`; twee rondes van Sol op PR #16 vonden steeds een commitroute buiten die haak om, of een
 opruimhaak die werk van de volgende transactie wiste. Die opzet is daarom vervallen.
 
-- De veger commit zijn nummers vóór het lezen. Leest hij in dezelfde transactie en mislukt de commit daarna, dan kan
-  een client een nummer gezien hebben dat later aan een andere regel gaat.
-- Zonder regels met nummer 0 neemt de veger geen slot: eerst een gewone lezing, en alleen bij een treffer het slot en
-  de vergrendelende lezing. Lezers wachten dus alleen op elkaar als er iets te nummeren is.
-- De vergrendelende lezing ziet de laatst vastgelegde stand. Met `innodb_snapshot_isolation` aan (MariaDB 11.8)
-  begint de veger in een verse transactie, en bij fout 1020 probeert hij het een paar keer opnieuw.
+De volgorde van de veger, precies:
+
+1. Een gewone lezing in de lopende transactie: is er een regel met nummer 0? Nee: klaar, geen slot.
+2. Ja: commit de lopende transactie. `wijzigingen()` en `activiteit()` schrijven zelf niets, dus die is leeg. Staat er
+   toch schrijfwerk in (`frappe.db.transaction_writes`), dan weigert de veger: dat is een programmeerfout.
+3. Het slot op de tellerregel (`SELECT … FOR UPDATE`). Twee vegers wachten hier op elkaar.
+4. Een gewone (niet-vergrendelende) lezing van de regels met nummer 0. De momentopname begint pas hier, na het slot,
+   dus de veger ziet de nummers van de vorige veger. Hij ziet alleen vastgelegde regels: een regel van een open
+   transactie blijft 0 en krijgt in een latere ronde een hoger nummer. De veger wacht zo nooit op een schrijver.
+5. Elke regel krijgt in volgorde van `name` het volgende nummer (`UPDATE … WHERE name = … AND commitnummer = 0`), en
+   de teller gaat mee omhoog.
+6. `frappe.db.commit()`, vóór de methode antwoordt. Frappe commit na een GET-verzoek niet vanzelf, maar draait terug
+   (`frappe/app.py` r. 445-448). Zonder deze commit krijgt de client nummers die daarna vervallen, en de volgende
+   veger geeft die nummers aan andere regels.
+7. Pas dan de gewone lezing op `commitnummer > sinds`. Regels met nummer 0 vallen daar altijd buiten.
+
+Bij fout 1020 of 1213 (`innodb_snapshot_isolation`, deadlock) begint de veger een paar keer opnieuw bij stap 2.
 
 - `wijzigingen()` filtert en sorteert op `commitnummer` in plaats van `name`. `volgnummer` en `cursor` in het antwoord
   worden het commitnummer. De cursor is de laatste regel van de pagina vóór het filter op een deling (zoals nu), en
@@ -278,13 +290,16 @@ opruimhaak die werk van de volgende transactie wiste. Die opzet is daarom verval
   komt uit de commitvolgorde, niet uit het zoeken naar gaten.
 - Verplichte databaseproeven: twee transacties in omgekeerde volgorde gecommit (de client mist niets), een
   teruggedraaide transactie, regels in twee ruimtes, een deling als wortel, een volle pagina (de cursor schuift op),
-  een lege pagina met een commit vlak erna, een taak die tussendoor commit (elke commit nummert zijn eigen regels;
-  een `before_commit`-callback draait per commit maar één keer, dus de nummeraar meldt zich na elke commit opnieuw),
-  een batch waarvan één item naar een savepoint terugging, en een andere `before_commit`-callback die na de
-  nummeraar nog een regel schrijft.
-- Slotvolgorde: een transactie neemt eerst de sloten op bestand of map (stap 4), en het slot op de teller altijd als
-  laatste, vlak voor de commit. Zo kan er geen kring van wachtende transacties ontstaan. Hoe lang het slot op de
-  teller duurt, hangt af van wat er na het uitdelen nog in de transactie gebeurt; de proef meet het.
+  een lege pagina met een commit vlak erna, een taak die tussendoor commit, een batch waarvan één item naar een
+  savepoint terugging, een rauwe `frappe.db.sql("commit")` gevolgd door een rollback, een `after_rollback`-callback
+  die een regel schrijft, een mislukte DDL na een savepoint (`RENAME TABLE`, `ALTER TABLE`), een GET-verzoek via de
+  echte HTTP-laag (de nummers blijven na het verzoek staan), twee vegers tegelijk (geen dubbel nummer) en een veger
+  terwijl een schrijftransactie open staat (de veger wacht niet; de regel krijgt na zijn commit een hoger nummer). In
+  elk geval verschijnt elke vastgelegde regel precies één keer in `wijzigingen(sinds=0)`, en nooit onder een cursor
+  die een client al kreeg.
+- Sloten: alleen de veger neemt het tellerslot, en hij wijzigt alleen vastgelegde regels met nummer 0, die geen
+  schrijver meer aanraakt. Een schrijver neemt het tellerslot nooit. Er is dus geen kring van wachtende transacties
+  tussen schrijvers en vegers.
 
 ### 5.5 API-overzicht
 
