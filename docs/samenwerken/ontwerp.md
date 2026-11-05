@@ -348,9 +348,15 @@ knoop anders, dan verandert die identiteit, en telt het als een wijziging van di
 hetzelfde attribuut, dan is het een conflict. Kan de schrijver een gedeeld anker niet eenduidig naar één knoop in het
 resultaat vertalen, dan is het ook een conflict.
 
-**Vluchtige velden.** Alleen velden die bij elk opslaan veranderen, tellen niet mee: in `IfcOwnerHistory` de
-tijdstempels en de velden over de laatste wijziging, en in de HEADER de tijdstempel. De rest van de keten telt wel
-mee. OPS bewaart de auteur en de organisatie van een planning in `IFCPERSON` en `IFCORGANIZATION` achter
+**Vluchtige velden.** Sommige velden veranderen bij elk opslaan, ook als niemand iets aan het object deed: in
+`IfcOwnerHistory` de tijdstempels en de velden over de laatste wijziging, in de HEADER de tijdstempel van
+`FILE_NAME`, en `IfcWorkControl.CreationDate` (OPS schrijft bij het hoofdwerkplan en -schema elke keer "nu",
+`ifcWriter.ts` r. 452-459). Zo'n veld maakt een object niet "gewijzigd" en geeft nooit een conflict. Een wijziging
+ervan gaat wel niet verloren: veranderde alleen hun het veld, dan krijgt het resultaat de waarde van hun; veranderden
+beide, dan die van ons. `verschil` meldt zo'n wijziging apart, als vluchtig. Voorbeeld: een baseline in OPS houdt haar
+eigen `CreationDate` (`ifcWriter.ts` r. 474). Zet hun die op februari en ons niet, dan staat februari in het
+resultaat. De schemadeclaratie (`FILE_SCHEMA`) is geen vluchtig veld: een ander schema is een wijziging, en bij
+samenvoegen een conflict. De rest van de keten telt wel mee. OPS bewaart de auteur en de organisatie van een planning in `IFCPERSON` en `IFCORGANIZATION` achter
 `IfcOwnerHistory` (`ifcWriter.ts` r. 388, `ifcReader.ts` r. 1397). Een wijziging daarvan mag niet verloren gaan.
 
 **Verschil.** Per GlobalId: toegevoegd, verwijderd of gewijzigd, en bij gewijzigd per attribuut de oude en nieuwe
