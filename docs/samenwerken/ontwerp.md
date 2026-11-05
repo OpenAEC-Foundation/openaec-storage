@@ -247,8 +247,8 @@ desktop-sync nu al; alleen de volledige ronde elke 10 minuten vangt het op.
 
 Oplossing (stap 4b): een **commitnummer, uitgedeeld bij het lezen**. `Opslagwijziging` krijgt een veld
 `commitnummer`; een nieuwe regel krijgt 0. Wie de lijst leest (`wijzigingen()`, `activiteit()`, en straks push en
-haak), veegt eerst, in een eigen korte transactie: hij neemt het slot op één tellerregel voor de site, zoekt met een
-vergrendelende lezing alle vastgelegde regels met nummer 0, geeft ze in volgorde van `name` de volgende nummers, werkt
+haak), veegt eerst, in een eigen korte transactie: hij neemt het slot op één tellerregel voor de site, zoekt daarna
+met een gewone lezing alle vastgelegde regels met nummer 0, geeft ze in volgorde van `name` de volgende nummers, werkt
 de teller bij en commit. Pas daarna leest hij op `commitnummer`.
 
 Waarom dat veilig is: een regel krijgt pas een nummer als hij al vastgelegd is, en altijd een hoger nummer dan elk
@@ -263,7 +263,8 @@ De volgorde van de veger, precies:
 
 1. Een gewone lezing in de lopende transactie: is er een regel met nummer 0? Nee: klaar, geen slot.
 2. Ja: commit de lopende transactie. `wijzigingen()` en `activiteit()` schrijven zelf niets, dus die is leeg. Staat er
-   toch schrijfwerk in (`frappe.db.transaction_writes`), dan weigert de veger: dat is een programmeerfout.
+   toch schrijfwerk in (`frappe.db.transaction_writes`), dan weigert de veger: dat is een programmeerfout. Frappe zet
+   die teller ook bij een rollback naar een savepoint op 0, dus deze controle is een vangnet, geen garantie.
 3. Het slot op de tellerregel (`SELECT … FOR UPDATE`). Twee vegers wachten hier op elkaar.
 4. Een gewone (niet-vergrendelende) lezing van de regels met nummer 0. De momentopname begint pas hier, na het slot,
    dus de veger ziet de nummers van de vorige veger. Hij ziet alleen vastgelegde regels: een regel van een open
