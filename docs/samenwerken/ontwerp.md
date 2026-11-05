@@ -374,10 +374,12 @@ waarde.
 | Beide wijzigden hetzelfde gewone attribuut of een LIST anders | Conflict |
 | De ene verwijderde, de andere wijzigde | Conflict |
 | Na samenvoegen wijst iets naar een verwijderd object | Conflict |
-| Na samenvoegen heeft een object meer relaties dan het schema toestaat (een INVERSE met bovengrens 1, bijv. een wand in twee verdiepingen), terwijl dat in ons en in hun elk klopte | Conflict |
+| Na samenvoegen heeft een object of een knoop zonder GlobalId meer verwijzingen dan het schema toestaat (een INVERSE met bovengrens 1, bijv. een wand in twee verdiepingen, of een geometrie met twee stijlen), terwijl dat in ons en in hun elk klopte | Conflict |
+| Beide kanten vervingen dezelfde relatie door een nieuwe, met een andere GlobalId (bijv. elk een eigen `IfcRelAssociatesMaterial` voor W en V) | Conflict: welke nieuwe relatie bij welke hoort, is niet vast te stellen |
 | Na samenvoegen voldoet een samengevoegde verzameling niet aan de grenzen uit het schema (bijv. ons haalt A en hun haalt B uit `RelatedElements = {A, B}`: leeg, terwijl minstens 1 nodig is) | Conflict |
 | Een definitie gold in de basis voor een object, de ene kant haalde hem weg (of verwijderde het object), en de andere kant wijzigde die definitie terwijl hij daar nog voor het object gold (zie de koppelregel hieronder) | Conflict |
 | Na samenvoegen zit er een kring in de boom (`IfcRelAggregates`, `IfcRelNests`, `IfcRelContainedInSpatialStructure`), of is een object dat in ons én in hun vanaf het project bereikbaar was, dat niet meer | Conflict |
+| Na samenvoegen zit er een kring in een plaatsingsketen (`IfcLocalPlacement.PlacementRelTo`): ons plaatst P ten opzichte van Q, hun Q ten opzichte van P | Conflict |
 | Onbekend schema of een geval dat de bibliotheek niet kent | Conflict |
 
 **De koppelregel.** Per object X en per versie bepaalt de bibliotheek de *definities die voor X gelden*:
@@ -418,7 +420,12 @@ basis, ons en hun. De client maakt dan een conflictkopie, zoals nu, en zet het r
 per conflict laten kiezen.
 
 **Schrijven.** Het resultaat begint bij de tekst van ons. Alleen regels van gewijzigde objecten veranderen, en wat
-van hun komt, krijgt nieuwe nummers achteraan. Zo blijft de delta per blok klein bij het uploaden.
+van hun komt, krijgt nieuwe nummers achteraan. Zo blijft de delta per blok klein bij het uploaden. Een knoop zonder
+GlobalId (geometrie, stijl, plaatsing) hergebruikt de schrijver alleen als hij bij hetzelfde object hoort; een knoop
+met dezelfde inhoud bij een ander object is niet dezelfde knoop. Voorbeeld: W (rood) en V (blauw) hebben elk eigen,
+gelijke geometrie; hun maakt V groen. Het resultaat geeft V groen en laat W rood, nooit andersom. Een gelijk
+STEP-nummer zegt daarbij niets. De bibliotheek voegt alleen samen zonder automatische keuze bij een conflict (K4): er
+is geen modus "ons wint" of "hun wint", want die verliest ook niet-botsend werk van de andere kant.
 
 **De opslaan-lus.** Eén trait met drie methodes: `huidige()`, `lees(versie)` en `schrijf_als(basis, inhoud)`, die
 weigert als de basis verouderd is. De basis is het paar (bestand, versie), niet alleen een versienummer: bij
