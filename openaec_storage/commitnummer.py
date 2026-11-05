@@ -94,10 +94,13 @@ def deel_uit() -> None:
 		return
 	with _laatste_stand():
 		teller = _vergrendel_teller()
+		# Alleen langs de primaire sleutel, dus alleen de eigen regels. Een voorwaarde op `commitnummer` zou de index
+		# daarop kunnen laten kiezen; dan wacht deze update op open regels van een ander, terwijl hij de teller vasthoudt.
 		frappe.db.sql("set @oa_commitnummer := %s", teller)
 		frappe.db.sql(
-			"""update `tabOpslagwijziging` set commitnummer = (@oa_commitnummer := @oa_commitnummer + 1)
-			where name in %(eigen)s and commitnummer = 0 order by name""",
+			"""update `tabOpslagwijziging` force index (primary)
+			set commitnummer = (@oa_commitnummer := @oa_commitnummer + 1)
+			where name in %(eigen)s order by name""",
 			{"eigen": tuple(eigen)},
 		)
 		frappe.db.sql("update `tabSeries` set current = @oa_commitnummer where name = %s", TELLER)

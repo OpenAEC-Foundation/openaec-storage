@@ -496,3 +496,39 @@ class TestMigratie(IntegrationTestCase):
 		self.assertEqual(
 			frappe.db.sql("select current from `tabSeries` where name = %s", commitnummer.TELLER)[0][0], 10**6
 		)
+
+
+class TestNummerVanBuiten(IntegrationTestCase):
+	"""Wie een Opslagwijziging invoegt of opslaat (bijv. via /api/resource), kan het commitnummer niet zelf zetten."""
+
+	def setUp(self):
+		ruim_op()
+		self.piet = gebruiker("piet")
+		self.ruimte = ruimte("Project Buiten", {self.piet: "schrijver"})
+		frappe.set_user(self.piet)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+		ruim_op()
+
+	def test_eigen_nummer_bij_invoegen_en_opslaan_telt_niet(self):
+		begin = api.wijzigingen(ruimte=self.ruimte)["cursor"]
+		doc = frappe.get_doc(
+			{
+				"doctype": "Opslagwijziging",
+				"ruimte": self.ruimte,
+				"soort": "eigenschappen",
+				"doel_doctype": "Opslagmap",
+				"doel": "zelf",
+				"commitnummer": 10**9,
+			}
+		).insert()
+		nummer = frappe.db.get_value("Opslagwijziging", doc.name, "commitnummer")
+		self.assertLess(nummer, 10**9)
+		self.assertEqual(api.wijzigingen(ruimte=self.ruimte, sinds=begin)["cursor"], nummer)
+		doc.reload()
+		doc.commitnummer = 10**9
+		doc.save()
+		self.assertEqual(frappe.db.get_value("Opslagwijziging", doc.name, "commitnummer"), nummer)
+
