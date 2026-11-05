@@ -1210,8 +1210,9 @@ is. Daarna haalt elke ronde de hele ruimte op met `boom` (`motor.rs` `sync_met_o
 8 clients, desktop `1b451e1`, server `197d55b`). Rekenvoorbeeld: 300 deelnemers slaan samen ongeveer één keer per
 seconde op. Dan ziet elke client bij elke controle iets nieuws en vraagt hij 20 000 regels. Samen is dat
 300 × 20 000 / 30 s = 200 000 regels per seconde voor één ruimte (schatting). De 10 HTTP-verzoeken per seconde naar
-`wijzigingen` zijn daarnaast klein: met 4 werkers van gunicorn verwerkte de proefbench ongeveer 250 verzoeken per
-seconde (P2, lastproef `d-last-4werkers`, ruw, zie D6).
+`wijzigingen` zijn daarnaast klein: met 4 werkers van gunicorn verwerkte de proefbench ongeveer 200 verzoeken per
+seconde, en een poll duurde bij 300 clients 1,5 s (p50) (P2, lastproef `d-last-4werkers` van 17:34, desktop
+`c9e8052`, server `197d55b`).
 - Opties: (a) zoals nu; (b) een ronde op de wijzigingen: de client past de regels uit de lijst toe op zijn beeld van de
   server, en vraagt alleen de bestanden en mappen die daarin staan; de hele boom alleen bij het starten, na
   `cursor_te_oud` (D2) en één keer per dag; (c) `boom` met een `sinds`, zodat de server alleen gewijzigde regels geeft.
@@ -1249,11 +1250,11 @@ minuten opslaat) geven 11 miljoen regels per jaar in één ruimte, ongeveer 2 GB
 daarna vindt meer dan 200 000 regels met nummer 0, en zijn veger faalt. De volgende ook, want de achterstand groeit
 alleen. Geen client krijgt nog nieuwe regels (VERVOLG-punt van Sol op PR #16).
 - Een grote achterstand houdt ook de anderen op. Elke lezer die een regel met nummer 0 ziet, wacht op het tellerslot
-  (§5.4, stap 3). Gemeten in de lastproef van P2 (run `d-last-4werkers`, server `197d55b`): bij een achterstand van
-  9 846 regels duurt de eerste lezing 2,5 s, bij 40 000 regels 9,0 s en bij 150 000 regels 32,9 s. Alle 20 polls van
-  andere clients wachten zo lang mee (32,3 s bij 150 000). Daarna gaat lezen weer snel: de hele lijst van 200 000
-  regels vanaf cursor 0 kost 7,1 s in 201 pagina's, en een stille ruimte vanaf 0 kost 0,016 s.
-- Oplossing, twee delen. (1) De veger nummert per ronde hoogstens 1 000 regels (ongeveer 0,25 s slot, afgeleid uit de
+  (§5.4, stap 3). Gemeten in de lastproef van P2 (run `d-last-4werkers` van 17:34, server `197d55b`): bij een
+  achterstand van 9 664 regels duurt de eerste lezing 2,7 s, bij 40 000 regels 9,0 s en bij 150 000 regels 31,6 s.
+  Alle 20 polls van andere clients wachten zo lang mee (31,1 s bij 150 000). Daarna gaat lezen weer snel: de hele lijst
+  van 200 000 regels vanaf cursor 0 kost 7,5 s in 201 pagina's, en een stille ruimte vanaf 0 kost 0,017 s.
+- Oplossing, twee delen. (1) De veger nummert per ronde hoogstens 1 000 regels (ongeveer 0,3 s slot, afgeleid uit de
   meting), in volgorde van `name`, en commit. Hij herhaalt tot er niets over is of tot 2 s om zijn. De rest houdt
   nummer 0 en blijft onzichtbaar; de volgende lezer gaat verder. (2) Een lezer die het slot bezet vindt
   (`FOR UPDATE NOWAIT`), veegt niet en leest meteen. De garantie blijft: elke ronde geeft hogere nummers dan alle
@@ -1322,11 +1323,10 @@ Uitchecken per object helpt hier niet: ook zonder conflict racen de schrijvers o
   schrijfbeurt, laat iedereen wachten; (b) geeft dezelfde volgorde zonder dat.
 - Bij (b) moeten de client en de server dezelfde versie van de bibliotheek gebruiken, of de server noemt zijn versie in
   het rapport. Anders kan "gelijk" op de server iets anders betekenen dan in de client (§12.3, de canonieke vorm).
-- Bewijs: de lastproef van P2 (run `d-last-4werkers`: 4 werkers van gunicorn, kleine bestanden, elke client schrijft
-  hetzelfde bestand met 1 s denktijd) laat zien dat de lus vastloopt. Bij 100 schrijvers slaagden in 46 s 25 opslagen,
-  tegen 1 154 weigeringen met `verouderde_basis`, en 94 schrijvers slaagden nooit. Bij 300 schrijvers waren het 13
-  opslagen, alle van één client. Voorbehoud: veel verzoeken in deze run kregen `401`; dat is nog niet uitgezocht, dus de
-  doorvoer is ruw. De verhouding tussen geslaagd en geweigerd staat daar los van.
+- Bewijs: de lastproef van P2 (run `d-last-4werkers` van 17:34: 4 werkers van gunicorn, kleine bestanden, elke client
+  schrijft hetzelfde bestand met 1 s denktijd, 45 s per stap) laat zien dat de lus vastloopt. Bij 100 schrijvers
+  slaagden 20 opslagen, tegen 1 835 weigeringen met `verouderde_basis`, en 96 schrijvers slaagden nooit. Bij 300
+  schrijvers waren het 7 opslagen, alle van één client; 299 schrijvers slaagden nooit. Er waren geen andere fouten.
 - De simulatie (P2) telt ook de weigeringen bij een gewone belasting. Run `b-zaad1` (8 clients, 20 beurten, 15 % kans
   dat twee clients tegelijk hetzelfde bestand opslaan): 254 opslagen, alle 254 op de server; 139 keer
   `verouderde_basis` (117 bij `upload_start`, 22 bij `upload_klaar`), 93 samenvoegingen, 16 conflictkopieën. De
