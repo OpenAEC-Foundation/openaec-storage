@@ -948,8 +948,8 @@ Doelen (voorstel van Claude, nog niet beoordeeld door Ethan):
 
 **Het probleem.** De bibliotheek leest de bestanden helemaal in, en houdt per versie een model in het geheugen.
 Samenvoegen heeft er vier: basis, ons, hun, en het resultaat voor de zelfcontrole. Metingen van P4
-(`docs/samenwerken/metingen.md` op `samenvoegen/p4-metingen` in openaec-cloud-desktop, bibliotheek `0655eda`, elke run
-onder een harde grens van 2 GB):
+(`docs/samenwerken/metingen.md` op `samenvoegen/p4-metingen` in openaec-cloud-desktop, commit `2ca0c40`, bibliotheek
+`0655eda`, elke run onder een harde grens van 2 GB):
 
 | Model | Grootte | `voeg-samen` | Piekgeheugen |
 |---|---|---|---|
