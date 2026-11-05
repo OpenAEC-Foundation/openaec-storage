@@ -314,6 +314,18 @@ Uitbreiding van de bestaande API:
   voorbeeld krijgt B dan versie 3, en Anna's basis (F1, 2) is verouderd. Een patch zet het veld voor bestaande
   bestanden op een veilige bovengrens: een overgeslagen nummer kan geen kwaad, een te laag nummer wel. `zet_terug`
   maakt altijd een nieuwe versie en verlaagt nooit een nummer.
+- **Een grens bij de invoering.** De patch kan niet zien welk paar vóór de invoering al twee inhouden had. Hergebruik
+  was alleen mogelijk bij een bestand dat ooit de bron was van een verplaatsing met overschrijven. Zo'n bron kreeg
+  altijd een regel `verwijderd` in de wijzigingenlijst (sinds die route bestaat, commit 829eb23), en die lijst wordt
+  nergens opgeruimd. Daarom krijgt elk bestand met zo'n regel een grens: het eerste nummer na de patch. Een basis
+  onder die grens is onzeker, ook als het paar gelijk is aan de huidige versie. De server weigert hem bij schrijven
+  met de foutcode `onbekende_basis` (met `bij_conflict=kopie`: een conflictkopie), en
+  `download(…, als_basis=1)` weigert hem ook. Een basis die niet (meer) bestaat, bijvoorbeeld een versie die met een
+  verplaatsing naar een ander bestand ging, krijgt dezelfde weigering. Andere bestanden krijgen grens 0: daar kon geen
+  nummer terugkomen, en een oude basis blijft geldig. Voorbeeld: Anna werkt offline vanuit (F1, 2); vóór de invoering
+  verplaatst Piet F1 met overschrijven, herstelt het en uploadt B, weer als (F1, 2). Na de invoering krijgt Anna's
+  upload een conflictkopie, en B blijft staan. Een gewone verwijdering logt ook `verwijderd`, dus een bestand krijgt
+  soms onnodig een grens. Dat kost hoogstens één conflictkopie, geen data.
 - `mogelijkheden()` krijgt `samenwerken: {aanwezigheid, opmerkingen, volgen, objectuitcheck, bij_conflict_weiger,
   verschil}` zodat een client weet wat de server kent.
 
@@ -433,8 +445,9 @@ openaec-storage `basis_bestand` en `basis_versie`, bij Nextcloud de ETag (een op
 andere ETag en een ander fileid). Zo'n basis wijst altijd naar dezelfde inhoud of naar niets (§5.5,
 "Versienummers komen nooit terug"). De lus: schrijf; is de basis verouderd, lees basis en huidige, voeg samen,
 schrijf opnieuw met de nieuwe basis; geef op na enkele pogingen. Bestaat de basis niet meer (de versie is met een
-verplaatsing naar een ander bestand gegaan), dan faalt `lees(basis)` met een duidelijke fout, en de client maakt een
-conflictkopie, zoals nu. openaec-storage en Nextcloud passen allebei op die
+verplaatsing naar een ander bestand gegaan) of ligt hij onder de grens bij de invoering (§5.5), dan weigert
+`schrijf_als` met `onbekende_basis` en faalt `lees(basis)` (bij openaec-storage `download(…, als_basis=1)`) met een
+duidelijke fout. De lus voegt dan niet samen: de client maakt een conflictkopie, zoals nu. openaec-storage en Nextcloud passen allebei op die
 trait. Een slot van een ander is een aparte weigering: daar helpt samenvoegen niet, en de lus probeert het niet.
 
 De desktop-sync gebruikt de lus alleen bij een server die `bij_conflict="weiger"` kent (`mogelijkheden()`). Bij een
@@ -503,8 +516,8 @@ Daarom:
    gebeurtenis op het oorspronkelijke pad (de sync verwerkt haar); een bestand dat een ander verwijderde en onder
    dezelfde naam opnieuw maakte, terwijl de client offline werkte (de server weigert; er gaat niets van de nieuwe
    inhoud verloren); een bestand dat een ander met overschrijven verplaatste, herstelde en opnieuw uploadde, terwijl
-   de client offline werkte (de server weigert de oude basis, `lees(basis)` faalt duidelijk of geeft de oude inhoud,
-   en er gaat niets verloren); en een onderbreking na het journaal, na het verplaatsen,
+   de client offline werkte, één keer ná en één keer vóór de invoering van stap 4 (de server weigert de oude basis
+   met `onbekende_basis`, `lees(basis)` faalt duidelijk, en er gaat niets verloren); en een onderbreking na het journaal, na het verplaatsen,
    na het plaatsen en vóór het afronden (na herstart is er niets verloren en wordt niets als verwijderd gezien). Op
    elk platform dat de desktop-app ondersteunt.
 
@@ -634,7 +647,7 @@ Alle keuzes: genomen door Claude (Opus 5.5) binnen de opdracht van Ethan van 5 n
 | K16 | Een commitnummer, uitgedeeld vlak voor de commit onder een kort slot op één tellerregel | Volgnummers komen nu in invoegvolgorde, niet in commitvolgorde, en een client kan regels missen; zo volgt de veiligheid uit de commitvolgorde, en blijven paginering en bestaande cursors werken (review Sol, ronde 2 en 3) | Een cursor die vóór een jong gat stopt: veilig alleen als geen transactie langer duurt dan de tijdgrens (een taak in `long` mag 25 minuten), en hij breekt de paginering |
 | K17 | Gedeelde ankers krijgen de verzameling van hun ankers als identiteit; twijfel is een conflict | Een gekozen vertegenwoordiger verspringt als een programma een plaatsing splitst (review Sol) | Een vaste keuze, bijv. het kleinste anker |
 | K18 | Na samenvoegen de boom controleren: geen kring, niets wat bereikbaar was raakt los | Twee geldige herindelingen kunnen samen een kring maken, terwijl elke cardinaliteit klopt (review Sol, ronde 3) | Alleen cardinaliteiten uit het schema controleren |
-| K19 | Versienummers van een bestand komen nooit terug: een veld met het hoogste uitgegeven nummer, plus een patch met een veilige bovengrens | Na verplaatsen met overschrijven en herstellen kon "F1 versie 2" naar andere inhoud wijzen (review Sol, ronde 10); zo blijft het paar (bestand, versie) dat stap 4 en de trait al gebruiken, zonder nieuwe API | Een onveranderlijke revisie-id (de naam van de `Bestandsversie`) als basis: `lees` geeft dan ook na een verplaatsing de oude inhoud, maar het vraagt een nieuw veld in elke lijst, in de download en in de toestand van de client |
+| K19 | Versienummers van een bestand komen nooit terug: een veld met het hoogste uitgegeven nummer, plus een patch met een veilige bovengrens, en een grens voor onzekere bases van vóór de patch (alleen bij bestanden met een regel `verwijderd`) | Na verplaatsen met overschrijven en herstellen kon "F1 versie 2" naar andere inhoud wijzen (review Sol, ronde 10); een paar dat vóór de patch al hergebruikt was, blijft anders geldig (ronde 11); zo blijft het paar (bestand, versie) dat stap 4 en de trait al gebruiken, zonder nieuwe API | Een onveranderlijke revisie-id (de naam van de `Bestandsversie`) als basis: `lees` geeft dan ook na een verplaatsing de oude inhoud, maar het vraagt een nieuw veld in elke lijst, in de download en in de toestand van de client |
 | K12 | Live samen bewerken (C) pas later | Vraagt dat elke app zijn model als wijzigingen per object uitdrukt, en een besluit over het transport | Nu al een sessiedienst: zonder app die hem gebruikt, is hij niet te testen |
 
 ## 7. Volgorde van bouwen
@@ -646,7 +659,7 @@ Elke stap is een eigen draft-PR die op zichzelf werkt, met een oordeel van Sol (
 | 1 | Dit ontwerp | openaec-storage | Nee |
 | 2 | Bibliotheek: IFC lezen, objectmodel, verschil | openaec-cloud-desktop | Nee |
 | 3 | Bibliotheek: samenvoegen, schrijven, opslaan-lus, met een proef van 8 clients tegelijk in het geheugen | openaec-cloud-desktop | Nee |
-| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), vergelijken op bestand én versie (`basis_bestand`), versienummers die nooit terugkomen (ook na verplaatsen met overschrijven en herstellen, met een patch), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
+| 4 | Storage: een nieuwe versie vastleggen onder een slot op het bestand of de map (§2), vergelijken op bestand én versie (`basis_bestand`), versienummers die nooit terugkomen (ook na verplaatsen met overschrijven en herstellen, met een patch en een grens voor onzekere bases van vóór de patch: `onbekende_basis`, `download(…, als_basis=1)`), `bij_conflict=weiger`, `samengevoegd_uit` | openaec-storage | Nee, maar de owner beoordeelt de API |
 | 4b | Storage: een commitnummer voor de wijzigingenlijst, zodat de cursor geen regels overslaat (§5.4) | openaec-storage | Nee |
 | 5 | Desktop-sync: IFC samenvoegen via de opslaan-lus, en de proef met twee clients tegen een echte openaec-storage-server (met stap 4), als script met log | openaec-cloud-desktop | Nee |
 | 6 | Storage: gebeurtenissen (push en haak, issue #7), `zet_terug`, `activiteit` | openaec-storage | Deels: push vraagt socket.io in de kern |
