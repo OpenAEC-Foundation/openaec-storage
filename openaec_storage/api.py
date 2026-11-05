@@ -25,7 +25,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_url, add_to_date, cint, flt, now_datetime
 
-from openaec_storage import mapsjablonen, namen, s3, veiligheid
+from openaec_storage import commitnummer, mapsjablonen, namen, s3, veiligheid
 from openaec_storage.rechten import (
 	RANG,
 	actieve_deling,
@@ -1336,17 +1336,18 @@ def wijzigingen(ruimte: str | None = None, sinds: int = 0, limiet: int = 1000, d
 	"""Wijzigingen in de ruimte na cursor `sinds`, oplopend; de cursor is het volgnummer van de wijziging. Met
 	`deling` alleen die binnen de gedeelde map (de cursor loopt over de hele ruimte, zoals zonder deling).
 
-	Het volgnummer is het commitnummer (zie commitnummer.py): uitgedeeld vlak voor de commit, in commitvolgorde. Na
-	een gelezen nummer verschijnt er dus nooit meer een regel met een lager nummer, en schuift de cursor nooit voorbij
-	een regel die nog moet komen. De cursor is het nummer van de laatste regel van de pagina, vóór het filter op een
-	deling. Bij een lege pagina blijft hij `sinds`: een losse vraag naar het hoogste nummer zou een regel kunnen
-	overslaan die net daarna gecommit wordt."""
+	Het volgnummer is het commitnummer (zie commitnummer.py). De veger deelt het hier uit, vóór de lezing, aan regels
+	die al vastgelegd zijn. Een regel die later zichtbaar wordt, krijgt dus een hoger nummer dan elke cursor die al
+	gegeven is, en de cursor schuift nooit voorbij een regel die nog moet komen. De cursor is het nummer van de laatste
+	regel van de pagina, vóór het filter op een deling. Bij een lege pagina blijft hij `sinds`: een losse vraag naar
+	het hoogste nummer zou een regel kunnen overslaan die net daarna genummerd wordt."""
 	ruimte, wortel = _wortel(ruimte, deling)
 	if wortel:
 		vereis_op_plek(ruimte, wortel, "read")
 	else:
 		vereis(ruimte, "read")
 	sinds, limiet = cint(sinds), min(max(cint(limiet), 1), 5000)
+	commitnummer.veeg()
 	regels = frappe.get_all(
 		"Opslagwijziging",
 		filters={"ruimte": ruimte, "commitnummer": (">", sinds)},

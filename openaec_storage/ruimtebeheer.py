@@ -15,6 +15,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, get_datetime, get_fullname, now_datetime
 
+from openaec_storage import commitnummer
 from openaec_storage.rechten import mag_ruimte_beheren, mag_ruimte_maken
 from openaec_storage.rechten import namens as bepaal_namens
 
@@ -170,9 +171,11 @@ def activiteit(ruimte: str, vanaf: str | None = None, start: int = 0, aantal: in
 	"""Wat er in de ruimte gebeurde, nieuwste eerst, voor het beheer: een beheerder van de ruimte of van de omgeving.
 	`door` is wie de handeling echt aanriep, `namens` voor wie het beheer hem uitvoerde (of leeg).
 	`vanaf`: alleen vanaf dit tijdstip (datum of datum-tijd); `start` en `aantal` (hoogstens 500) voor de pagina's.
-	Het volgnummer is het commitnummer, net als in `api.wijzigingen`: één gebeurtenis heeft in beide hetzelfde nummer."""
+	Het volgnummer is het commitnummer, net als in `api.wijzigingen`: één gebeurtenis heeft in beide hetzelfde nummer.
+	Een regel die nog geen nummer heeft (0), staat er nog niet in; de veger nummert vóór de lezing."""
 	ruimte_voor_beheer(ruimte)
 	start, aantal = max(cint(start), 0), min(max(cint(aantal), 1), 500)
+	commitnummer.veeg()
 	filters = {"ruimte": ruimte, "commitnummer": (">", 0)}
 	if vanaf:
 		filters["creation"] = (">=", get_datetime(vanaf))
