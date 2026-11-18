@@ -298,6 +298,23 @@ def upload_start(
 	}
 
 
+@frappe.whitelist()
+def upload_delen(upload: str, nummers) -> dict:
+	"""Verse ondertekende URL's voor delen van een lopende upload. Die van `upload_start` verlopen na
+	`s3.LINK_GELDIG_SECONDEN`; een groot bestand over een trage lijn vraagt ze onderweg opnieuw (of na een mislukt deel)."""
+	info = frappe.cache.get_value(UPLOAD_SLEUTEL + (upload or ""))
+	if not info or info["gebruiker"] != frappe.session.user:
+		frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
+	if isinstance(nummers, str):
+		nummers = json.loads(nummers)
+	aantal = max(1, math.ceil(info["grootte"] / (info.get("blokgrootte") or s3.DEELGROOTTE)))
+	hergebruikt = {h["nummer"] for h in info.get("hergebruik") or []}
+	gevraagd = sorted({cint(n) for n in nummers or []})
+	if not gevraagd or any(n < 1 or n > aantal or n in hergebruikt for n in gevraagd):
+		frappe.throw(_("Ongeldige deelnummers"))
+	return {"delen": [{"nummer": n, "url": s3.deel_url(info["sleutel"], info["upload_id"], n)} for n in gevraagd]}
+
+
 def _bestaand_id(ruimte: str, map: str | None, naam: str | None) -> str | None:
 	"""Het bestand dat op deze plek al zo heet: een nieuwe versie ervan mag ook wie alleen dat bestand gedeeld kreeg
 	om te bewerken."""

@@ -35,6 +35,30 @@ class TestApi(IntegrationTestCase):
 		self.assertEqual(start["deelgrootte"], 8 * MIB)
 		self.assertEqual([d["nummer"] for d in start["delen"]], [1, 2])
 
+	def test_verse_deeladressen_onderweg(self):
+		inhoud = b"y" * (2 * 8 * MIB + 5)
+		start = api.upload_start(ruimte=self.ruimte, naam="groot.ifc", grootte=len(inhoud))
+		vers = api.upload_delen(upload=start["upload"], nummers="[3, 1]")["delen"]
+		self.assertEqual([d["nummer"] for d in vers], [1, 3])
+		delen = []
+		for deel in vers + [d for d in start["delen"] if d["nummer"] == 2]:
+			stuk = inhoud[(deel["nummer"] - 1) * 8 * MIB : deel["nummer"] * 8 * MIB]
+			antwoord = requests.put(deel["url"], data=stuk, timeout=30)
+			antwoord.raise_for_status()
+			delen.append({"nummer": deel["nummer"], "etag": antwoord.headers["ETag"]})
+		klaar = api.upload_klaar(upload=start["upload"], delen=delen)
+		self.assertEqual(requests.get(api.download(bestand=klaar["bestand"])["url"], timeout=30).content, inhoud)
+
+	def test_verse_deeladressen_alleen_eigen_upload_en_geldige_delen(self):
+		start = api.upload_start(ruimte=self.ruimte, naam="a.bin", grootte=10)
+		with self.assertRaises(frappe.ValidationError):
+			api.upload_delen(upload=start["upload"], nummers=[2])
+		with self.assertRaises(frappe.ValidationError):
+			api.upload_delen(upload=start["upload"], nummers=[])
+		frappe.set_user(self.lezer)
+		with self.assertRaises(frappe.PermissionError):
+			api.upload_delen(upload=start["upload"], nummers=[1])
+
 	def test_tweede_upload_op_huidige_versie_wordt_versie_2(self):
 		eerste = upload(self.ruimte, "plan.pdf", b"versie een")
 		tweede = upload(self.ruimte, "plan.pdf", b"versie twee", basis_versie=eerste["versie"])
