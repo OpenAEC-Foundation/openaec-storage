@@ -3,7 +3,8 @@ zonder toestemmingsscherm omdat het onze eigen app is. Wordt bij installeren en 
 
 Ook de standaardmapsjablonen ("Bedrijf", "Project (BIM)" en "Projectdossier") worden dan aangemaakt als ze er nog niet
 zijn, en op een
-site met ERPNext het veld `project` op Ruimte (zorg_voor_projectveld)."""
+site met ERPNext het veld `project` op Ruimte (zorg_voor_projectveld). En de teller voor het commitnummer van de
+wijzigingenlijst (commitnummer.zorg_voor_teller)."""
 
 import frappe
 
@@ -60,6 +61,7 @@ def zorg_voor_projectveld():
 
 
 def na_installatie():
+	from openaec_storage.commitnummer import zorg_voor_teller
 	from openaec_storage.dossier import zorg_voor_dossiersjabloon
 	from openaec_storage.mapsjablonen import zorg_voor_standaardsjablonen
 
@@ -67,9 +69,11 @@ def na_installatie():
 	zorg_voor_standaardsjablonen()
 	zorg_voor_dossiersjabloon()
 	zorg_voor_projectveld()
+	zorg_voor_teller()
 
 
 def na_migratie():
+	from openaec_storage.commitnummer import zorg_voor_teller
 	from openaec_storage.dossier import zorg_voor_dossiersjabloon
 	from openaec_storage.mapsjablonen import zorg_voor_standaardsjablonen
 
@@ -77,3 +81,4 @@ def na_migratie():
 	zorg_voor_standaardsjablonen()
 	zorg_voor_dossiersjabloon()
 	zorg_voor_projectveld()
+	zorg_voor_teller()

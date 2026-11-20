@@ -2,7 +2,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 from openaec_storage import api, mapsjablonen, ruimtebeheer
-from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, met_rol, ruim_op, ruimte, upload
+from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, met_rol, nummer_wijzigingen, ruim_op, ruimte, upload
 
 AANTAL_BIM = len(mapsjablonen.STANDAARD["Project (BIM)"]["mappen"])
 
@@ -156,6 +156,7 @@ class TestNamens(IntegrationTestCase):
 		self.assertEqual(uitslag["gearchiveerd_door"], self.beheerder)
 		log = laatste(self.ruimte, "gearchiveerd")
 		self.assertEqual((log.owner, log.namens), (self.dienst, self.beheerder))
+		nummer_wijzigingen()
 		regel = ruimtebeheer.activiteit(ruimte=self.ruimte)["regels"][0]
 		self.assertEqual(
 			(regel["door"], regel["door_naam"], regel["namens"], regel["namens_naam"]),
@@ -178,6 +179,7 @@ class TestNamens(IntegrationTestCase):
 		self.assertEqual(uitslag["gearchiveerd_door"], self.beheerder)
 		log = laatste(self.ruimte, "gearchiveerd")
 		self.assertEqual((log.owner, log.namens), (self.beheerder, None))
+		nummer_wijzigingen()
 		self.assertIsNone(ruimtebeheer.activiteit(ruimte=self.ruimte)["regels"][0]["namens_naam"])
 
 	def test_onbekende_of_uitgeschakelde_gebruiker_genegeerd(self):

@@ -6,7 +6,7 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from openaec_storage import api, ruimtebeheer
-from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, ruim_op, ruimte, upload
+from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, nummer_wijzigingen, ruim_op, ruimte, upload
 
 
 def item(naam: str, inhoud: bytes, **extra) -> dict:
@@ -192,6 +192,7 @@ class TestWortel(GedeeldBasis):
 		upload(self.ruimte, "detail.dwg", b"detail 2", map_naam=self.details, basis_versie=1)
 		api.verwijder_map(map=self.details)
 		frappe.set_user(self.bea)
+		nummer_wijzigingen()
 		uit = api.wijzigingen(deling=self.deling)
 		doelen = {(w["doel_doctype"], w["doel"]) for w in uit["wijzigingen"]}
 		self.assertIn(("Opslagbestand", self.detail), doelen)

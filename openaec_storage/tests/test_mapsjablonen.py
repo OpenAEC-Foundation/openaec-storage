@@ -4,7 +4,7 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from openaec_storage import api, delen, mapsjablonen, ruimtebeheer
-from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, met_rol, ruim_op, upload
+from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, met_rol, nummer_wijzigingen, ruim_op, upload
 
 ALLEEN_LEZEN = "map_alleen_lezen"
 EXTENSIE = "extensie_niet_toegestaan"
@@ -166,6 +166,7 @@ class TestMapregels(IntegrationTestCase):
 	def test_bedrijf_krijgt_de_vier_mappen_en_de_sync_ziet_ze(self):
 		mappen = [m["naam"] for m in api.bladeren(ruimte=self.bedrijf)["mappen"]]
 		self.assertEqual(sorted(mappen), ["Algemeen", "Contracten", "Huisstijl", "Projecten"])
+		nummer_wijzigingen()
 		nieuw = [w for w in api.wijzigingen(ruimte=self.bedrijf)["wijzigingen"] if w["doel_doctype"] == "Opslagmap"]
 		self.assertEqual(len(nieuw), 4)
 		regels = {r["pad"]: r for r in mapsjablonen.regels(ruimte=self.bedrijf)}
@@ -314,22 +315,27 @@ class TestActiviteit(IntegrationTestCase):
 
 	def test_beheerder_leest_het_log_nieuwste_eerst_in_paginas(self):
 		frappe.set_user(self.beheerder)
+		nummer_wijzigingen()
 		eerste = ruimtebeheer.activiteit(ruimte=self.ruimte, aantal=3)
 		self.assertEqual((eerste["totaal"], eerste["aantal"], eerste["meer"]), (5, 3, True))
 		self.assertEqual(eerste["regels"][0]["naam"], "bestand 4.txt")
 		self.assertEqual(eerste["regels"][0]["door"], self.schrijver)
 		self.assertEqual(eerste["regels"][0]["door_naam"], "schrijver")
+		nummer_wijzigingen()
 		tweede = ruimtebeheer.activiteit(ruimte=self.ruimte, start=3, aantal=3)
 		self.assertEqual([r["naam"] for r in tweede["regels"]], ["bestand 1.txt", "bestand 0.txt"])
 		self.assertFalse(tweede["meer"])
 
 	def test_vanaf_filtert_op_tijd(self):
 		frappe.set_user(self.beheerder)
+		nummer_wijzigingen()
 		self.assertEqual(ruimtebeheer.activiteit(ruimte=self.ruimte, vanaf=str(add_to_date(now_datetime(), hours=1)))["totaal"], 0)
+		nummer_wijzigingen()
 		self.assertEqual(ruimtebeheer.activiteit(ruimte=self.ruimte, vanaf="2000-01-01")["totaal"], 5)
 
 	def test_alleen_voor_het_beheer(self):
 		with self.assertRaises(frappe.PermissionError):
 			ruimtebeheer.activiteit(ruimte=self.ruimte)
 		frappe.set_user(met_rol(gebruiker("omgeving"), "OpenAEC Beheerder"))
+		nummer_wijzigingen()
 		self.assertEqual(ruimtebeheer.activiteit(ruimte=self.ruimte)["totaal"], 5)

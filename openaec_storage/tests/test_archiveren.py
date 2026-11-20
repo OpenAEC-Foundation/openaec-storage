@@ -4,7 +4,7 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from openaec_storage import api, delen, ruimtebeheer
-from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, met_rol, ruim_op, ruimte, upload
+from openaec_storage.tests.hulp import NagebootsteS3, foutcode, gebruiker, met_rol, nummer_wijzigingen, ruim_op, ruimte, upload
 
 GEARCHIVEERD = "ruimte_gearchiveerd"
 
@@ -47,12 +47,14 @@ class TestArchiveren(ArchiefBasis):
 		self.assertTrue(uitslag["gearchiveerd"])
 		self.assertEqual(uitslag["gearchiveerd_door"], self.beheerder)
 		self.assertTrue(uitslag["gearchiveerd_op"])
+		nummer_wijzigingen()
 		soorten = [w["soort"] for w in api.wijzigingen(ruimte=self.ruimte)["wijzigingen"]]
 		self.assertEqual(soorten[-1], "gearchiveerd")
 
 	def test_nogmaals_archiveren_verandert_niets(self):
 		eerste = self.archiveer()
 		self.assertEqual(self.archiveer()["gearchiveerd_op"], eerste["gearchiveerd_op"])
+		nummer_wijzigingen()
 		soorten = [w["soort"] for w in api.wijzigingen(ruimte=self.ruimte)["wijzigingen"]]
 		self.assertEqual(soorten.count("gearchiveerd"), 1)
 
@@ -124,6 +126,7 @@ class TestArchiveren(ArchiefBasis):
 		frappe.set_user(self.schrijver)
 		self.assertIn(self.ruimte, [r["name"] for r in api.ruimtes()])
 		self.assertEqual(upload(self.ruimte, "nieuw.txt", b"x")["versie"], 1)
+		nummer_wijzigingen()
 		soorten = [w["soort"] for w in api.wijzigingen(ruimte=self.ruimte)["wijzigingen"]]
 		self.assertEqual(soorten[-2:], ["teruggezet", "nieuw"])
 
@@ -220,6 +223,7 @@ class TestArchiefEnSync(ArchiefBasis):
 
 	def test_wijzigingenlijst_blijft_leesbaar(self):
 		self.archiveer()
+		nummer_wijzigingen()
 		self.assertTrue(api.wijzigingen(ruimte=self.ruimte, sinds=0)["wijzigingen"])
 
 	def test_opslaan_via_tijdelijk_bestand_en_move_geweigerd(self):

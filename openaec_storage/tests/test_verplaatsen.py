@@ -3,7 +3,14 @@ import requests
 from frappe.tests import IntegrationTestCase
 
 from openaec_storage import api
-from openaec_storage.tests.hulp import NagebootsteS3, gebruiker, ruim_op, ruimte, upload
+from openaec_storage.tests.hulp import (
+	NagebootsteS3,
+	gebruiker,
+	nummer_wijzigingen,
+	ruim_op,
+	ruimte,
+	upload,
+)
 
 
 def namen(ruimte_naam, map_naam=None):
@@ -31,6 +38,7 @@ class TestVerplaatsen(IntegrationTestCase):
 		self.assertEqual(r["bestand"], b["bestand"])
 		self.assertEqual(namen(self.ruimte), (["Tekeningen"], []))
 		self.assertEqual(namen(self.ruimte, self.tekeningen), ([], ["plattegrond.dwg"]))
+		nummer_wijzigingen()
 		soorten = [w["soort"] for w in api.wijzigingen(ruimte=self.ruimte, sinds=0)["wijzigingen"]]
 		self.assertIn("verplaatst", soorten)
 
