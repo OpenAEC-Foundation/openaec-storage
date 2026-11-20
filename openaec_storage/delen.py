@@ -241,13 +241,27 @@ def upload_start(token: str, naam: str, grootte: int, wachtwoord: str | None = N
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @rate_limit(limit=300, seconds=3600)
 def upload_klaar(token: str, upload: str, delen, wachtwoord: str | None = None, afzender: str | None = None) -> dict:
-	"""Rond het aanleveren af: een nieuw bestand in de gedeelde map (nooit een overschrijving)."""
-	from openaec_storage.api import _log
+	"""Rond het aanleveren af: een nieuw bestand in de gedeelde map (nooit een overschrijving). Eén afronding per
+	uploadtoken tegelijk (zie `api.een_afronding`): anders gaf een tweede afronding een tweede bestand met hetzelfde
+	object in de opslag."""
+	from openaec_storage.api import _uploadinfo, een_afronding
 
 	deling = _uploaddeling(token, wachtwoord)
-	info = frappe.cache.get_value(UPLOAD_SLEUTEL + (upload or ""))
+	info = _uploadinfo(UPLOAD_SLEUTEL, upload)
 	if not info or info["deling"] != deling.name:
 		frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
+	with een_afronding(upload):
+		info = _uploadinfo(UPLOAD_SLEUTEL, upload, vers=True)
+		if not info or info["deling"] != deling.name:
+			frappe.throw(_("Upload onbekend of verlopen"), frappe.PermissionError)
+		naam = _rond_aanlevering_af(deling, upload, info, delen)
+	_meld_maker(deling, naam, (afzender or "").strip()[:140])
+	return {"naam": naam}
+
+
+def _rond_aanlevering_af(deling, upload: str, info: dict, delen) -> str:
+	from openaec_storage.api import _eigen_transactie, _log
+
 	mapsjablonen.controleer_upload(deling.ruimte, deling.doel, info["naam"])
 	if isinstance(delen, str):
 		delen = json.loads(delen)
@@ -256,36 +270,39 @@ def upload_klaar(token: str, upload: str, delen, wachtwoord: str | None = None, 
 		frappe.throw(_("Ontvangen grootte wijkt af van de aangekondigde grootte"))
 
 	map = deling.doel
-	# Twee gelijktijdige uploads met dezelfde naam: de tweede ziet de eerste en krijgt een volgnummer.
-	frappe.db.sql("select name from `tabOpslagmap` where name = %s for update", map)
-	naam = _vrije_naam(deling.ruimte, map, info["naam"])
-	doc = frappe.get_doc(
-		{
-			"doctype": "Opslagbestand",
-			"ruimte": deling.ruimte,
-			"map": map,
-			"naam": naam,
-			"huidige_versie": 1,
-			"grootte": info["grootte"],
-		}
-	).insert(ignore_permissions=True)
-	frappe.get_doc(
-		{
-			"doctype": "Bestandsversie",
-			"bestand": doc.name,
-			"ruimte": deling.ruimte,
-			"volgnummer": 1,
-			"s3_sleutel": info["sleutel"],
-			"grootte": info["grootte"],
-			"bron": "link",
-			"maker": "Guest",
-			"blokgrootte": info["blokgrootte"],
-		}
-	).insert(ignore_permissions=True)
-	_log(deling.ruimte, "nieuw", "Opslagbestand", doc.name, naam)
+	# Twee gelijktijdige uploads met dezelfde naam (ook een gewone upload naar deze map): de tweede wacht op het slot
+	# op de map, ziet de eerste en krijgt een volgnummer. Dat zien lukt alleen in een eigen transactie
+	# (api._eigen_transactie); in de momentopname van het verzoek staat de eerste er nog niet.
+	with _eigen_transactie():
+		frappe.db.sql("select name from `tabOpslagmap` where name = %s for update", map)
+		naam = _vrije_naam(deling.ruimte, map, info["naam"])
+		doc = frappe.get_doc(
+			{
+				"doctype": "Opslagbestand",
+				"ruimte": deling.ruimte,
+				"map": map,
+				"naam": naam,
+				"huidige_versie": 1,
+				"grootte": info["grootte"],
+			}
+		).insert(ignore_permissions=True)
+		versie = frappe.get_doc(
+			{
+				"doctype": "Bestandsversie",
+				"bestand": doc.name,
+				"ruimte": deling.ruimte,
+				"volgnummer": 1,
+				"s3_sleutel": info["sleutel"],
+				"grootte": info["grootte"],
+				"bron": "link",
+				"maker": "Guest",
+				"blokgrootte": info["blokgrootte"],
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.set_value("Opslagbestand", doc.name, "huidige_versie_id", versie.name, update_modified=False)
+		_log(deling.ruimte, "nieuw", "Opslagbestand", doc.name, naam)
 	frappe.cache.delete_value(UPLOAD_SLEUTEL + upload)
-	_meld_maker(deling, naam, (afzender or "").strip()[:140])
-	return {"naam": naam}
+	return naam
 
 
 def _meld_maker(deling, naam: str, afzender: str) -> None:

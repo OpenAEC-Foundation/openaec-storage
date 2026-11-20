@@ -9,6 +9,7 @@
   "map",
   "naam",
   "huidige_versie",
+  "huidige_versie_id",
   "grootte",
   "mime",
   "verwijderd_op",
@@ -52,6 +53,14 @@
    "label": "Huidige versie",
    "default": "0",
    "read_only": 1
+  },
+  {
+   "fieldname": "huidige_versie_id",
+   "fieldtype": "Link",
+   "label": "Huidige versieregel",
+   "options": "Bestandsversie",
+   "read_only": 1,
+   "description": "De versieregel (Bestandsversie) die nu de inhoud is. Een client gebruikt dit id als basis bij uploaden (basis_versie_id); alleen de server zet het."
   },
   {
    "fieldname": "grootte",
@@ -133,7 +142,7 @@
    "description": "Waar het bestand vandaan kwam als het automatisch is gespiegeld (bijv. File:<naam> bij een projectbijlage)."
   }
  ],
- "modified": "2026-10-28 12:00:00.000000",
+ "modified": "2026-11-05 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "OpenAEC Storage",
  "name": "Opslagbestand",

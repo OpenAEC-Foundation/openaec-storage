@@ -317,7 +317,7 @@ def _bestand(bestand: str, actie: str):
 	rij = frappe.db.get_value(
 		"Opslagbestand",
 		bestand,
-		["name", "ruimte", "map", "naam", "huidige_versie", "verwijderd_op", *VELDEN, "hoofdmodel"],
+		["name", "ruimte", "map", "naam", "huidige_versie", "huidige_versie_id", "verwijderd_op", *VELDEN, "hoofdmodel"],
 		as_dict=True,
 	)
 	if not rij or rij.verwijderd_op:
@@ -426,15 +426,11 @@ def _zet(rij, waarden: dict) -> dict:
 	_controleer_uniek(rij, waarden)
 	if waarden:
 		frappe.db.set_value("Opslagbestand", rij.name, waarden)
-	# Revisie en status horen bij de huidige versie.
+	# Revisie en status horen bij de huidige versieregel (op id: een nummer kon vóór de invoering van
+	# `huidige_versie_id` op twee regels staan).
 	versie = {k: waarden[k] for k in ("revisie", "revisiestatus") if k in waarden}
-	if versie and cint(rij.huidige_versie):
-		frappe.db.set_value(
-			"Bestandsversie",
-			{"bestand": rij.name, "volgnummer": cint(rij.huidige_versie)},
-			versie,
-			update_modified=False,
-		)
+	if versie and rij.huidige_versie_id:
+		frappe.db.set_value("Bestandsversie", rij.huidige_versie_id, versie, update_modified=False)
 	from openaec_storage.api import _log
 
 	_log(rij.ruimte, "eigenschappen", "Opslagbestand", rij.name, rij.naam)
@@ -507,11 +503,9 @@ def bij_nieuwe_versie(doc, method=None) -> None:
 def bij_bestand_opslaan(doc, method=None) -> None:
 	"""doc_events Opslagbestand.validate: revisie en status op het bestand zijn die van zijn huidige versie (na een
 	nieuwe versie, zie `bij_nieuwe_versie`)."""
-	if not doc.get("documentcode") or not cint(doc.get("huidige_versie")):
+	if not doc.get("documentcode") or not doc.get("huidige_versie_id"):
 		return
-	versie = frappe.db.get_value(
-		"Bestandsversie", {"bestand": doc.name, "volgnummer": cint(doc.huidige_versie)}, ["revisie", "revisiestatus"], as_dict=True
-	)
+	versie = frappe.db.get_value("Bestandsversie", doc.huidige_versie_id, ["revisie", "revisiestatus"], as_dict=True)
 	if versie and (versie.revisie or versie.revisiestatus):
 		doc.revisie = versie.revisie
 		doc.revisiestatus = versie.revisiestatus
